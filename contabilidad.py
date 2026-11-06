@@ -1213,6 +1213,71 @@ def _obtener_datos_sidebar_cache():
         pass
     return pd.DataFrame()
 
+def obtener_tasa_bcv_hoy(conn):
+    """
+    Busca la tasa en la BD. Si no existe para hoy, la consulta en la web 
+    del BCV, la guarda en la BD y la retorna. Incluye autoreconexión segura.
+    """
+    # 1. VERIFICACIÓN DE SEGURIDAD: Ping seguro para PyMySQL
+    try:
+        if conn:
+            conn.ping(reconnect=True)
+    except Exception:
+        pass 
+
+    # 2. Intentamos abrir el cursor
+    try:
+        cursor = conn.cursor(buffered=True)
+    except Exception:
+        return consultar_bcv_directo_sin_bd()
+
+    hoy = date.today()
+    
+    try:
+        # A. Verificar en BD
+        cursor.execute("SELECT tasa_valor FROM kingdirver_ca.tasas_diarias WHERE fecha = %s", (hoy,))
+        resultado = cursor.fetchone()
+        
+        if resultado:
+            cursor.close()
+            return float(resultado[0]), "Base de Datos"
+        
+        # B. Si não está en BD, consultamos la Web
+        url = "https://www.bcv.org.ve/"
+        headers = {"User-Agent": "Mozilla/5.0..."}
+        
+        response = requests.get(url, headers=headers, verify=False, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            dolar_container = soup.find('div', id='dolar')
+            
+            if dolar_container:
+                tasa_texto = dolar_container.find('strong').text.strip()
+                tasa_float = float(tasa_texto.replace(',', '.'))
+                
+                # --- LOG DE CONSULTA ---
+                try:
+                    registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"El usuario {st.session_state.get('usuario', 'Desconocido')} consultó la tasa del BCV")
+                except Exception:
+                    pass # Si el log falla, la app sigue viva
+                
+                # Guardar en BD
+                cursor.execute("""
+                    INSERT INTO kingdirver_ca.tasas_diarias (fecha, tasa_valor) 
+                    VALUES (%s, %s)
+                    ON DUPLICATE KEY UPDATE tasa_valor = %s
+                """, (hoy, tasa_float, tasa_float))
+                conn.commit()
+                
+                cursor.close()
+                return tasa_float, "Web BCV"
+        
+        cursor.close()
+        return consultar_bcv_directo_sin_bd()
+        
+    except Exception:
+        return consultar_bcv_directo_sin_bd()
+
 
 @st.cache_data(ttl=300)
 def obtener_todas_las_empresas(user_rol, user_id):
@@ -3191,6 +3256,119 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
                 conn.close()
             except Exception:
                 pass
+
+@st.cache_data(ttl=300)
+def obtener_utilidad_acumulada_historica(db, fecha_corte):
+    conn = conectar_db(db)
+    df_default = 0.0
+    if not conn:
+        st.warning("⚠️ No se pudo conectar a la base de datos en obtener_utilidad_acumulada_historica.")
+        return df_default
+    
+    fecha_fin_str = fecha_corte.strftime('%Y-%m-%d') if hasattr(fecha_corte, 'strftime') else str(fecha_corte).split()[0]
+
+    # CORREGIDO: Se usa .format() para la BD y '%%' para evitar conflictos con Python en los LIKE
+    query = """
+        SELECT 
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%%' THEN haber ELSE 0 END), 0) as ing_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%%' THEN debe ELSE 0 END), 0) as ing_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%%' THEN debe ELSE 0 END), 0) as cos_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%%' THEN haber ELSE 0 END), 0) as cos_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%%' THEN debe ELSE 0 END), 0) as gas_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%%' THEN haber ELSE 0 END), 0) as gas_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%%' THEN haber ELSE 0 END), 0) as oing_haber,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%%' THEN debe ELSE 0 END), 0) as oing_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN debe ELSE 0 END), 0) as oeg_debe,
+            COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN haber ELSE 0 END), 0) as oeg_haber
+        FROM `{db_segura}`.asientos_contables 
+        WHERE fecha <= %s
+    """.format(db_segura=str(db).strip())
+    
+    cursor = None
+    try:
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor.execute(query, (fecha_fin_str,))
+        res = cursor.fetchone()
+        if not res:
+            return 0.0
+
+        ingresos = float(res['ing_haber'] or 0) - float(res['ing_debe'] or 0)
+        costos = float(res['cos_debe'] or 0) - float(res['cos_haber'] or 0)
+        gastos = abs(float(res['gas_debe'] or 0) - float(res['gas_haber'] or 0))
+        otros_ingresos = float(res['oing_haber'] or 0) - float(res['oing_debe'] or 0)
+        otros_egresos = abs(float(res['oeg_debe'] or 0) - float(res['oeg_haber'] or 0))
+
+        return float(ingresos - costos - gastos + otros_ingresos - otros_egresos)
+        
+    except Exception as e:
+        st.error(f"❌ Error crítico en `obtener_utilidad_acumulada_historica`: {e}")
+        return 0.0
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+def obtener_detalle_cashea(db, fecha_inicio, fecha_fin):
+    # Cambia 'ref' por el nombre real de la columna si es diferente
+    # Ejemplo: Si la columna se llama 'referencia', cámbiala abajo:
+    query = (
+        "SELECT fecha, descripcion, referencia, debe, haber, "  # <--- AJUSTA 'referencia' AQUÍ
+        "SUM(haber - debe) OVER (ORDER BY fecha, id) as saldo "
+        f"FROM `{str(db).strip()}`.asientos_contables "
+        "WHERE plan_cuentas LIKE '2.1.3.01.001%%' "
+        "AND fecha >= %s AND fecha <= %s "
+        "ORDER BY fecha ASC"
+    )
+    
+    conn = conectar_db(db)
+    if not conn:
+        return None
+        
+    try:
+        df = ejecutar_consulta(query, conn, params=(fecha_inicio, fecha_fin))
+        return df
+    except Exception as e:
+        # Esto te mostrará en la app exactamente qué columnas sí reconoce tu tabla
+        print(f"Error en obtener_detalle_cashea: {e}")
+        return None
+    finally:
+        conn.close()
+
+
+def consultar_bcv_directo_sin_bd(conn=None):
+    try:
+        # Registro de actividad solo si conn es válido (sin is_connected)
+        if conn:
+            registrar_log_automatico(conn, "CONSULTA_TASA_BCV", f"Usuario {st.session_state.get('usuario', 'Desconocido')} consultando BCV")
+        
+        url = "https://www.bcv.org.ve/"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+        
+        response = requests.get(url, headers=headers, verify=False, timeout=8) # Timeout un poco más corto
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.content, 'html.parser')
+            dolar_container = soup.find('div', id='dolar')
+            if dolar_container:
+                tasa_texto = dolar_container.find('strong').text.strip()
+                return float(tasa_texto.replace(',', '.')), "Web BCV (Sin BD)"
+                
+    except Exception as e:
+        # En lugar de pass, guarda el error en el log para saber por qué falla
+        print(f"Error técnico consultando BCV: {e}")
+        
+    finally:
+        # Mantenemos el ping de forma segura para PyMySQL
+        if conn:
+            try:
+                conn.ping(reconnect=True)
+            except Exception:
+                pass
+            
+    return 1.0000, "Por defecto (Error Total)"
 
 @st.cache_data(ttl=300)
 def consultar_libro_diario_db(db_a_usar=None, fecha_inicio=None, fecha_fin=None):
@@ -5742,8 +5920,6 @@ def actualizar_tabla_completa_db(conn, nombre_tabla, df_nuevo):
                 conn.ping(reconnect=True)
             except Exception:
                 pass
-
-
 
 
 def generar_reporte_multimoneda(conn, mes, ano, db="kingdirver_ca"):
