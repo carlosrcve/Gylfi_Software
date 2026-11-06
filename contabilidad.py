@@ -1869,24 +1869,22 @@ def obtener_historico_utilidad_acumulada(db, año=2026, mes_limite=6):
         año = 2026
         mes_limite = 6
 
-    # Definimos el rango exacto para aprovechar los índices de MySQL
     f_ini = f"{año}-01-01"
-    f_fin = f"{año}-{str(mes_limite).zfill(2)}-31" # Cubre hasta el último día del mes límite
+    f_fin = f"{año}-{str(mes_limite).zfill(2)}-31"
 
-    # Consulta optimizada sin funciones destructoras de índices en el WHERE
     query = f"""
         SELECT 
             CAST(SUBSTRING(fecha, 6, 2) AS UNSIGNED) as mes,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN haber ELSE 0 END) as ingresos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN debe ELSE 0 END) as ingresos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN haber ELSE 0 END) as costos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' THEN debe ELSE 0 END) as costos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN haber ELSE 0 END) as gastos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%' THEN debe ELSE 0 END) as gastos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN haber ELSE 0 END) as otros_ingresos_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%' THEN debe ELSE 0 END) as otros_ingresos_debe,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN haber ELSE 0 END) as otros_haber,
-            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%' THEN debe ELSE 0 END) as oitros_debe
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN haber ELSE 0 END) as ingresos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN debe ELSE 0 END) as ingresos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN haber ELSE 0 END) as costos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' THEN debe ELSE 0 END) as costos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN haber ELSE 0 END) as gastos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '6%%' THEN debe ELSE 0 END) as gastos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN haber ELSE 0 END) as otros_ingresos_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '7%%' THEN debe ELSE 0 END) as otros_ingresos_debe,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN haber ELSE 0 END) as otros_haber,
+            SUM(CASE WHEN TRIM(plan_cuentas) LIKE '8%%' THEN debe ELSE 0 END) as oitros_debe
         FROM `{db}`.asientos_contables 
         WHERE fecha >= %s AND fecha <= %s 
         GROUP BY CAST(SUBSTRING(fecha, 6, 2) AS UNSIGNED)
@@ -1895,7 +1893,7 @@ def obtener_historico_utilidad_acumulada(db, año=2026, mes_limite=6):
     
     try:
         df = ejecutar_consulta(query, conn, params=(f_ini, f_fin))
-        if df.empty:
+        if df is None or df.empty:
             return df_default
             
         df = df.fillna(0)
@@ -1919,7 +1917,7 @@ def obtener_historico_utilidad_acumulada(db, año=2026, mes_limite=6):
                 conn.close()
             except:
                 pass
-
+            
 @st.cache_data(ttl=300)
 def obtener_asiento_por_comprobante(db, n_comprobante):
     # 1. Validación de seguridad estricta para prevenir Inyección SQL en el esquema
