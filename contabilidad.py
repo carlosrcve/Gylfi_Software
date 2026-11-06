@@ -5940,7 +5940,7 @@ def generar_reporte_multimoneda(conn, mes, ano, db="kingdirver_ca"):
     fecha_fin_mes = f"{ano_int}-{mes_int:02d}-{ultimo_dia:02d}"
     
     try:
-        # 1. Consulta optimizada sin funciones destructoras de índices en el WHERE de asientos
+        # 1. Consulta optimizada buscando en el período seleccionado
         query_transacciones = f"""
             SELECT fecha, plan_cuentas, cuenta_contable, descripcion, debe, haber
             FROM `{db}`.saldos_iniciales
@@ -5957,13 +5957,24 @@ def generar_reporte_multimoneda(conn, mes, ano, db="kingdirver_ca"):
         
         if not rows:
             cursor.close()
-            return pd.DataFrame()
+            # Opcional: Intentar buscar solo en asientos_contables si saldos_iniciales no tiene el año exacto
+            cursor_resp = conn.cursor()
+            cursor_resp.execute(f"""
+                SELECT fecha, cuenta_contable AS plan_cuentas, cuenta_contable, descripcion, debe, haber
+                FROM `{db}`.asientos_contables
+                WHERE fecha BETWEEN %s AND %s
+            """, (fecha_inicio_mes, fecha_fin_mes))
+            rows = cursor_resp.fetchall()
+            cursor_resp.close()
             
+            if not rows:
+                return pd.DataFrame()
+        
         # Convertir transacciones a DataFrame
         columnas = ['fecha', 'plan_cuentas', 'cuenta_contable', 'descripcion', 'debe', 'haber']
         df = pd.DataFrame(rows, columns=columnas)
         
-        # 2. Cargar todas las tasas diarias una sola vez para evitar subconsultas fila por fila
+        # 2. Cargar todas las tasas diarias una sola vez
         query_tasas = f"SELECT fecha, tasa_valor FROM `{db}`.tasas_diarias ORDER BY fecha ASC"
         cursor.execute(query_tasas)
         tasas_rows = cursor.fetchall()
@@ -5977,23 +5988,26 @@ def generar_reporte_multimoneda(conn, mes, ano, db="kingdirver_ca"):
         df['fecha'] = pd.to_datetime(df['fecha'])
         df = df.sort_values('fecha')
         
-        # 3. Resolución de tasas eficiente en memoria (Equivalente al COALESCE de SQL pero instantáneo)
+        # 3. Resolución de tasas eficiente en memoria
         if not df_tasas.empty:
             df_tasas['fecha'] = pd.to_datetime(df_tasas['fecha'])
             df_tasas['tasa_valor'] = pd.to_numeric(df_tasas['tasa_valor'], errors='coerce').fillna(1.0)
             df_tasas = df_tasas.sort_values('fecha')
             
-            # merge_asof asigna la tasa exacta o la tasa inmediatamente anterior disponible (backward)
+            # merge_asof busca la tasa exacta o la anterior
             df = pd.merge_asof(df, df_tasas, on='fecha', direction='backward')
             
-            # Respaldo para fechas anteriores al primer registro de tasa
-            primera_tasa = df_tasas['tasa_valor'].iloc[0]
+            # Renombramos o mapeamos la columna resultante correctamente a 'tasa_bcv'
+            if 'tasa_valor' in df.columns:
+                df['tasa_bcv'] = df['tasa_valor']
+            
+            primera_tasa = df_tasas['tasa_valor'].iloc[0] if not df_tasas.empty else 1.0000
             df['tasa_bcv'] = df['tasa_bcv'].fillna(primera_tasa)
         else:
             df['tasa_bcv'] = 1.0000
             
         # Blindaje contra división por cero
-        df['tasa_bcv'] = df['tasa_bcv'].replace(0, 1.0)
+        df['tasa_bcv'] = pd.to_numeric(df['tasa_bcv'], errors='coerce').replace(0, 1.0).fillna(1.0)
         
         # 4. Operaciones matemáticas vectorizadas en memoria
         df['debe_usd'] = df['debe'] / df['tasa_bcv']
