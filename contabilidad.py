@@ -19899,10 +19899,15 @@ elif opcion_menu == "📦 Respaldos y Exportación":
             except Exception as e:
                 st.error(f"❌ Error crítico generando el respaldo maestro: {e}")
                 
-elif "Inventarios" in opcion_menu:
-    # Invocamos el módulo exclusivo pasando la conexión a la base de datos
-    modulo_inventario_pedacito_cielo(conn)  
+# ---------------------------------------------------------
+# OBTENER CONEXIÓN ACTIVA ANTES DE LLAMAR AL MÓDULO
+# ---------------------------------------------------------
+db_actual_seleccionada = st.session_state.get("DB_ACTUAL", "control_central")
+conn = conectar_db(db_actual_seleccionada)
 
+# Ahora sí, invocamos el módulo pasando la conexión correctamente definida
+if "Inventarios" in opcion_menu:
+    modulo_inventario_pedacito_cielo(conn)
 
 
 from datetime import date
