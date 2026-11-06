@@ -19096,6 +19096,9 @@ elif "Proveedores" in opcion_menu:
         # ------------------------------------------
         # TAB 3: Bandeja Proveedores PDF (Cola masiva)
         # ------------------------------------------
+        # ------------------------------------------
+        # TAB 3: Bandeja Proveedores PDF (Cola masiva)
+        # ------------------------------------------
         with tab3:
             st.subheader("📥 Bandeja de Entrada - Registro Masivo de Proveedores (PDF)")
             st.info("Arrastra o selecciona múltiples facturas de proveedores en PDF. El sistema extraerá automáticamente el RIF, la Razón Social y la Dirección Fiscal.")
