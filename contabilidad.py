@@ -10561,10 +10561,12 @@ if opcion_menu == "🏠 Inicio":
             if 'obtener_historico_utilidad_acumulada' not in globals() and 'obtener_historico_utilidad_acumulada' not in locals():
                 st.error("❌ Error crítico: La función 'obtener_historico_utilidad_acumulada' no está definida o no se importó correctamente.")
             else:
+                # Asegúrate de extraer o convertir el mes seleccionado a entero (ej: 9 para Septiembre)
+                # Si ya tienes una variable numércia como 'mes_int', úsala directamente:
                 try:
-                    df_utilidad = obtener_historico_utilidad_acumulada(db)
+                    df_utilidad = obtener_historico_utilidad_acumulada(db, año=ano_int, mes_limite=mes_int)
                 except Exception as e:
-                    st.error(f"Error al conectar con la base de datos para obtener el histórico: {e}")
+                    st.error(f"Error al conectar con la base de datos: {e}")
                     df_utilidad = None
 
             # 2. Validación robusta del DataFrame resultante
