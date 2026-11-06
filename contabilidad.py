@@ -734,7 +734,7 @@ def render_tab_alertas(conn, df_prod):
             cursor.execute("""
                 SELECT producto_id, SUM(cantidad * precio_unitario_usd) as valor_salida_total, MAX(fecha) as ultima_salida
                 FROM pedacito_de_cielo_ca.inventario_kardex
-                WHERE tipo_movimiento LIKE 'SALIDA%' AND fecha >= %s
+                WHERE tipo_movimiento LIKE 'SALIDA%%' AND fecha >= %s
                 GROUP BY producto_id
             """, (fecha_limite,))
             salidas_kardex = cursor.fetchall()
