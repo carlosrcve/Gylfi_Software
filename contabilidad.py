@@ -18917,8 +18917,79 @@ elif "Proveedores" in opcion_menu:
             db_actual = st.session_state.get('DB_ACTUAL')
 
             if db_actual:
+                # =========================================================
+                # COMPONENTE DE DICTADO POR VOZ PARA AGREGAR PROVEEDOR
+                # =========================================================
+                with st.container(border=True):
+                    st.markdown("#### 🎙️ Dictado por Voz para Nuevo Proveedor")
+                    st.caption("Presiona el micrófono y habla usando los prefijos (ej: *'RIF J123456789 Tipo PJ Razón Social Comercial XYZ Dirección Av Principal Código 21101 Descripción Cuentas Pagar'*).")
+                    
+                    html_mic_code = """
+                    <div style="text-align: center; padding: 8px; background-color: #f8f9fa; border-radius: 10px; border: 1px solid #e9ecef;">
+                        <button id="btn_mic_tab2" onclick="toggleDictadoTab2()" style="background-color: #ff4b4b; color: white; border: none; padding: 10px 20px; font-size: 15px; border-radius: 20px; cursor: pointer; transition: 0.3s;">
+                            🎙️ Iniciar Dictado por Voz
+                        </button>
+                        <p id="status_mic_tab2" style="margin-top: 6px; font-weight: bold; color: #6c757d; font-size: 12px;">Haga clic para hablar</p>
+                        <textarea id="texto_dictado_tab2" rows="2" style="width: 100%; margin-top: 6px; border-radius: 6px; border: 1px solid #ced4da; padding: 6px; font-size: 13px;" placeholder="El texto dictado aparecerá aquí... Copia y pégalo abajo."></textarea>
+                    </div>
+
+                    <script>
+                        var recognition_tab2;
+                        var rec_tab2 = false;
+                        
+                        function toggleDictadoTab2() {
+                            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                                alert("Tu navegador no soporta entrada de voz. Usa Google Chrome o Edge.");
+                                return;
+                            }
+                            
+                            if (!rec_tab2) {
+                                var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                                recognition_tab2 = new SpeechRecognition();
+                                recognition_tab2.lang = 'es-VE';
+                                recognition_tab2.continuous = true;
+                                recognition_tab2.interimResults = true;
+
+                                recognition_tab2.onstart = function() {
+                                    rec_tab2 = true;
+                                    document.getElementById("btn_mic_tab2").style.backgroundColor = "#28a745";
+                                    document.getElementById("btn_mic_tab2").innerText = "🛑 Detener Dictado";
+                                    document.getElementById("status_mic_tab2").innerText = "Escuchando... Hable ahora.";
+                                    document.getElementById("status_mic_tab2").style.color = "#28a745";
+                                };
+
+                                recognition_tab2.onresult = function(event) {
+                                    var transcript = '';
+                                    for (var i = event.resultIndex; i < event.results.length; ++i) {
+                                        transcript += event.results[i][0].transcript;
+                                    }
+                                    document.getElementById("texto_dictado_tab2").value = transcript;
+                                };
+
+                                recognition_tab2.onend = function() {
+                                    rec_tab2 = false;
+                                    document.getElementById("btn_mic_tab2").style.backgroundColor = "#ff4b4b";
+                                    document.getElementById("btn_mic_tab2").innerText = "🎙️ Iniciar Dictado por Voz";
+                                    document.getElementById("status_mic_tab2").innerText = "Dictado finalizado.";
+                                    document.getElementById("status_mic_tab2").style.color = "#6c757d";
+                                };
+
+                                recognition_tab2.start();
+                            } else {
+                                recognition_tab2.stop();
+                            }
+                        }
+                    </script>
+                    """
+                    st.components.v1.html(html_mic_code, height=160)
+
+                    texto_voz_input = st.text_input(
+                        "📝 Pega aquí la frase dictada o escríbela de corrido para insertar en la tabla:", 
+                        key="input_dictado_voz_tab2", 
+                        placeholder="Ej: RIF J123456789 Tipo PJ Razón Social Inversiones Los Andes Dirección Av Bolivar Código 21101 Descripción Cuentas por Pagar"
+                    )
+
                 df_temp = consultar_proveedores_cached(db_actual)
-                
                 columnas_reales = ["rif", "tipo_persona", "razon_social", "direccion_fiscal", "codigo_cuenta", "descripcion_cuenta"]
                 
                 if df_temp.empty:
@@ -18931,6 +19002,34 @@ elif "Proveedores" in opcion_menu:
 
                 for col in df_para_mostrar.columns:
                     df_para_mostrar[col] = df_para_mostrar[col].astype(str).replace(['None', 'nan', 'NAT'], '')
+
+                # --- PROCESAR EL DICTADO DE VOZ Y AGREGAR NUEVA FILA A LA TABLA ---
+                if texto_voz_input:
+                    import re
+                    t_lower = texto_voz_input.strip()
+
+                    match_rif = re.search(r'rif\s*[:\s]*([jveg]?\d{7,9}[-]?\d?)', t_lower, re.IGNORECASE)
+                    match_tipo = re.search(r'tipo\s*[:\s]*(pn|pj|persona natural|persona juridica|juridica|natural)', t_lower, re.IGNORECASE)
+                    match_razon = re.search(r'raz[oó]n\s*social\s*[:\s]*(.*?)(?=direcci[oó]n|c[oó]digo|descripci[oó]n|$)', t_lower, re.IGNORECASE)
+                    match_dir = re.search(r'direcci[oó]n\s*(?:fiscal)?\s*[:\s]*(.*?)(?=c[oó]digo|descripci[oó]n|$)', t_lower, re.IGNORECASE)
+                    match_cc = re.search(r'c[oó]digo\s*(?:cuenta)?\s*[:\s]*([\d\.-]+)', t_lower, re.IGNORECASE)
+                    match_dc = re.search(r'descripci[oó]n\s*(?:cuenta)?\s*[:\s]*(.*?)$', t_lower, re.IGNORECASE)
+
+                    raw_t = match_tipo.group(1).upper() if match_tipo else "PJ"
+                    tipo_p = "PN" if ("PN" in raw_t or "NATURAL" in raw_t) else "PJ"
+
+                    nueva_fila = {
+                        "rif": match_rif.group(1).upper() if match_rif else "",
+                        "tipo_persona": tipo_p,
+                        "razon_social": match_razon.group(1).strip().title() if match_razon else "",
+                        "direccion_fiscal": match_dir.group(1).strip() if match_dir else "",
+                        "codigo_cuenta": match_cc.group(1).strip() if match_cc else "",
+                        "descripcion_cuenta": match_dc.group(1).strip() if match_dc else ""
+                    }
+                    
+                    # Añadir la nueva fila procesada por voz arriba en la tabla
+                    df_para_mostrar = pd.concat([pd.DataFrame([nueva_fila]), df_para_mostrar], ignore_index=True)
+                    st.success("⚡ ¡Proveedor dictado por voz añadido temporalmente a la tabla! Haz clic en '💾 Guardar Todo en BD' para confirmar.")
 
                 # --- ORDENAMIENTO ALFABÉTICO AUTOMÁTICO POR RAZÓN SOCIAL ---
                 if not df_para_mostrar.empty and "razon_social" in df_para_mostrar.columns:
@@ -18993,284 +19092,6 @@ elif "Proveedores" in opcion_menu:
                     )
             else:
                 st.warning("⚠️ No se ha seleccionado una base de datos activa.")
-
-        # ------------------------------------------
-        # TAB 3: Bandeja Proveedores PDF (Cola masiva y Dictado por Voz)
-        # ------------------------------------------
-        with tab3:
-            st.subheader("📥 Bandeja de Entrada - Registro por Voz y PDF Masivo")
-            
-            # =========================================================
-            # NUEVO COMPONENTE: DICTADO INTELIGENTE POR MICRÓFONO
-            # =========================================================
-            with st.container(border=True):
-                st.markdown("#### 🎙️ Entrada Rápida por Dictado de Voz")
-                st.caption("Haz clic en el botón de dictado, habla usando los prefijos (ej: *'RIF J123456789 Tipo PJ Razón Social Comercial XYZ Dirección Av Principal Código 21101 Descripción Cuentas Pagar'*) y pega el texto detectado.")
-                
-                html_mic_code = """
-                <div style="text-align: center; padding: 10px; background-color: #f8f9fa; border-radius: 10px; border: 1px solid #e9ecef;">
-                    <button id="btn_mic_prov" onclick="toggleDictadoProv()" style="background-color: #ff4b4b; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 25px; cursor: pointer; transition: 0.3s; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                        🎙️ Iniciar Dictado por Voz
-                    </button>
-                    <p id="status_mic_prov" style="margin-top: 8px; font-weight: bold; color: #6c757d; font-size: 13px;">Haga clic para hablar</p>
-                    <textarea id="texto_dictado_prov" rows="2" style="width: 100%; margin-top: 8px; border-radius: 8px; border: 1px solid #ced4da; padding: 8px;" placeholder="El texto dictado aparecerá aquí... Copia y pégalo abajo."></textarea>
-                </div>
-
-                <script>
-                    var recognition_prov;
-                    var rec_prov = false;
-                    
-                    function toggleDictadoProv() {
-                        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-                            alert("Tu navegador no soporta entrada de voz. Usa Google Chrome o Edge.");
-                            return;
-                        }
-                        
-                        if (!rec_prov) {
-                            var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                            recognition_prov = new SpeechRecognition();
-                            recognition_prov.lang = 'es-VE';
-                            recognition_prov.continuous = true;
-                            recognition_prov.interimResults = true;
-
-                            recognition_prov.onstart = function() {
-                                rec_prov = true;
-                                document.getElementById("btn_mic_prov").style.backgroundColor = "#28a745";
-                                document.getElementById("btn_mic_prov").innerText = "🛑 Detener Dictado";
-                                document.getElementById("status_mic_prov").innerText = "Escuchando... Hable ahora.";
-                                document.getElementById("status_mic_prov").style.color = "#28a745";
-                            };
-
-                            recognition_prov.onresult = function(event) {
-                                var transcript = '';
-                                for (var i = event.resultIndex; i < event.results.length; ++i) {
-                                    transcript += event.results[i][0].transcript;
-                                }
-                                document.getElementById("texto_dictado_prov").value = transcript;
-                            };
-
-                            recognition_prov.onend = function() {
-                                rec_prov = false;
-                                document.getElementById("btn_mic_prov").style.backgroundColor = "#ff4b4b";
-                                document.getElementById("btn_mic_prov").innerText = "🎙️ Iniciar Dictado por Voz";
-                                document.getElementById("status_mic_prov").innerText = "Dictado finalizado.";
-                                document.getElementById("status_mic_prov").style.color = "#6c757d";
-                            };
-
-                            recognition_prov.start();
-                        } else {
-                            recognition_prov.stop();
-                        }
-                    }
-                </script>
-                """
-                st.components.v1.html(html_mic_code, height=170)
-
-                # Input para procesar el dictado
-                texto_voz_input = st.text_input(
-                    "📝 Pega aquí la frase dictada o escríbela de corrido:", 
-                    key="input_dictado_voz_proveedores", 
-                    placeholder="Ej: RIF J123456789 Tipo PJ Razón Social Inversiones Los Andes Dirección Av Bolivar Código 21101 Descripción Cuentas por Pagar"
-                )
-
-                if texto_voz_input:
-                    import re
-                    t_lower = texto_voz_input.strip()
-
-                    # Expresiones regulares para auto-llenado inteligente de la auditoría
-                    match_rif = re.search(r'rif\s*[:\s]*([jveg]?\d{7,9}[-]?\d?)', t_lower, re.IGNORECASE)
-                    match_tipo = re.search(r'tipo\s*[:\s]*(pn|pj|persona natural|persona juridica|juridica|natural)', t_lower, re.IGNORECASE)
-                    match_razon = re.search(r'raz[oó]n\s*social\s*[:\s]*(.*?)(?=direcci[oó]n|c[oó]digo|descripci[oó]n|$)', t_lower, re.IGNORECASE)
-                    match_dir = re.search(r'direcci[oó]n\s*(?:fiscal)?\s*[:\s]*(.*?)(?=c[oó]digo|descripci[oó]n|$)', t_lower, re.IGNORECASE)
-                    match_cc = re.search(r'c[oó]digo\s*(?:cuenta)?\s*[:\s]*([\d\.-]+)', t_lower, re.IGNORECASE)
-                    match_dc = re.search(r'descripci[oó]n\s*(?:cuenta)?\s*[:\s]*(.*?)$', t_lower, re.IGNORECASE)
-
-                    # Asignamos al primer proveedor de la cola o a las keys seleccionadas si existen
-                    doc_sel_actual = st.session_state.get("select_doc_prov_auditoria")
-                    suf_target = doc_sel_actual if doc_sel_actual else ""
-
-                    if suf_target:
-                        if match_rif: st.session_state[f"rif_{suf_target}"] = match_rif.group(1).upper()
-                        if match_tipo: 
-                            raw_t = match_tipo.group(1).upper()
-                            st.session_state[f"tipo_{suf_target}"] = "PN" if ("PN" in raw_t or "NATURAL" in raw_t) else "PJ"
-                        if match_razon: st.session_state[f"razon_{suf_target}"] = match_razon.group(1).strip().title()
-                        if match_dir: st.session_state[f"dir_{suf_target}"] = match_dir.group(1).strip()
-                        if match_cc: st.session_state[f"cc_{suf_target}"] = match_cc.group(1).strip()
-                        if match_dc: st.session_state[f"dc_{suf_target}"] = match_dc.group(1).strip()
-                        st.success(f"⚡ ¡Voz procesada para {suf_target}! Los campos se han auto-llenado.")
-
-            st.markdown("---")
-            st.info("Arrastra o selecciona múltiples facturas de proveedores en PDF. El sistema extraerá automáticamente el RIF, la Razón Social y la Dirección Fiscal.")
-
-            if "cola_proveedores_pdfs" not in st.session_state:
-                st.session_state.cola_proveedores_pdfs = []
-            if "prov_procesados_ids" not in st.session_state:
-                st.session_state.prov_procesados_ids = set()
-            if "datos_prov_extraidos" not in st.session_state:
-                st.session_state.datos_prov_extraidos = {}
-
-            archivos_prov_pdf = st.file_uploader(
-                "Sube tus facturas de proveedores en PDF", 
-                type=['pdf'], 
-                accept_multiple_files=True,
-                key="uploader_prov_pdf_cola"
-            )
-
-            if archivos_prov_pdf:
-                nombres_existentes_prov = [item['nombre'] for item in st.session_state.cola_proveedores_pdfs]
-                for archivo in archivos_prov_pdf:
-                    file_id = getattr(archivo, "file_id", archivo.name)
-                    if archivo.name not in nombres_existentes_prov and file_id not in st.session_state.prov_procesados_ids:
-                        st.session_state.cola_proveedores_pdfs.append({
-                            "id": file_id,
-                            "nombre": archivo.name,
-                            "objeto": archivo,
-                            "estado": "Pendiente"
-                        })
-
-            if st.session_state.cola_proveedores_pdfs:
-                st.markdown(f"### 📋 Cola de Proveedores ({len(st.session_state.cola_proveedores_pdfs)} en espera)")
-                
-                if st.button("🗑️ Vaciar Cola de Proveedores", key="btn_vaciar_cola_prov"):
-                    st.session_state.cola_proveedores_pdfs = []
-                    st.session_state.prov_procesados_ids = set()
-                    st.session_state.datos_prov_extraidos = {}
-                    st.rerun()
-
-                import pandas as pd
-                df_cola_prov = pd.DataFrame([{
-                    "Archivo": item["nombre"], 
-                    "Estado": item["estado"]
-                } for item in st.session_state.cola_proveedores_pdfs])
-                
-                st.dataframe(df_cola_prov, use_container_width=True, hide_index=True)
-                st.markdown("---")
-
-                st.markdown("### 📝 Auditoría, Extracción y Registro en la Tabla de Proveedores")
-                
-                docs_prov_pendientes = [item for item in st.session_state.cola_proveedores_pdfs if item["estado"] == "Pendiente"]
-                
-                if docs_prov_pendientes:
-                    nombres_prov_pendientes = [item["nombre"] for item in docs_prov_pendientes]
-                    doc_prov_seleccionado = st.selectbox(
-                        "Selecciona un proveedor pendiente para revisar y registrar:", 
-                        nombres_prov_pendientes,
-                        key="select_doc_prov_auditoria"
-                    )
-
-                    doc_prov_obj = next((item for item in docs_prov_pendientes if item["nombre"] == doc_prov_seleccionado), None)
-
-                    if doc_prov_obj:
-                        sufijo_prov = doc_prov_obj['nombre']
-
-                        keys_defaults_prov = {
-                            f"rif_{sufijo_prov}": "",
-                            f"razon_{sufijo_prov}": "",
-                            f"dir_{sufijo_prov}": "",
-                            f"tipo_{sufijo_prov}": "Jurídica",
-                            f"cc_{sufijo_prov}": "",
-                            f"dc_{sufijo_prov}": ""
-                        }
-                        for k, v in keys_defaults_prov.items():
-                            if k not in st.session_state:
-                                st.session_state[k] = v
-
-                        if st.button("⚡ Extraer Datos del Proveedor", key=f"btn_extraer_{sufijo_prov}"):
-                            with st.spinner("Leyendo RIF, Razón Social y Dirección del PDF..."):
-                                archivo_pdf = doc_prov_obj["objeto"]
-                                
-                                if hasattr(archivo_pdf, "seek"):
-                                    archivo_pdf.seek(0)
-                                    
-                                datos_proveedor = extraer_datos_proveedor_pdf(archivo_pdf)
-
-                                if datos_proveedor is None:
-                                    st.warning("⚠️ El documento no pudo ser leído correctamente. Por favor, completa los datos manualmente.")
-                                    st.session_state[f"rif_{sufijo_prov}"] = ""
-                                    st.session_state[f"razon_{sufijo_prov}"] = ""
-                                    st.session_state[f"dir_{sufijo_prov}"] = ""
-                                else:
-                                    st.session_state[f"rif_{sufijo_prov}"] = datos_proveedor.get("rif", "")
-                                    st.session_state[f"razon_{sufijo_prov}"] = datos_proveedor.get("proveedor", "")
-                                    st.session_state[f"dir_{sufijo_prov}"] = datos_proveedor.get("direccion_fiscal", "")
-                                    st.success(f"¡Datos extraídos con éxito para: {datos_proveedor['proveedor']}!")
-                                    st.rerun()
-
-                        st.info(f"Completando información para el archivo: **{sufijo_prov}**")
-                        
-                        col_i1, col_i2 = st.columns(2)
-                        
-                        with col_i1:
-                            rif = st.text_input("RIF", key=f"rif_{sufijo_prov}")
-                            tipo_persona = st.selectbox(
-                                "Tipo de Persona", 
-                                options=["PN", "PJ", "No Residente", "Gobierno"],
-                                index=1,
-                                key=f"tipo_{sufijo_prov}"
-                            )
-                            razon_social = st.text_input("Razón Social", key=f"razon_{sufijo_prov}")
-                        
-                        with col_i2:
-                            direccion_fiscal = st.text_area("Dirección Fiscal", key=f"dir_{sufijo_prov}")
-                            codigo_cuenta = st.text_input("Código de Cuenta Contable", key=f"cc_{sufijo_prov}")
-                            descripcion_cuenta = st.text_input("Descripción de Cuenta", key=f"dc_{sufijo_prov}")
-
-                        if st.button("💾 Guardar Proveedor en Base de Datos", type="primary", key=f"btn_guardar_prov_{sufijo_prov}", use_container_width=True):
-                            db_nombre = st.session_state.get('DB_ACTUAL')
-                            if not db_nombre:
-                                st.error("Error: No se ha seleccionado una base de datos activa.")
-                            else:
-                                conn = conectar_db(db_nombre)
-                                if conn is None:
-                                    st.error(f"❌ No se pudo conectar a la base de datos '{db_nombre}'.")
-                                else:
-                                    try:
-                                        conn.ping(reconnect=True)
-                                        with conn.cursor() as cursor:
-                                            query_prov = """
-                                                INSERT INTO proveedores (
-                                                    rif, tipo_persona, razon_social, 
-                                                    direccion_fiscal, codigo_cuenta, descripcion_cuenta
-                                                ) VALUES (%s, %s, %s, %s, %s, %s)
-                                                ON DUPLICATE KEY UPDATE
-                                                    tipo_persona = VALUES(tipo_persona),
-                                                    razon_social = VALUES(razon_social),
-                                                    direccion_fiscal = VALUES(direccion_fiscal),
-                                                    codigo_cuenta = VALUES(codigo_cuenta),
-                                                    descripcion_cuenta = VALUES(descripcion_cuenta)
-                                            """
-                                            
-                                            valores_prov = (
-                                                rif, tipo_persona, razon_social,
-                                                direccion_fiscal, codigo_cuenta, descripcion_cuenta
-                                            )
-                                            
-                                            cursor.execute(query_prov, valores_prov)
-                                            conn.commit()
-                                        
-                                        for item in st.session_state.cola_proveedores_pdfs:
-                                            if item["nombre"] == doc_prov_obj["nombre"]:
-                                                item["estado"] = "Registrado"
-                                                st.session_state.prov_procesados_ids.add(item["id"])
-                                                break
-                                                
-                                        st.cache_data.clear()
-                                        st.success(f"¡Proveedor '{razon_social}' (RIF: {rif}) guardado correctamente!")
-                                        st.rerun()
-                                        
-                                    except Exception as e:
-                                        conn.rollback()
-                                        st.error(f"Error al registrar el proveedor en la base de datos: {e}")
-                                    finally:
-                                        try:
-                                            conn.close()
-                                        except Exception:
-                                            pass
-                else:
-                    st.success("🎉 ¡Todos los proveedores en la cola ya han sido procesados y registrados!")
-            else:
-                st.info("No hay archivos en la cola de proveedores. Sube algunos PDFs arriba para comenzar.")
 
         # ------------------------------------------
         # TAB 3: Bandeja Proveedores PDF (Cola masiva)
