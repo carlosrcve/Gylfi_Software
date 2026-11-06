@@ -690,7 +690,7 @@ def render_tab_alertas(conn, df_prod):
             minimo = row['stock_minimo']
             if stk < minimo:
                 return "🔴 ROJO (Quiebre Inminente)"
-            elif stk <= (minimo * 1.3): # Un 30% por encima del mínimo ya es zona de alerta
+            elif stk <= (minimo * 1.3): 
                 return "🟡 AMARILLO (Cerca del Límite)"
             else:
                 return "🟢 VERDE (Surtido Optimo)"
@@ -704,7 +704,7 @@ def render_tab_alertas(conn, df_prod):
         
         st.dataframe(
             df_semaforo_v[['Estado', 'sku', 'descripcion', 'stock', 'stock_minimo', 'Diferencia vs Mínimo', 'unidad']],
-            width='stretch', hide_index=True
+            use_container_width=True, hide_index=True
         )
 
         # Tarjetas de resumen rápidas
@@ -786,7 +786,7 @@ def render_tab_alertas(conn, df_prod):
                 
                 st.dataframe(
                     df_abc_v[['Clase ABC', 'sku', 'descripcion', 'Valor Inversión Movilizada (USD)', '% Participación', 'Último Movimiento de Salida']],
-                    width='stretch', hide_index=True
+                    use_container_width=True, hide_index=True
                 )
                 
                 # --- RECOMENDACIONES PREDICTIVAS DE LA IA ---
