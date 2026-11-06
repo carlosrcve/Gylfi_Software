@@ -9592,13 +9592,29 @@ if opcion_menu == "🏠 Inicio":
             st.markdown('</div>', unsafe_allow_html=True)
 
     # --- COLUMNA DERECHA ---
+    from datetime import date, datetime
+
+    # 1. Asegúrate de definir los inputs de fecha en tu pantalla (sidebar o columnas)
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        fecha_inicio_val = st.date_input("Fecha de Inicio", value=date.today().replace(day=1), key="pie_f_inicio")
+    with col_f2:
+        fecha_fin_val = st.date_input("Fecha de Cierre", value=date.today(), key="pie_f_fin")
+
+    # 2. Conviértelas a texto (string) para que la función las reciba sin error
+    fecha_inicio_str = fecha_inicio_val.strftime('%Y-%m-%d')
+    fecha_fin_str = fecha_fin_val.strftime('%Y-%m-%d')
+
+    # --- COLUMNA DERECHA ---
     with col_der:
         st.markdown('<div class="report-header">🍕 Distribución de Gastos (Supplies by Sector)</div>', unsafe_allow_html=True)
         with st.container():
             st.markdown('<div class="report-card">', unsafe_allow_html=True)
             if db:
+                # 3. Ahora sí, la llamada funcionará sin NameError
                 df_pie = obtener_datos_pie(db, fecha_inicio_str, fecha_fin_str)
                 if df_pie is not None and not df_pie.empty:
+                # Tu código para mostrar el gráfico o la tabla...
                     
                     # Paleta estricta de tonos azules y grises corporativos de la imagen
                     colores_azules_institucionales = [
