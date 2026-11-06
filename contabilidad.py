@@ -674,6 +674,63 @@ def render_tab_movimientos(conn, df_prod, tasa_bcv_hoy):
 def render_tab_alertas(conn, df_prod):
     st.markdown("### 🚨 Panel de Alertas Predictivas e Inteligencia de Negocio")
     # Pega aquí el código del semáforo y algoritmo ABC...
+    if productos_terminados:
+        with st.form("form_produccion_diaria"):
+            prod_a_producir = st.selectbox("¿Qué se produjo en el taller/horno?", productos_terminados)
+            cantidad_tanda = st.number_input("Cantidad de Unidades Listas:", min_value=1, value=10)
+            fecha_prod = st.date_input("Fecha de Producción:", datetime.now())
+            pastelero_responsable = st.text_input("Pastelero Responsable:", value="Pastelero Principal")
+            
+            if st.form_submit_button("🔥 Procesar Tanda de Producción e Inyectar a Stock"):
+                try:
+                    cursor = conn.cursor()
+                    
+                    cant_harina = 0.450 * cantidad_tanda
+                    cant_azucar = 0.250 * cantidad_tanda
+                    cant_mantequilla = 0.200 * cantidad_tanda
+                    
+                    def traer_metadatos(buscar):
+                        cursor.execute("SELECT id, costo_usd FROM pedacito_de_cielo_ca.inventario_productos WHERE descripcion LIKE %s", (f"%{buscar}%",))
+                        res = cursor.fetchone()
+                        return (res[0], float(res[1])) if res else (None, 0.0)
+                    
+                    id_pt, costo_pt = traer_metadatos(prod_a_producir)
+                    id_h, costo_h = traer_metadatos("Harina")
+                    id_a, costo_a = traer_metadatos("Azúcar")
+                    id_m, costo_m = traer_metadatos("Mantequilla")
+                    
+                    referencia_doc = f"Tanda Prod: {cantidad_tanda} Unds de {prod_a_producir}"
+                    
+                    # Descuentos y aumentos en caliente
+                    cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock + %s WHERE id = %s", (cantidad_tanda, id_pt))
+                    cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock - %s WHERE id = %s", (cant_harina, id_h))
+                    cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock - %s WHERE id = %s", (cant_azucar, id_a))
+                    cursor.execute("UPDATE pedacito_de_cielo_ca.inventario_productos SET stock = stock - %s WHERE id = %s", (cant_mantequilla, id_m))
+                    
+                    sql_kardex = """
+                        INSERT INTO pedacito_de_cielo_ca.inventario_kardex 
+                        (producto_id, tipo_movimiento, cantidad, precio_unitario_usd, tasa_bcv, referencia, usuario)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """
+                    costo_estimado_pt = (0.450 * costo_h) + (0.250 * costo_a) + (0.200 * costo_m)
+                    
+                    cursor.execute(sql_kardex, (id_pt, 'ENTRADA_COMPRA', cantidad_tanda, costo_estimado_pt, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
+                    cursor.execute(sql_kardex, (id_h, 'SALIDA_PRODUCCION', cant_harina, costo_h, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
+                    cursor.execute(sql_kardex, (id_a, 'SALIDA_PRODUCCION', cant_azucar, costo_a, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
+                    cursor.execute(sql_kardex, (id_m, 'SALIDA_PRODUCCION', cant_mantequilla, costo_m, tasa_bcv_hoy, referencia_doc, pastelero_responsable))
+                    
+                    conn.commit()
+                    cursor.close()
+                    
+                    st.success(f"💥 ¡Tanda procesada con éxito y Kardex actualizado!")
+                    st.balloons()
+                    st.rerun()
+                    
+                except Exception as err_produccion:
+                    conn.rollback()
+                    st.error(f"❌ Error crítico en producción: {err_produccion}")
+    else:
+        st.info("💡 Registre insumos y productos terminados para habilitar producción.")
 
 def render_tab_produccion(conn, df_prod, tasa_bcv_hoy):
     st.markdown("### 🚀 Panel de Producción Activa")
