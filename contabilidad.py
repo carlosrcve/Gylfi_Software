@@ -1919,7 +1919,7 @@ def obtener_historico_utilidad_acumulada(db, año=2026, mes_limite=12):
                 conn.close()
             except:
                 pass
-            
+
 @st.cache_data(ttl=300)
 def obtener_asiento_por_comprobante(db, n_comprobante):
     # 1. Validación de seguridad estricta para prevenir Inyección SQL en el esquema
@@ -10339,8 +10339,9 @@ if opcion_menu == "🏠 Inicio":
         mes_elegido_str = str(mes_val)
         año = año_int
 
-        f_inicio_global = date(año_int, mes_int, 1)
-        f_fin_global = date(año_int, mes_int, ultimo_dia)
+        # Definimos correctamente los objetos date que esperan tus funciones
+        f_i_date = date(año_int, mes_int, 1)
+        f_f_date = date(año_int, mes_int, ultimo_dia)
 
         # 7. Cuadro informativo reflejando el período activo real
         st.info(f"📅 Período Activo: **{mes_elegido_str} {año}** | Rango SQL: **{f_i_str} al {f_f_str}**")
@@ -10350,16 +10351,12 @@ if opcion_menu == "🏠 Inicio":
         db = st.session_state.get('DB_ACTUAL')
         if db and db != "{db}" and db != "None" and str(db).strip() != "":
             try:
-                # 🛠️ CORRECCIÓN: Pasamos los objetos date (f_i_date y f_f_date) en lugar de strings 
-                # para evitar que falle si la función interna intenta usar .year o métodos de fecha.
+                # Ahora sí, f_i_date y f_f_date están definidas correctamente
                 df_acc = obtener_analisis_accionista_detallado(db, f_i_date, f_f_date)
                 utilidad = obtener_historico_utilidad(db, f_inicio=f_i_date, f_fin=f_f_date)
             except Exception as err:
                 st.error(f"Error interno en la función de datos: {err}")
                 st.stop()
-        else:
-            st.warning("⚠️ Selecciona una empresa.")
-            st.stop()
 
         st.subheader(f"📊 Análisis Contable: {db}")
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
