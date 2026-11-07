@@ -9824,7 +9824,7 @@ if opcion_menu == "🏠 Inicio":
                 )
             else:
                 st.error("❌ No apto para emisión.")
-
+    st.divider()
     # --- FILA 1: INDICADORES FINANCIEROS ---
     col_titulo, col_vacia, col_btn = st.columns([0.5, 0.3, 0.2])
     with col_titulo:
