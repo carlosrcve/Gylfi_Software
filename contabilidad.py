@@ -9789,37 +9789,52 @@ if opcion_menu == "🏠 Inicio":
             </div>
         """, unsafe_allow_html=True)
 
-        # 7. Botón de Acción y Nota Informativa
-        col_btn1, col_btn2 = st.columns([2, 1])
+        # 7. Panel de Acciones y Selección de Tipo de Documento Corporativo
+        col_btn1, col_btn2 = st.columns([1.5, 1.5])
+        
         with col_btn1:
             if "SOLVENTE" in estado_actual:
                 st.markdown(f"""
-                    <div style="padding: 10px 0; color: #495057; font-size: 0.95rem;">
-                        💡 La empresa cumple satisfactoriamente con los parámetros saludables requeridos hasta el período <strong>{mes_str} {año_int}</strong>. Puede emitir su documento corporativo oficial.
+                    <div style="padding: 10px 0; color: #495057; font-size: 0.90rem;">
+                        💡 La empresa cumple con los parámetros requeridos hasta <strong>{mes_str} {año_int}</strong>. Selecciona el tipo de documento a emitir.
                     </div>
                 """, unsafe_allow_html=True)
             else:
                 st.markdown("""
-                    <div style="padding: 10px 0; color: #856404; font-size: 0.95rem;">
-                        ⚠️ La empresa presenta alertas financieras para el período seleccionado. El certificado se emitirá incluyendo las observaciones correspondientes.
+                    <div style="padding: 10px 0; color: #856404; font-size: 0.90rem;">
+                        ⚠️ La empresa presenta alertas financieras. El certificado se emitirá con las observaciones correspondientes.
                     </div>
                 """, unsafe_allow_html=True)
                 
         with col_btn2:
             if puntaje_actual >= 40:
-                # Generamos los bytes del PDF en tiempo real usando nuestra función blindada (QR, Hash, Métricas Bancarias)
-                pdf_bytes = generar_pdf_certificado_solvencia(db, año_int, mes_str, resultado_solvencia, u_mensual)
-                
+                # Selector visual de doble carril (Bancos vs Inversionistas)
+                tipo_reporte = st.radio(
+                    "Seleccione el tipo de documento corporativo a emitir:", 
+                    ["Certificado Oficial de Solvencia (Bancario / Comercial)", "Dossier Ejecutivo y Modelo de Negocio (Inversionistas)"],
+                    horizontal=False,
+                    key="selector_tipo_reporte"
+                )
+
+                # Condicional para generar el PDF correspondiente según la elección
+                if tipo_reporte.startswith("Certificado Oficial"):
+                    pdf_bytes = generar_pdf_certificado_solvencia(db, año_int, mes_str, resultado_solvencia, u_mensual)
+                    nombre_archivo = f"Certificado_Solvencia_{db}_{mes_str}_{año_int}.pdf"
+                else:
+                    # Aquí puedes definir o llamar la función de tu dossier estratégico para inversionistas
+                    pdf_bytes = generar_pdf_certificado_solvencia(db, año_int, mes_str, resultado_solvencia, u_mensual) # Temporal hasta que crees la del dossier
+                    nombre_archivo = f"Dossier_Estrategico_Gylfi_{db}.pdf"
+
                 st.download_button(
-                    label="📄 Descargar Certificado PDF",
+                    label="📄 Descargar Documento Oficial",
                     data=pdf_bytes,
-                    file_name=f"Certificado_Solvencia_{db}_{mes_str}_{año_int}.pdf",
+                    file_name=nombre_archivo,
                     mime="application/pdf",
                     use_container_width=True,
-                    key="btn_descargar_pdf_solvencia"
+                    key="btn_descargar_documento_maestro"
                 )
             else:
-                st.error("❌ No apto para emisión.")
+                st.error("❌ No apto para emisión de certificados.")
     st.divider()
     # --- FILA 7: TIPO DE CAMBIO BANCO CENTRAL DE VENEZUELA ---
     st.divider()
