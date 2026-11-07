@@ -9455,11 +9455,41 @@ if opcion_menu == "🏠 Inicio":
             </div>
         """, unsafe_allow_html=True)
     else:
-        # 4. Ejecutamos la función de evaluación con el año y el mes exactos del selector
+        # 4. Ejecutamos la función de evaluación para el acumulado del período
         resultado_solvencia = evaluar_salud_financiera(db, año_int, mes_int)
 
-        # 5. Mostramos tarjetas visuales con HTML/CSS personalizado para los indicadores clave
-        col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+        # 4.1 Cálculo independiente de la Utilidad Mensual exclusiva del mes seleccionado
+        u_mensual = 0.0
+        try:
+            conn_m = conectar_db(db)
+            if conn_m:
+                query_m = f"""
+                    SELECT 
+                        LEFT(TRIM(plan_cuentas), 1) as clase,
+                        SUM(debe) as total_debe,
+                        SUM(haber) as total_haber
+                    FROM `{db}`.asientos_contables
+                    WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s
+                    GROUP BY LEFT(TRIM(plan_cuentas), 1)
+                """
+                df_m = ejecutar_consulta(query_m, conn_m, params=(año_int, mes_int))
+                conn_m.close()
+                if df_m is not None and not df_m.empty:
+                    saldos_m = {str(i): 0.0 for i in range(1, 9)}
+                    for _, row in df_m.iterrows():
+                        cl = str(row['clase'])
+                        db_val = float(row['total_debe'] or 0)
+                        hb_val = float(row['total_haber'] or 0)
+                        if cl in ['1', '5', '6', '8']:
+                            saldos_m[cl] = db_val - hb_val
+                        elif cl in ['2', '3', '4', '7']:
+                            saldos_m[cl] = hb_val - db_val
+                    u_mensual = saldos_m['4'] - saldos_m['5'] - saldos_m['6'] + saldos_m['7'] - saldos_m['8']
+        except Exception:
+            u_mensual = 0.0
+
+        # 5. Mostramos las 5 tarjetas visuales con HTML/CSS personalizado
+        col_s1, col_s2, col_s3, col_s4, col_s5 = st.columns(5)
         
         def tarjeta_metrica(titulo, valor):
             return f"""
@@ -9476,7 +9506,9 @@ if opcion_menu == "🏠 Inicio":
         with col_s3:
             st.markdown(tarjeta_metrica("Patrimonio", resultado_solvencia['patrimonio']), unsafe_allow_html=True)
         with col_s4:
-            st.markdown(tarjeta_metrica("Utilidad Neta", resultado_solvencia['utilidad_neta']), unsafe_allow_html=True)
+            st.markdown(tarjeta_metrica("Utilidad Mensual", u_mensual), unsafe_allow_html=True)
+        with col_s5:
+            st.markdown(tarjeta_metrica("Utilidad Neta Acum.", resultado_solvencia['utilidad_neta']), unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
