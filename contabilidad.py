@@ -9422,6 +9422,92 @@ if opcion_menu == "🏠 Inicio":
         st.divider()
 
     #isabelelenoctaviourdaneta
+    # --- FILA 1: INDICADORES FINANCIEROS ---
+    col_titulo, col_vacia, col_btn = st.columns([0.5, 0.3, 0.2])
+    with col_titulo:
+        st.subheader("Indicadores Financieros en Tiempo Real")
+
+    with col_btn:
+        if st.button("🔄 Actualizar Datos", width='stretch'):
+            st.cache_data.clear()
+            st.rerun()
+
+    # Validación de conexión compatible con PyMySQL
+    conexion_valida = False
+    if conn:
+        try:
+            conn.ping(reconnect=True)
+            conexion_valida = True
+        except Exception:
+            conexion_valida = False
+
+    with st.spinner(f'Comunicando con MySQL para {db_objetivo}...'):
+        if conn and conexion_valida:
+            kpis = obtener_saldos_acumulados(f_fin_global, db_objetivo)
+        else:
+            kpis = None
+
+        if kpis is None:
+            kpis = {"activo": 0, "pasivo": 0, "patrimonio": 0}
+
+        df_utilidad = obtener_historico_utilidad(db_objetivo, f_inicio=f_inicio_global, f_fin=f_fin_global)
+        if df_utilidad is None:
+            df_utilidad = pd.DataFrame()
+
+    valor_activo = kpis.get('activo', 0)
+    valor_pasivo = kpis.get('pasivo', 0)
+    valor_patrimonio = kpis.get('patrimonio', 0)
+
+    u_v = 0
+    if df_utilidad is not None and not df_utilidad.empty:
+        # Buscamos de forma flexible cualquier columna que represente la utilidad
+        posibles_columnas = ['utilidad_acumulada', 'utilidad_neta', 'utilidad_mensual', 'utilidad']
+        col_utilidad = next((c for c in posibles_columnas if c in df_utilidad.columns), None)
+        
+        # Si no encuentra ninguna de las conocidas, agarra la última columna numérica disponible
+        if not col_utilidad:
+            numericas = df_utilidad.select_dtypes(include='number').columns
+            if len(numericas) > 0:
+                col_utilidad = numericas[-1]
+
+        if col_utilidad:
+            if 'f_fin_global' in st.session_state and st.session_state['f_fin_global']:
+                try:
+                    fecha_fin_Sesion = pd.to_datetime(st.session_state['f_fin_global'])
+                    mes_limite = fecha_fin_Sesion.month
+                    anio_limite = fecha_fin_Sesion.year
+                    
+                    # Verificamos si existen las columnas de año y mes para filtrar con precisión
+                    if 'anio' in df_utilidad.columns and 'mes' in df_utilidad.columns:
+                        df_utilidad['anio'] = pd.to_numeric(df_utilidad['anio'], errors='coerce')
+                        df_utilidad['mes'] = pd.to_numeric(df_utilidad['mes'], errors='coerce')
+                        fila_mes = df_utilidad[(df_utilidad['anio'] == anio_limite) & (df_utilidad['mes'] == mes_limite)]
+                        
+                        if not fila_mes.empty:
+                            u_v = fila_mes[col_utilidad].iloc[0]
+                        else:
+                            u_v = df_utilidad[col_utilidad].iloc[-1]
+                    else:
+                        u_v = df_utilidad[col_utilidad].iloc[-1]
+                except Exception as e:
+                    u_v = df_utilidad[col_utilidad].iloc[-1]
+            else:
+                u_v = df_utilidad[col_utilidad].iloc[-1]
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.container(border=True).metric("💰 ACTIVO", f"Bs. {valor_activo:,.2f}")
+    with col2:
+        st.container(border=True).metric("📉 PASIVO", f"Bs. {valor_pasivo:,.2f}")
+    with col3:
+        st.container(border=True).metric("🏗️ PATRIMONIO", f"Bs. {valor_patrimonio:,.2f}")
+    with col4:
+        st.container(border=True).metric(
+            "📊 UTILIDAD NETA ACUM.", 
+            f"Bs. {u_v:,.2f}",
+            delta_color="normal" if u_v >= 0 else "inverse"
+        )
+
     # --- SECCIÓN: CERTIFICADO DE SOLVENCIA FINANCIERA AUTOMATIZADO ---
     st.markdown("---")
     
