@@ -8921,8 +8921,12 @@ def evaluar_salud_financiera(db, ano, mes_limite):
                 LEFT(TRIM(plan_cuentas), 1) as clase,
                 SUM(debe) as total_debe,
                 SUM(haber) as total_haber
-            FROM `{db}`.asientos_contables
-            WHERE YEAR(fecha) = %s AND CAST(SUBSTRING(fecha, 6, 2) AS UNSIGNED) <= %s
+            FROM (
+                SELECT plan_cuentas, debe, haber FROM `{db}`.asientos_contables
+                WHERE YEAR(fecha) = %s AND CAST(SUBSTRING(fecha, 6, 2) AS UNSIGNED) <= %s
+                UNION ALL
+                SELECT plan_cuentas, debe, haber FROM `{db}`.saldos_iniciales
+            ) as t_combinada
             GROUP BY LEFT(TRIM(plan_cuentas), 1)
         """
         df = ejecutar_consulta(query, conn, params=(ano, mes_limite))
