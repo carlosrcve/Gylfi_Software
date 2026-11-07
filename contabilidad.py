@@ -9807,7 +9807,7 @@ if opcion_menu == "🏠 Inicio":
                 
         with col_btn2:
             if puntaje_actual >= 40:
-                # Generamos los bytes del PDF en tiempo real para el botón de descarga
+                # Generamos los bytes del PDF en tiempo real usando nuestra función blindada (QR, Hash, Métricas Bancarias)
                 pdf_bytes = generar_pdf_certificado_solvencia(db, año_int, mes_str, resultado_solvencia, u_mensual)
                 
                 st.download_button(
