@@ -8891,6 +8891,115 @@ def procesar_pago_whatsapp_duenio(imagen_stream, telefono_remitente_duenio, db_g
         except:
             pass
 
+import pandas as pd
+
+def evaluar_salud_financiera(db, ano, mes_limite):
+    """
+    Evalúa los saldos contables para emitir un diagnóstico de solvencia corporativa.
+    Clasifica las cuentas según su primer dígito (Clase 1 a 6).
+    """
+    df_default = {
+        "estado": "NO DISPONIBLE",
+        "motivo": "Sin datos suficientes en el período",
+        "activo_total": 0.0,
+        "pasivo_total": 0.0,
+        "patrimonio": 0.0,
+        "utilidad_neta": 0.0,
+        "puntaje": 0
+    }
+    
+    conn = conectar_db(db)
+    if not conn:
+        return df_default
+        
+    try:
+        # Consulta para sumar los saldos netos por cuenta agrupados por su clase contable (primer dígito)
+        query = f"""
+            SELECT 
+                LEFT(TRIM(plan_cuentas), 1) as clase,
+                SUM(debe) as total_debe,
+                SUM(haber) as total_haber
+            FROM `{db}`.asientos_contables
+            WHERE YEAR(fecha) = %s AND CAST(SUBSTRING(fecha, 6, 2) AS UNSIGNED) <= %s
+            GROUP BY LEFT(TRIM(plan_cuentas), 1)
+        """
+        df = ejecutar_consulta(query, conn, params=(ano, mes_limite))
+        conn.close()
+        
+        if df is None or df.empty:
+            return df_default
+            
+        # Diccionario para acumular saldos por clase
+        saldos = {str(i): 0.0 for i in range(1, 9)}
+        
+        for _, row in df.iterrows():
+            clase = str(row['clase'])
+            debe = float(row['total_debe'] or 0)
+            haber = float(row['total_haber'] or 0)
+            
+            # Naturaleza de las cuentas:
+            # Activos (1), Costos (5), Gastos (6) -> Naturaleza Deudor (Debe - Haber)
+            # Pasivos (2), Patrimonio (3), Ingresos (4) -> Naturaleza Acreedor (Haber - Debe)
+            if clase in ['1', '5', '6']:
+                saldos[clase] = debe - haber
+            elif clase in ['2', '3', '4']:
+                saldos[clase] = haber - debe
+
+        activo_total = saldos['1']
+        pasivo_total = saldos['2']
+        patrimonio = saldos['3']
+        ingresos = saldos['4']
+        costos_gastos = saldos['5'] + saldos['6']
+        utilidad_neta = ingresos - costos_gastos
+        
+        # --- REGLAS DE NEGOCIO Y UMBRALES DE SOLVENCIA ---
+        puntaje = 100
+        motivos = []
+        
+        # 1. Regla de Rentabilidad (¿La empresa da ganancia o pérdida acumulada?)
+        if utilidad_neta < 0:
+            puntaje -= 40
+            motivos.append("Pérdida neta acumulada en el período fiscal.")
+        else:
+            motivos.append("Operaciones con resultado neto positivo (Rentable).")
+            
+        # 2. Regla de Endeudamiento (Pasivos vs Activos)
+        if activo_total > 0:
+            nivel_endeudamiento = pasivo_total / activo_total
+            if nivel_endeudamiento > 0.80: # Si debe más del 80% de lo que tiene
+                puntaje -= 30
+                motivos.append(f"Alto nivel de endeudamiento ({nivel_endeudamiento*100:.1f}%).")
+            else:
+                motivos.append("Estructura de pasivos saludable frente al activo.")
+        else:
+            puntaje -= 50
+            motivos.append("Activo total registrado en cero o negativo.")
+
+        # 3. Determinación del Estado del Certificado
+        if puntaje >= 70:
+            estado = "🟢 SOLVENTE Y APTO"
+            color_badge = "success"
+        elif puntaje >= 40:
+            estado = "🟡 EN OBSERVACIÓN"
+            color_badge = "warning"
+        else:
+            estado = "🔴 NO APTO PARA CERTIFICACIÓN"
+            color_badge = "error"
+            
+        return {
+            "estado": estado,
+            "color": color_badge,
+            "motivos": " | ".join(motivos),
+            "activo_total": activo_total,
+            "pasivo_total": pasivo_total,
+            "patrimonio": patrimonio,
+            "utilidad_neta": utilidad_neta,
+            "puntaje": puntaje
+        }
+        
+    except Exception as e:
+        print(f"Error evaluando solvencia: {e}")
+        return df_default
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
@@ -9300,6 +9409,55 @@ if opcion_menu == "🏠 Inicio":
         st.title("📊 Auditoría Profesional")
         st.markdown(f"**Período de Análisis (Acumulado):** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
         st.divider()
+
+    #isabelelenoctaviourdaneta
+    # --- SECCIÓN: CERTIFICADO DE SOLVENCIA FINANCIERA AUTOMATIZADO ---
+    st.markdown("---")
+    st.markdown("### 🏆 Certificación de Solvencia y Diagnóstico Financiero")
+    st.write("Evaluación automática basada en los saldos reales de los asientos contables del período fiscal.")
+
+    # 1. Ejecutamos la función de evaluación con las variables de año y mes activas
+    resultado_solvencia = evaluar_salud_financiera(db, año_int, mes_int)
+
+    # 2. Mostramos tarjetas visuales con los indicadores clave
+    col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+    with col_s1:
+        st.metric("Activo Total", f"Bs. {resultado_solvencia['activo_total']:,.2f}")
+    with col_s2:
+        st.metric("Pasivo Total", f"Bs. {resultado_solvencia['pasivo_total']:,.2f}")
+    with col_s3:
+        st.metric("Patrimonio", f"Bs. {resultado_solvencia['patrimonio']:,.2f}")
+    with col_s4:
+        st.metric("Utilidad Neta", f"Bs. {resultado_solvencia['utilidad_neta']:,.2f}")
+
+    # 3. Panel de Estado y Diagnóstico
+    estado_actual = resultado_solvencia['estado']
+    puntaje_actual = resultado_solvencia['puntaje']
+    motivos_actual = resultado_solvencia['motivos']
+
+    if "SOLVENTE" in estado_actual:
+        st.success(f"**Estado del Diagnóstico:** {estado_actual} (Puntaje: {puntaje_actual}/100)\n\n*Factores:* {motivos_actual}")
+    elif "OBSERVACIÓN" in estado_actual:
+        st.warning(f"**Estado del Diagnóstico:** {estado_actual} (Puntaje: {puntaje_actual}/100)\n\n*Factores:* {motivos_actual}")
+    else:
+        st.error(f"**Estado del Diagnóstico:** {estado_actual} (Puntaje: {puntaje_actual}/100)\n\n*Factores:* {motivos_actual}")
+
+    # 4. Botón de Acción para la Generación del Certificado
+    col_btn1, col_btn2 = st.columns([2, 1])
+    with col_btn1:
+        if "SOLVENTE" in estado_actual:
+            st.info("💡 La empresa cuenta con los parámetros saludables requeridos. Puede generar su certificado oficial listo para imprimir.")
+        else:
+            st.warning("⚠️ La empresa presenta alertas financieras. El certificado se emitirá con observaciones detalladas.")
+            
+    with col_btn2:
+        # Botón que simulará la descarga del PDF
+        if st.button("📄 Generar Certificado PDF", use_container_width=True):
+            if puntaje_actual >= 40:
+                st.toast("✅ ¡Certificado generado con éxito! (Preparando descarga de PDF...)", icon="🎉")
+                # Aquí llamaremos a la función de ReportLab para crear el PDF en el siguiente paso
+            else:
+                st.error("❌ No es posible emitir certificado de solvencia para empresas en nivel no apto.")
 
     # --- FILA 1: INDICADORES FINANCIEROS ---
     col_titulo, col_vacia, col_btn = st.columns([0.5, 0.3, 0.2])
