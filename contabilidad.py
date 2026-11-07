@@ -9012,6 +9012,125 @@ def evaluar_salud_financiera(db, ano, mes_limite):
         print(f"Error evaluando solvencia: {e}")
         return df_default
 
+import io
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+
+def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u_mensual):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=letter, 
+        rightMargin=54, leftMargin=54, 
+        topMargin=54, bottomMargin=54
+    )
+    story = []
+    
+    # Estilos profesionales
+    styles = getSampleStyleSheet()
+    
+    titulo_style = ParagraphStyle(
+        'TituloCertificado',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=16,
+        leading=20,
+        alignment=1, # Centrado
+        textColor=colors.HexColor('#1e3c72')
+    )
+    
+    subtitulo_style = ParagraphStyle(
+        'SubTituloCertificado',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=11,
+        leading=14,
+        alignment=1,
+        textColor=colors.HexColor('#555555')
+    )
+    
+    body_style = ParagraphStyle(
+        'BodyCertificado',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=10,
+        leading=15,
+        alignment=4, # Justificado
+        textColor=colors.HexColor('#222222')
+    )
+    
+    bold_body = ParagraphStyle(
+        'BoldBodyCertificado',
+        parent=body_style,
+        fontName='Helvetica-Bold'
+    )
+
+    # Encabezado del Certificado
+    story.append(Paragraph("Gylfi Software — Módulo de Certificación Financiera", subtitulo_style))
+    story.append(Spacer(1, 10))
+    story.append(Paragraph("CERTIFICADO DE SOLVENCIA ECONÓMICA Y FINANCIERA", titulo_style))
+    story.append(Spacer(1, 15))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1e3c72'), spaceAfter=20))
+
+    # Destinatario
+    story.append(Paragraph("<b>A quien corresponda:</b>", body_style))
+    story.append(Spacer(1, 10))
+
+    # Cuerpo del certificado adaptado con los datos de la empresa
+    texto_principal = (
+        f"Por medio de la presente, el sistema automatizado de gestión contable Gylfi Software, "
+        f"en representación analítica de la entidad corporativa <b>{nombre_empresa.upper()}</b>, "
+        f"CERTIFICA que la empresa presenta una sólida estructura financiera analizada al cierre del período "
+        f"<b>{mes_str} {ano}</b>.<br/><br/>"
+        f"Tras haber evaluado los registros contables correspondientes, se constatan los siguientes indicadores de respaldo:"
+    )
+    story.append(Paragraph(texto_principal, body_style))
+    story.append(Spacer(1, 12))
+
+    # Cálculo del Ratio de Solvencia (Activo / Pasivo)
+    activo = resultado['activo_total']
+    pasivo = resultado['pasivo_total']
+    ratio_solvencia = (activo / pasivo) if pasivo > 0 else (activo if activo > 0 else 0.0)
+
+    # Indicadores numerados con los datos reales
+    item_1 = f"<b>1. Patrimonio Neto y Rentabilidad:</b> La empresa cuenta con un patrimonio de <b>Bs. {resultado['patrimonio']:,.2f}</b> y una utilidad neta acumulada de <b>Bs. {resultado['utilidad_neta']:,.2f}</b> (Utilidad del mes: Bs. {u_mensual:,.2f}), reflejando recursos propios y operativos sólidos."
+    item_2 = f"<b>2. Ratio de Solvencia Óptimo:</b> La relación técnica entre el Activo Total (Bs. {activo:,.2f}) y el Pasivo Total (Bs. {pasivo:,.2f}) se sitúa en un ratio de <b>{ratio_solvencia:.2f}</b>, cumpliendo y superando los parámetros estándar de estabilidad comercial."
+    item_3 = f"<b>3. Diagnóstico de Cumplimiento:</b> El sistema otorga un puntaje de evaluación de <b>{resultado['puntaje']}/100</b>, bajo la calificación oficial de <b>{resultado['estado']}</b>. Factores evaluados: {resultado['motivos']}."
+
+    story.append(Paragraph(item_1, body_style))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph(item_2, body_style))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph(item_3, body_style))
+    story.append(Spacer(1, 15))
+
+    # Cierre y Firma
+    texto_cierre = (
+        f"Se expide la presente certificación a solicitud de la parte interesada en Caracas, "
+        f"a los 7 días del mes de noviembre de 2026, para los fines legales o comerciales que estimen convenientes."
+    )
+    story.append(Paragraph(texto_cierre, body_style))
+    story.append(Spacer(1, 40))
+
+    # Bloque de Firma
+    firma_data = [
+        [Paragraph("<b>___________________________________</b>", body_style)],
+        [Paragraph("<b>Gylfi Software C.A.</b><br/>Validador Algorítmico de Solvencia Financiera<br/>Certificado emitido digitalmente bajo normas B2B", body_style)]
+    ]
+    t_firma = Table(firma_data, colWidths=[250])
+    t_firma.setStyle(TableStyle([
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+    ]))
+    story.append(t_firma)
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -9557,11 +9676,20 @@ if opcion_menu == "🏠 Inicio":
                 """, unsafe_allow_html=True)
                 
         with col_btn2:
-            if st.button("📄 Generar Certificado PDF", use_container_width=True, key="btn_generar_certificado_solvencia"):
-                if puntaje_actual >= 40:
-                    st.toast(f"✅ ¡Certificado de {mes_str} {año_int} generado con éxito!", icon="🎉")
-                else:
-                    st.error("❌ No es posible emitir certificado de solvencia para empresas en nivel no apto.")
+            if puntaje_actual >= 40:
+                # Generamos los bytes del PDF en tiempo real para el botón de descarga
+                pdf_bytes = generar_pdf_certificado_solvencia(db, año_int, mes_str, resultado_solvencia, u_mensual)
+                
+                st.download_button(
+                    label="📄 Descargar Certificado PDF",
+                    data=pdf_bytes,
+                    file_name=f"Certificado_Solvencia_{db}_{mes_str}_{año_int}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="btn_descargar_pdf_solvencia"
+                )
+            else:
+                st.error("❌ No apto para emisión.")
 
     # --- FILA 1: INDICADORES FINANCIEROS ---
     col_titulo, col_vacia, col_btn = st.columns([0.5, 0.3, 0.2])
