@@ -9416,48 +9416,52 @@ if opcion_menu == "🏠 Inicio":
     st.markdown("### 🏆 Certificación de Solvencia y Diagnóstico Financiero")
     st.write("Evaluación automática basada en los saldos reales de los asientos contables del período fiscal.")
 
-    # 1. Ejecutamos la función de evaluación con las variables de año y mes activas
-    resultado_solvencia = evaluar_salud_financiera(db, año_int, mes_int)
+    # 1. Recuperamos la base de datos activa de forma segura
+    db = st.session_state.get('DB_ACTUAL')
 
-    # 2. Mostramos tarjetas visuales con los indicadores clave
-    col_s1, col_s2, col_s3, col_s4 = st.columns(4)
-    with col_s1:
-        st.metric("Activo Total", f"Bs. {resultado_solvencia['activo_total']:,.2f}")
-    with col_s2:
-        st.metric("Pasivo Total", f"Bs. {resultado_solvencia['pasivo_total']:,.2f}")
-    with col_s3:
-        st.metric("Patrimonio", f"Bs. {resultado_solvencia['patrimonio']:,.2f}")
-    with col_s4:
-        st.metric("Utilidad Neta", f"Bs. {resultado_solvencia['utilidad_neta']:,.2f}")
-
-    # 3. Panel de Estado y Diagnóstico
-    estado_actual = resultado_solvencia['estado']
-    puntaje_actual = resultado_solvencia['puntaje']
-    motivos_actual = resultado_solvencia['motivos']
-
-    if "SOLVENTE" in estado_actual:
-        st.success(f"**Estado del Diagnóstico:** {estado_actual} (Puntaje: {puntaje_actual}/100)\n\n*Factores:* {motivos_actual}")
-    elif "OBSERVACIÓN" in estado_actual:
-        st.warning(f"**Estado del Diagnóstico:** {estado_actual} (Puntaje: {puntaje_actual}/100)\n\n*Factores:* {motivos_actual}")
+    if not db or db == "{db}" or db == "None" or str(db).strip() == "":
+        st.warning("⚠️ Por favor, selecciona una empresa/base de datos activa en la barra lateral para ver su diagnóstico de solvencia.")
     else:
-        st.error(f"**Estado del Diagnóstico:** {estado_actual} (Puntaje: {puntaje_actual}/100)\n\n*Factores:* {motivos_actual}")
+        # 2. Ejecutamos la función de evaluación con la base de datos y los filtros activos
+        resultado_solvencia = evaluar_salud_financiera(db, año_int, mes_int)
 
-    # 4. Botón de Acción para la Generación del Certificado
-    col_btn1, col_btn2 = st.columns([2, 1])
-    with col_btn1:
+        # 3. Mostramos tarjetas visuales con los indicadores clave
+        col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+        with col_s1:
+            st.metric("Activo Total", f"Bs. {resultado_solvencia['activo_total']:,.2f}")
+        with col_s2:
+            st.metric("Pasivo Total", f"Bs. {resultado_solvencia['pasivo_total']:,.2f}")
+        with col_s3:
+            st.metric("Patrimonio", f"Bs. {resultado_solvencia['patrimonio']:,.2f}")
+        with col_s4:
+            st.metric("Utilidad Neta", f"Bs. {resultado_solvencia['utilidad_neta']:,.2f}")
+
+        # 4. Panel de Estado y Diagnóstico
+        estado_actual = resultado_solvencia['estado']
+        puntaje_actual = resultado_solvencia['puntaje']
+        motivos_actual = resultado_solvencia['motivos']
+
         if "SOLVENTE" in estado_actual:
-            st.info("💡 La empresa cuenta con los parámetros saludables requeridos. Puede generar su certificado oficial listo para imprimir.")
+            st.success(f"**Estado del Diagnóstico:** {estado_actual} (Puntaje: {puntaje_actual}/100)\n\n*Factores:* {motivos_actual}")
+        elif "OBSERVACIÓN" in estado_actual:
+            st.warning(f"**Estado del Diagnóstico:** {estado_actual} (Puntaje: {puntaje_actual}/100)\n\n*Factores:* {motivos_actual}")
         else:
-            st.warning("⚠️ La empresa presenta alertas financieras. El certificado se emitirá con observaciones detalladas.")
-            
-    with col_btn2:
-        # Botón que simulará la descarga del PDF
-        if st.button("📄 Generar Certificado PDF", use_container_width=True):
-            if puntaje_actual >= 40:
-                st.toast("✅ ¡Certificado generado con éxito! (Preparando descarga de PDF...)", icon="🎉")
-                # Aquí llamaremos a la función de ReportLab para crear el PDF en el siguiente paso
+            st.error(f"**Estado del Diagnóstico:** {estado_actual} (Puntaje: {puntaje_actual}/100)\n\n*Factores:* {motivos_actual}")
+
+        # 5. Botón de Acción para la Generación del Certificado
+        col_btn1, col_btn2 = st.columns([2, 1])
+        with col_btn1:
+            if "SOLVENTE" in estado_actual:
+                st.info("💡 La empresa cuenta con los parámetros saludables requeridos. Puede generar su certificado oficial listo para imprimir.")
             else:
-                st.error("❌ No es posible emitir certificado de solvencia para empresas en nivel no apto.")
+                st.warning("⚠️ La empresa presenta alertas financieras. El certificado se emitirá con observaciones detalladas.")
+                
+        with col_btn2:
+            if st.button("📄 Generar Certificado PDF", use_container_width=True, key="btn_generar_certificado_solvencia"):
+                if puntaje_actual >= 40:
+                    st.toast("✅ ¡Certificado generado con éxito! (Preparando descarga de PDF...)", icon="🎉")
+                else:
+                    st.error("❌ No es posible emitir certificado de solvencia para empresas en nivel no apto.")
 
     # --- FILA 1: INDICADORES FINANCIEROS ---
     col_titulo, col_vacia, col_btn = st.columns([0.5, 0.3, 0.2])
