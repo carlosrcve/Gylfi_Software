@@ -9022,12 +9022,6 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
-import io
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
-
 def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u_mensual):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -9065,8 +9059,8 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
         'BodyCertificado',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=9.5,
-        leading=14,
+        fontSize=9,
+        leading=13.5,
         alignment=4, # Justificado
         textColor=colors.HexColor('#222222')
     )
@@ -9075,8 +9069,8 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
         'TableCell',
         parent=styles['Normal'],
         fontName='Helvetica',
-        fontSize=9,
-        leading=12,
+        fontSize=8.5,
+        leading=11,
         textColor=colors.HexColor('#212529')
     )
     
@@ -9090,21 +9084,21 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
         'TableHeader',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=9,
-        leading=12,
+        fontSize=8.5,
+        leading=11,
         textColor=colors.whitesmoke
     )
 
     # Encabezado del Certificado
     story.append(Paragraph("Gylfi Software — Módulo de Certificación Financiera", subtitulo_style))
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 4))
     story.append(Paragraph("CERTIFICADO DE SOLVENCIA ECONÓMICA Y FINANCIERA", titulo_style))
-    story.append(Spacer(1, 10))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1e3c72'), spaceAfter=12))
+    story.append(Spacer(1, 8))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1e3c72'), spaceAfter=10))
 
     # Destinatario y Texto Principal
     story.append(Paragraph("<b>A quien corresponda:</b>", body_style))
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 4))
 
     texto_principal = (
         f"Por medio de la presente, el sistema automatizado de gestión contable Gylfi Software, "
@@ -9113,9 +9107,9 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
         f"al cierre del período <b>{mes_str} {ano}</b>."
     )
     story.append(Paragraph(texto_principal, body_style))
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
 
-    # Cálculos técnicos para la tabla y el reporte
+    # Cálculos técnicos para la tabla y el reporte dinámico
     activo = resultado['activo_total']
     pasivo = resultado['pasivo_total']
     patrimonio = resultado['patrimonio']
@@ -9123,7 +9117,30 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
     ratio_solvencia = (activo / pasivo) if pasivo > 0 else (activo if activo > 0 else 0.0)
     pct_endeudamiento = (pasivo / activo * 100) if activo > 0 else 0.0
 
-    # Construcción de la Tabla Ejecutiva (Estilo Scannable)
+    # --- LÓGICA DINÁMICA PARA EL DIAGNÓSTICO GERENCIAL ---
+    # 1. Diagnóstico de Utilidad del Mes
+    if u_mensual > 0:
+        diag_mensual = "Excelente. El negocio está en zona de ganancias operativas del período."
+    elif u_mensual == 0:
+        diag_mensual = "Neutro. Sin operaciones de utilidad neta registradas en el mes."
+    else:
+        diag_mensual = "Alerta. El período presenta pérdida neta mensual operativa."
+
+    # 2. Diagnóstico de Patrimonio
+    if patrimonio > 0:
+        diag_patrimonio = "Sólido respaldo de los recursos propios de la empresa."
+    else:
+        diag_patrimonio = "Alerta crítica. Patrimonio en cero o negativo frente a obligaciones."
+
+    # 3. Diagnóstico Dinámico del Ratio de Solvencia y Apalancamiento
+    if ratio_solvencia >= 1.8:
+        diag_solvencia = f"Óptimo. Margen amplio de cobertura frente a terceros. Financiamiento externo moderado ({pct_endeudamiento:.1f}%)."
+    elif ratio_solvencia >= 1.4:
+        diag_solvencia = f"Estable pero bajo observación. El {pct_endeudamiento:.1f}% del activo está comprometido con deudas."
+    else:
+        diag_solvencia = f"Alto riesgo de apalancamiento. El {pct_endeudamiento:.1f}% de los activos se financia con pasivos exigentes."
+
+    # Construcción de la Tabla Ejecutiva con diagnósticos dinámicos
     table_data = [
         [
             Paragraph("Indicador", table_header_style), 
@@ -9133,7 +9150,7 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
         [
             Paragraph("Utilidad Neta del Mes", table_cell_bold),
             Paragraph(f"Bs. {u_mensual:,.2f}", table_cell_style),
-            Paragraph("Excelente. El negocio está en zona de ganancias operativas del período.", table_cell_style)
+            Paragraph(diag_mensual, table_cell_style)
         ],
         [
             Paragraph("Utilidad Neta Acum.", table_cell_bold),
@@ -9143,39 +9160,42 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
         [
             Paragraph("Patrimonio Neto", table_cell_bold),
             Paragraph(f"Bs. {patrimonio:,.2f}", table_cell_style),
-            Paragraph("Sólido respaldo de los recursos propios de la empresa.", table_cell_style)
+            Paragraph(diag_patrimonio, table_cell_style)
         ],
         [
             Paragraph("Ratio de Solvencia", table_cell_bold),
             Paragraph(f"{ratio_solvencia:.2f}", table_cell_style),
-            Paragraph(f"Estable bajo observación. El {pct_endeudamiento:.1f}% del activo está comprometido con terceros.", table_cell_style)
+            Paragraph(diag_solvencia, table_cell_style)
         ]
     ]
 
-    t_indicadores = Table(table_data, colWidths=[130, 110, 264])
+    t_indicadores = Table(table_data, colWidths=[120, 110, 274])
     t_indicadores.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1e3c72')),
         ('ALIGN', (0,0), (-1,-1), 'LEFT'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#d1d5db')),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ('LEFTPADDING', (0,0), (-1,-1), 6),
-        ('RIGHTPADDING', (0,0), (-1,-1), 6),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('LEFTPADDING', (0,0), (-1,-1), 5),
+        ('RIGHTPADDING', (0,0), (-1,-1), 5),
     ]))
     
     story.append(t_indicadores)
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
 
-    # Análisis Técnico y de Riesgos (Incorporado al reporte formal)
+    # --- ANÁLISIS TÉCNICO Y DE RIESGOS AUTOMATIZADO ---
     analisis_texto = (
-        f"<b>Análisis Técnico y de Riesgos:</b> Tras auditar los estados financieros, la relación entre el Activo Total "
-        f"(Bs. {activo:,.2f}) y el Pasivo Total (Bs. {pasivo:,.2f}) arroja un ratio de solvencia de <b>{ratio_solvencia:.2f}</b>. "
-        f"El sistema otorga una calificación de puntaje de <b>{resultado['puntaje']}/100</b> bajo el estado <b>{resultado['estado']}</b>. "
-        f"Factores evaluados por el motor algorítmico: {resultado['motivos']}"
+        f"<b>Análisis Técnico y de Riesgos:</b> Si evaluamos los números extraídos por el sistema para <b>{nombre_empresa.upper()}</b>, "
+        f"se observan características de rentabilidad y un ratio de solvencia de <b>{ratio_solvencia:.2f}</b>. "
+        f"Esto significa que por cada Bolívar que la empresa debe (Pasivo Total: Bs. {pasivo:,.2f}), posee Bs. {ratio_solvencia:.2f} "
+        f"en activos para responder (Activo Total: Bs. {activo:,.2f}). "
+        f"Dado que el <b>{pct_endeudamiento:.1f}%</b> de los activos están financiados mediante deudas, un comité de crédito bancario "
+        f"analizará este apalancamiento bajo los parámetros del puntaje otorgado ({resultado['puntaje']}/100 - {resultado['estado']}). "
+        f"Factores del sistema: {resultado['motivos']}"
     )
     story.append(Paragraph(analisis_texto, body_style))
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
 
     # Cierre y Firma institucional
     texto_cierre = (
@@ -9183,7 +9203,7 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
         f"a los 7 días del mes de noviembre de 2026, para los fines legales, bancarios o comerciales que estimen convenientes."
     )
     story.append(Paragraph(texto_cierre, body_style))
-    story.append(Spacer(1, 25))
+    story.append(Spacer(1, 15))
 
     # Bloque de Firma
     firma_data = [
