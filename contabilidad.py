@@ -8893,6 +8893,7 @@ def procesar_pago_whatsapp_duenio(imagen_stream, telefono_remitente_duenio, db_g
 
 import pandas as pd
 
+
 def evaluar_salud_financiera(db, ano, mes_limite):
     """
     Evalúa los saldos contables para emitir un diagnóstico de solvencia corporativa.
@@ -8901,6 +8902,7 @@ def evaluar_salud_financiera(db, ano, mes_limite):
     df_default = {
         "estado": "NO DISPONIBLE",
         "motivo": "Sin datos suficientes en el período",
+        "motivos": "Sin datos suficientes en el período",
         "activo_total": 0.0,
         "pasivo_total": 0.0,
         "patrimonio": 0.0,
@@ -8913,7 +8915,6 @@ def evaluar_salud_financiera(db, ano, mes_limite):
         return df_default
         
     try:
-        # Consulta para sumar los saldos netos por cuenta agrupados por su clase contable (primer dígito)
         query = f"""
             SELECT 
                 LEFT(TRIM(plan_cuentas), 1) as clase,
@@ -8929,7 +8930,6 @@ def evaluar_salud_financiera(db, ano, mes_limite):
         if df is None or df.empty:
             return df_default
             
-        # Diccionario para acumular saldos por clase
         saldos = {str(i): 0.0 for i in range(1, 9)}
         
         for _, row in df.iterrows():
@@ -8937,9 +8937,6 @@ def evaluar_salud_financiera(db, ano, mes_limite):
             debe = float(row['total_debe'] or 0)
             haber = float(row['total_haber'] or 0)
             
-            # Naturaleza de las cuentas:
-            # Activos (1), Costos (5), Gastos (6) -> Naturaleza Deudor (Debe - Haber)
-            # Pasivos (2), Patrimonio (3), Ingresos (4) -> Naturaleza Acreedor (Haber - Debe)
             if clase in ['1', '5', '6']:
                 saldos[clase] = debe - haber
             elif clase in ['2', '3', '4']:
@@ -8952,21 +8949,19 @@ def evaluar_salud_financiera(db, ano, mes_limite):
         costos_gastos = saldos['5'] + saldos['6']
         utilidad_neta = ingresos - costos_gastos
         
-        # --- REGLAS DE NEGOCIO Y UMBRALES DE SOLVENCIA ---
+        # Reglas de negocio y umbrales de solvencia
         puntaje = 100
         motivos = []
         
-        # 1. Regla de Rentabilidad (¿La empresa da ganancia o pérdida acumulada?)
         if utilidad_neta < 0:
             puntaje -= 40
             motivos.append("Pérdida neta acumulada en el período fiscal.")
         else:
             motivos.append("Operaciones con resultado neto positivo (Rentable).")
             
-        # 2. Regla de Endeudamiento (Pasivos vs Activos)
         if activo_total > 0:
             nivel_endeudamiento = pasivo_total / activo_total
-            if nivel_endeudamiento > 0.80: # Si debe más del 80% de lo que tiene
+            if nivel_endeudamiento > 0.80:
                 puntaje -= 30
                 motivos.append(f"Alto nivel de endeudamiento ({nivel_endeudamiento*100:.1f}%).")
             else:
@@ -8975,7 +8970,6 @@ def evaluar_salud_financiera(db, ano, mes_limite):
             puntaje -= 50
             motivos.append("Activo total registrado en cero o negativo.")
 
-        # 3. Determinación del Estado del Certificado
         if puntaje >= 70:
             estado = "🟢 SOLVENTE Y APTO"
             color_badge = "success"
@@ -8986,10 +8980,13 @@ def evaluar_salud_financiera(db, ano, mes_limite):
             estado = "🔴 NO APTO PARA CERTIFICACIÓN"
             color_badge = "error"
             
+        texto_motivos = " | ".join(motivos)
+            
         return {
             "estado": estado,
             "color": color_badge,
-            "motivos": " | ".join(motivos),
+            "motivo": texto_motivos,
+            "motivos": texto_motivos,  # Incluimos ambas por compatibilidad
             "activo_total": activo_total,
             "pasivo_total": pasivo_total,
             "patrimonio": patrimonio,
