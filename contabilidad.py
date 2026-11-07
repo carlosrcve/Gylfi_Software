@@ -9016,6 +9016,109 @@ def evaluar_salud_financiera(db, ano, mes_limite):
         print(f"Error evaluando solvencia: {e}")
         return df_default
 
+
+import io
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+
+def generar_pdf_dossier_estrategico(nombre_empresa, ano, mes_str):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=letter, 
+        rightMargin=54, leftMargin=54, 
+        topMargin=54, bottomMargin=54
+    )
+    story = []
+    styles = getSampleStyleSheet()
+    
+    titulo_style = ParagraphStyle(
+        'TituloDossier', parent=styles['Normal'],
+        fontName='Helvetica-Bold', fontSize=14, leading=17,
+        alignment=1, textColor=colors.HexColor('#1e3c72')
+    )
+    
+    subtitulo_style = ParagraphStyle(
+        'SubTituloDossier', parent=styles['Normal'],
+        fontName='Helvetica-Bold', fontSize=9.5, leading=12,
+        alignment=1, textColor=colors.HexColor('#555555')
+    )
+    
+    body_style = ParagraphStyle(
+        'BodyDossier', parent=styles['Normal'],
+        fontName='Helvetica', fontSize=9, leading=13.5,
+        alignment=4, textColor=colors.HexColor('#222222')
+    )
+
+    bullet_style = ParagraphStyle(
+        'BulletDossier', parent=styles['Normal'],
+        fontName='Helvetica', fontSize=8.5, leading=12,
+        leftIndent=15, alignment=4, textColor=colors.HexColor('#222222')
+    )
+
+    # Encabezado del Dossier
+    story.append(Paragraph("Gylfi Software — Estrategia de Expansión Corporativa y B2B", subtitulo_style))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph("DOSSIER EJECUTIVO Y TESIS DE INVERSIÓN", titulo_style))
+    story.append(Spacer(1, 8))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1e3c72'), spaceAfter=10))
+
+    # Introducción
+    story.append(Paragraph(f"<b>Propuesta de Valor e Inversión — Entidad: {nombre_empresa.upper()}</b>", body_style))
+    story.append(Spacer(1, 6))
+    
+    intro_dossier = (
+        "Gylfi Software transforma la contabilidad tradicional en una autoridad de certificación financiera "
+        "descentralizada para PyMEs, optimizando el acceso al crédito comercial en la economía venezolana y conectando "
+        "directamente a las empresas con fondos de capital privado y banca comercial."
+    )
+    story.append(Paragraph(intro_dossier, body_style))
+    story.append(Spacer(1, 10))
+
+    # Fases de Estrategia Comercial
+    story.append(Paragraph("<b>📈 Estrategia de Penetración de Mercado (Doble Vía B2B):</b>", body_style))
+    story.append(Spacer(1, 4))
+
+    fase_1 = "• <b>Fase 1 (El Caballo de Troya - Contadores y Empresarios):</b> Los contadores utilizan la herramienta para automatizar estados financieros y diagnósticos. Al entregar el certificado oficial al banco, se convierten en promotores orgánicos de la plataforma."
+    story.append(Paragraph(fase_1, bullet_style))
+    story.append(Spacer(1, 4))
+
+    fase_2 = "• <b>Fase 2 (Alianzas con Fondos de Capital Privado):</b> Estandarización de reportes listos para Due Diligence. Los fondos de inversión exigen el formato de Gylfi Software a sus postulantes para agilizar los comités de riesgo."
+    story.append(Paragraph(fase_2, bullet_style))
+    story.append(Spacer(1, 4))
+
+    fase_3 = "• <b>Fase 3 (Monetización SaaS y Modelo Transaccional):</b> Suscripción en divisas y criptoactivos (Binance P2P / pasarelas) por cada emisión de certificados con validez digital y código QR cifrado."
+    story.append(Paragraph(fase_3, bullet_style))
+    story.append(Spacer(1, 10))
+
+    # Conclusión
+    conclusiones = (
+        f"<b>Conclusión de Inversión:</b> Este modelo escala de forma exponencial al posicionar a Gylfi Software "
+        f"como el estándar fiduciario de referencia para el período {ano}. Documento emitido para evaluación estratégica."
+    )
+    story.append(Paragraph(conclusiones, body_style))
+    story.append(Spacer(1, 20))
+
+    # Firma institucional del Dossier
+    firma_data = [
+        [Paragraph("<b>___________________________________</b>", body_style)],
+        [Paragraph("<b>Gylfi Software C.A.</b><br/>Dirección de Desarrollo y Expansión SaaS", body_style)]
+    ]
+    t_firma = Table(firma_data, colWidths=[250])
+    t_firma.setStyle(TableStyle([
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+    ]))
+    story.append(t_firma)
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
 import io
 import hashlib
 import uuid
@@ -9790,6 +9893,7 @@ if opcion_menu == "🏠 Inicio":
         """, unsafe_allow_html=True)
 
         # 7. Panel de Acciones y Selección de Tipo de Documento Corporativo
+        # 7. Panel de Acciones y Selección de Tipo de Documento Corporativo
         col_btn1, col_btn2 = st.columns([1.5, 1.5])
         
         with col_btn1:
@@ -9808,7 +9912,7 @@ if opcion_menu == "🏠 Inicio":
                 
         with col_btn2:
             if puntaje_actual >= 40:
-                # Selector visual de doble carril (Bancos vs Inversionistas)
+                # Selector visual independiente (Bancos vs Inversionistas)
                 tipo_reporte = st.radio(
                     "Seleccione el tipo de documento corporativo a emitir:", 
                     ["Certificado Oficial de Solvencia (Bancario / Comercial)", "Dossier Ejecutivo y Modelo de Negocio (Inversionistas)"],
@@ -9816,13 +9920,12 @@ if opcion_menu == "🏠 Inicio":
                     key="selector_tipo_reporte"
                 )
 
-                # Condicional para generar el PDF correspondiente según la elección
+                # Bifurcación exacta de funciones según el radio seleccionado
                 if tipo_reporte.startswith("Certificado Oficial"):
                     pdf_bytes = generar_pdf_certificado_solvencia(db, año_int, mes_str, resultado_solvencia, u_mensual)
                     nombre_archivo = f"Certificado_Solvencia_{db}_{mes_str}_{año_int}.pdf"
                 else:
-                    # Aquí puedes definir o llamar la función de tu dossier estratégico para inversionistas
-                    pdf_bytes = generar_pdf_certificado_solvencia(db, año_int, mes_str, resultado_solvencia, u_mensual) # Temporal hasta que crees la del dossier
+                    pdf_bytes = generar_pdf_dossier_estrategico(db, año_int, mes_str)
                     nombre_archivo = f"Dossier_Estrategico_Gylfi_{db}.pdf"
 
                 st.download_button(
