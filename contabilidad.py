@@ -9455,10 +9455,48 @@ if opcion_menu == "🏠 Inicio":
             </div>
         """, unsafe_allow_html=True)
     else:
-        # 4. Ejecutamos la función de evaluación con el año y el mes exactos del selector
-        resultado_solvencia = evaluar_salud_financiera(db, año_int, mes_int)
+        # 4. Cálculo de la Utilidad Neta en base a la lógica de tus indicadores y período activo
+        f_inicio_global = date(año_int, 1, 1)
+        _, ultimo_dia_mes = calendar.monthrange(año_int, mes_int)
+        f_fin_global = date(año_int, mes_int, ultimo_dia_mes)
 
-        # 5. Mostramos tarjetas visuales con HTML/CSS personalizado para los indicadores clave
+        df_utilidad = obtener_historico_utilidad(db, f_inicio=f_inicio_global, f_fin=f_fin_global)
+        if df_utilidad is None:
+            df_utilidad = pd.DataFrame()
+
+        u_v = 0.0
+        if df_utilidad is not None and not df_utilidad.empty:
+            posibles_columnas = ['utilidad_acumulada', 'utilidad_neta', 'utilidad_mensual', 'utilidad']
+            col_utilidad = next((c for c in posibles_columnas if c in df_utilidad.columns), None)
+            
+            if not col_utilidad:
+                numericas = df_utilidad.select_dtypes(include='number').columns
+                if len(numericas) > 0:
+                    col_utilidad = numericas[-1]
+
+            if col_utilidad:
+                try:
+                    if 'anio' in df_utilidad.columns and 'mes' in df_utilidad.columns:
+                        df_utilidad['anio'] = pd.to_numeric(df_utilidad['anio'], errors='coerce')
+                        df_utilidad['mes'] = pd.to_numeric(df_utilidad['mes'], errors='coerce')
+                        fila_mes = df_utilidad[(df_utilidad['anio'] == año_int) & (df_utilidad['mes'] == mes_int)]
+                        
+                        if not fila_mes.empty:
+                            u_v = float(fila_mes[col_utilidad].iloc[0])
+                        else:
+                            u_v = float(df_utilidad[col_utilidad].iloc[-1])
+                    else:
+                        u_v = float(df_utilidad[col_utilidad].iloc[-1])
+                except Exception:
+                    u_v = float(df_utilidad[col_utilidad].iloc[-1])
+
+        # 5. Ejecutamos la función de evaluación con el año y el mes exactos del selector
+        resultado_solvencia = evaluar_salud_financiera(db, año_int, mes_int)
+        
+        # Sobrescribimos o aseguramos que la utilidad neta provenga del cálculo preciso que trajiste de los indicadores
+        resultado_solvencia['utilidad_neta'] = u_v
+
+        # 6. Mostramos tarjetas visuales con HTML/CSS personalizado para los indicadores clave
         col_s1, col_s2, col_s3, col_s4 = st.columns(4)
         
         def tarjeta_metrica(titulo, valor):
@@ -9480,7 +9518,7 @@ if opcion_menu == "🏠 Inicio":
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 6. Panel de Estado y Diagnóstico con Estética CSS Avanzada
+        # 7. Panel de Estado y Diagnóstico con Estética CSS Avanzada
         estado_actual = resultado_solvencia['estado']
         puntaje_actual = resultado_solvencia['puntaje']
         motivos_actual = resultado_solvencia['motivos']
@@ -9508,7 +9546,7 @@ if opcion_menu == "🏠 Inicio":
             </div>
         """, unsafe_allow_html=True)
 
-        # 7. Botón de Acción y Nota Informativa
+        # 8. Botón de Acción y Nota Informativa
         col_btn1, col_btn2 = st.columns([2, 1])
         with col_btn1:
             if "SOLVENTE" in estado_actual:
