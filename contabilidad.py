@@ -9019,8 +9019,9 @@ def evaluar_salud_financiera(db, ano, mes_limite):
 import io
 import hashlib
 import uuid
+import qrcode
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
@@ -9044,7 +9045,7 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
     
     subtitulo_style = ParagraphStyle(
         'SubTituloCertificado', parent=styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=9, leading=11,
+        fontName='Helvetica-Bold', fontSize=8.5, leading=11,
         alignment=1, textColor=colors.HexColor('#555555')
     )
     
@@ -9082,7 +9083,7 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
         textColor=colors.whitesmoke
     )
 
-    # --- DATOS Y CÁLCULOS TÉCNICOS BANCARIOS ---
+    # --- DATOS Y CÁLCULOS TÉCNICOS BANCARIOS (PILAR 4) ---
     activo = resultado['activo_total']
     pasivo = resultado['pasivo_total']
     patrimonio = resultado['patrimonio']
@@ -9090,22 +9091,45 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
     ratio_solvencia = (activo / pasivo) if pasivo > 0 else (activo if activo > 0 else 0.0)
     pct_endeudamiento = (pasivo / activo * 100) if activo > 0 else 0.0
 
-    # Simulación de métricas del Modelo CAMEL / Liquidez Bancaria
+    # Métricas de Liquidez / Modelo CAMEL
     capital_trabajo_neto = activo - pasivo  
     prueba_acida = (activo * 0.7) / pasivo if pasivo > 0 else 1.5  
 
-    # Generación de Trazabilidad Criptográfica (SHA-256 y Token Único)
+    # --- TRAZABILIDAD CRIPTOGRÁFICA Y HASH (PILAR 2) ---
     raw_string = f"{nombre_empresa}-{ano}-{mes_str}-{activo}-{pasivo}-{patrimonio}-{uuid.uuid4()}"
     document_hash = hashlib.sha256(raw_string.encode('utf-8')).hexdigest()
     token_corto = document_hash[:12].upper()
 
-    # --- ENCABEZADO INSTITUCIONAL ---
-    story.append(Paragraph("Gylfi Software — Estándar B2B de Certificación Financiera y Riesgo", subtitulo_style))
-    story.append(Spacer(1, 2))
-    story.append(Paragraph("CERTIFICADO DE SOLVENCIA ECONÓMICA Y FINANCIERA", titulo_style))
-    story.append(Spacer(1, 2))
-    story.append(Paragraph(f"<b>Token de Verificación Única:</b> GYLFI-REF-{token_corto} | <b>Validez Oficial ante Comités de Riesgo</b>", subtitulo_style))
-    story.append(Spacer(1, 6))
+    # --- GENERACIÓN DEL CÓDIGO QR REAL (PILAR 1) ---
+    url_verificacion = f"https://gylfisoftware.streamlit.app/verify?token={token_corto}"
+    qr = qrcode.QRCode(version=1, box_size=5, border=1)
+    qr.add_data(url_verificacion)
+    qr.make(fit=True)
+    img_qr = qr.make_image(fill_color="#1e3c72", back_color="white")
+    
+    buf_qr = io.BytesIO()
+    img_qr.save(buf_qr, format='PNG')
+    buf_qr.seek(0)
+    qr_flowable = RLImage(buf_qr, width=65, height=65)
+
+    # --- ENCABEZADO INSTITUCIONAL CON QR (TABLA DE DOS COLUMNAS) ---
+    header_text = Paragraph(
+        "<b>Gylfi Software — Estándar B2B de Certificación Financiera y Riesgo</b><br/>"
+        "<b>CERTIFICADO DE SOLVENCIA ECONÓMICA Y FINANCIERA</b><br/>"
+        f"Token de Verificación Única: <b>GYLFI-REF-{token_corto}</b><br/>"
+        "<i>Validez Oficial ante Comités de Crédito y Banca Comercial</i>",
+        subtitulo_style
+    )
+    
+    t_header = Table([[header_text, qr_flowable]], colWidths=[430, 74])
+    t_header.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('ALIGN', (1,0), (1,0), 'RIGHT'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+    ]))
+    
+    story.append(t_header)
+    story.append(Spacer(1, 4))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1e3c72'), spaceAfter=6))
 
     # Destinatario
@@ -9121,7 +9145,7 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
     story.append(Paragraph(texto_principal, body_style))
     story.append(Spacer(1, 5))
 
-    # --- TABLA EJECUTIVA DE INDICADORES BANCARIOS ---
+    # --- TABLA EJECUTIVA DE INDICADORES BANCARIOS (PILAR 4) ---
     table_data = [
         [
             Paragraph("Indicador Financiero", table_header_style), 
@@ -9201,12 +9225,12 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
     texto_cierre = (
         f"Se expide la presente certificación a solicitud de la parte interesada en Caracas, "
         f"a los 7 días del mes de noviembre de 2026. Cualquier entidad financiera puede verificar la autenticidad "
-        f"de este reporte introduciendo el token único en la plataforma oficial de Gylfi Software."
+        f"de este reporte escaneando el código QR superior o ingresando el token único en la plataforma oficial de Gylfi Software."
     )
     story.append(Paragraph(texto_cierre, body_style))
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
 
-    # --- BLOQUE DE FIRMAS (CONTADOR CPC + SELLO ALGORÍTMICO GYLFI) ---
+    # --- BLOQUE DE FIRMAS: CPC + SELLO ALGORÍTMICO (PILAR 3) ---
     cpc_texto = cpc_info if cpc_info else "Validador Algorítmico Autónomo B2B"
     
     firma_data = [
@@ -9222,12 +9246,12 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
         ('BOTTOMPADDING', (0,0), (-1,-1), 1),
     ]))
     story.append(t_firma)
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 6))
 
-    # --- PIE DE PÁGINA TÉCNICO (HASH SHA-256) ---
+    # --- PIE DE PÁGINA TÉCNICO CON HASH SHA-256 (PILAR 2) ---
     hash_footer_style = ParagraphStyle(
         'HashFooter', parent=styles['Normal'],
-        fontName='Helvetica', fontSize=6.5, leading=8,
+        fontName='Helvetica', fontSize=6, leading=7,
         textColor=colors.HexColor('#777777'), alignment=1
     )
     story.append(Paragraph(f"<b>Sello de Trazabilidad Criptográfica SHA-256:</b> {document_hash}", hash_footer_style))
