@@ -9364,15 +9364,13 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
     return buffer.getvalue()
 
 
-import streamlit as st
-import pymysql
-
-import streamlit as st
+from datetime import datetime
 
 def calcular_flujo_caja_rango(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el flujo de caja real conciliado filtrando por rango de fechas 
-    utilizando PyMySQL nativo con los porcentajes SQL correctamente escapados.
+    Calcula el flujo de caja real conciliado filtrando por rango de fechas.
+    Obtiene el saldo inicial directamente de la tabla saldos_bancarios 
+    buscando el año y el mes exacto de la fecha de inicio.
     """
     saldo_inicial = 0.0
     entradas = 0.0
@@ -9381,22 +9379,33 @@ def calcular_flujo_caja_rango(conn, db_name, fecha_inicio, fecha_fin):
     desglose_salidas = []
 
     try:
+        # Extraer año y mes numérico de la fecha de inicio (ej. '2026-07-01')
+        dt_ini = datetime.strptime(fecha_inicio, '%Y-%m-%d')
+        ano = dt_ini.year
+        mes_num = dt_ini.month
+
+        # Diccionario de meses en español para empatar con la columna 'mes' de saldos_bancarios
+        meses_es = {
+            1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 
+            5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto', 
+            9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+        }
+        nombre_mes = meses_es.get(mes_num, '')
+
         cursor = conn.cursor()
 
-        # 1. Obtención del Saldo Inicial (Nota: %d y %Y se escapan como %%d y %%Y)
+        # 1. Obtener el saldo inicial directamente del mes correspondiente en saldos_bancarios
         query_saldo_init = f"""
             SELECT COALESCE(SUM(saldo_inicial), 0.0) as saldo_ini
             FROM `{db_name}`.saldos_bancarios
-            WHERE STR_TO_DATE(CONCAT('01-', mes, '-', ano), '%%d-%%M-%%Y') <= %s
-            ORDER BY ano DESC, fecha_actualizacion DESC
-            LIMIT 1
+            WHERE ano = %s AND LOWER(mes) = LOWER(%s)
         """
-        cursor.execute(query_saldo_init, (fecha_inicio,))
+        cursor.execute(query_saldo_init, (ano, nombre_mes))
         row_ini = cursor.fetchone()
         if row_ini:
             saldo_inicial = float(row_ini[0] or 0.0)
 
-        # 2. Extracción de Entradas y Salidas de la tabla asientos_contables
+        # 2. Extracción de Entradas y Salidas de la tabla asientos_contables por rango de fechas
         query_movimientos = f"""
             SELECT 
                 id,
