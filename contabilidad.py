@@ -9367,10 +9367,12 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
 import streamlit as st
 import pymysql
 
+import streamlit as st
+
 def calcular_flujo_caja_rango(conn, db_name, fecha_inicio, fecha_fin):
     """
     Calcula el flujo de caja real conciliado filtrando por rango de fechas 
-    utilizando PyMySQL nativo para evitar errores de tipo en pandas.
+    utilizando PyMySQL nativo con los porcentajes SQL correctamente escapados.
     """
     saldo_inicial = 0.0
     entradas = 0.0
@@ -9381,11 +9383,11 @@ def calcular_flujo_caja_rango(conn, db_name, fecha_inicio, fecha_fin):
     try:
         cursor = conn.cursor()
 
-        # 1. Obtención del Saldo Inicial desde la tabla saldos_bancarios de la BD actual
+        # 1. Obtención del Saldo Inicial (Nota: %d y %Y se escapan como %%d y %%Y)
         query_saldo_init = f"""
             SELECT COALESCE(SUM(saldo_inicial), 0.0) as saldo_ini
             FROM `{db_name}`.saldos_bancarios
-            WHERE STR_TO_DATE(CONCAT('01-', mes, '-', ano), '%d-%M-%Y') <= %s
+            WHERE STR_TO_DATE(CONCAT('01-', mes, '-', ano), '%%d-%%M-%%Y') <= %s
             ORDER BY ano DESC, fecha_actualizacion DESC
             LIMIT 1
         """
@@ -9408,7 +9410,7 @@ def calcular_flujo_caja_rango(conn, db_name, fecha_inicio, fecha_fin):
             FROM `{db_name}`.asientos_contables
             WHERE fecha BETWEEN %s AND %s
               AND (
-                  LOWER(plan_cuentas) LIKE '1.1.01%' 
+                  LOWER(plan_cuentas) LIKE '1.1.01%%' 
                   OR LOWER(cuenta_contable) LIKE '%%banco%%' 
                   OR LOWER(cuenta_contable) LIKE '%%caja%%'
               )
@@ -9418,7 +9420,6 @@ def calcular_flujo_caja_rango(conn, db_name, fecha_inicio, fecha_fin):
         rows_movs = cursor.fetchall()
 
         for row in rows_movs:
-            # Estructura del row: (id, n_comprobante, fecha, plan_cuentas, cuenta_contable, descripcion, debe, haber)
             monto_debe = float(row[6] or 0.0)
             monto_haber = float(row[7] or 0.0)
             fecha_str = str(row[2])
