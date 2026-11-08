@@ -9486,6 +9486,10 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
 def generar_pdf_flujo_caja_detallado(nombre_empresa, datos_flujo, cpc_info=None):
+    """
+    Genera el PDF del Estado de Flujo de Caja Analítico/Detallado imitando el formato de Excel,
+    tomando las contrapartidas extraídas por número de comprobante (n_comprobante).
+    """
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, 
@@ -9496,13 +9500,7 @@ def generar_pdf_flujo_caja_detallado(nombre_empresa, datos_flujo, cpc_info=None)
     story = []
     styles = getSampleStyleSheet()
 
-    # Estilos tipográficos institucionales
-    titulo_style = ParagraphStyle(
-        'TituloFC', parent=styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=12, leading=15,
-        alignment=1, textColor=colors.HexColor('#1e3c72')
-    )
-    
+    # Estilos de tipografía
     subtitulo_style = ParagraphStyle(
         'SubTituloFC', parent=styles['Normal'],
         fontName='Helvetica-Bold', fontSize=8, leading=10,
@@ -9515,26 +9513,26 @@ def generar_pdf_flujo_caja_detallado(nombre_empresa, datos_flujo, cpc_info=None)
         alignment=4, textColor=colors.HexColor('#222222')
     )
     
-    # Estilos para celdas de la tabla estilo Excel
+    # Estilos para celdas (formato contable tipo Excel)
     style_left = ParagraphStyle('TLeft', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.HexColor('#111111'))
     style_right = ParagraphStyle('TRight', fontName='Helvetica-Bold', fontSize=8, leading=10, alignment=2, textColor=colors.HexColor('#111111'))
     
-    style_bold = ParagraphStyle('TBold', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.HexColor('#1e3c72'))
-    style_bold_right = ParagraphStyle('TBoldR', fontName='Helvetica-Bold', fontSize=8, leading=10, alignment=2, textColor=colors.HexColor('#1e3c72'))
+    style_bold = ParagraphStyle('TBold', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=colors.HexColor('#1e3c72'))
+    style_bold_right = ParagraphStyle('TBoldR', fontName='Helvetica-Bold', fontSize=8.5, leading=11, alignment=2, textColor=colors.HexColor('#1e3c72'))
     
     style_category = ParagraphStyle('TCat', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.HexColor('#ffffff'))
     style_category_right = ParagraphStyle('TCatR', fontName='Helvetica-Bold', fontSize=8, leading=10, alignment=2, textColor=colors.HexColor('#ffffff'))
     
-    style_indent = ParagraphStyle('TInd', fontName='Helvetica', fontSize=7.5, leading=10, leftIndent=10, textColor=colors.HexColor('#333333'))
-    style_normal_right = ParagraphStyle('TNormR', fontName='Helvetica', fontSize=7.5, leading=10, alignment=2, textColor=colors.HexColor('#333333'))
+    style_indent = ParagraphStyle('TInd', fontName='Helvetica', fontSize=7.5, leading=10, leftIndent=12, textColor=colors.HexColor('#222222'))
+    style_normal_right = ParagraphStyle('TNormR', fontName='Helvetica', fontSize=7.5, leading=10, alignment=2, textColor=colors.HexColor('#222222'))
     
     style_subtotal = ParagraphStyle('TSub', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.HexColor('#1e3c72'))
     style_subtotal_right = ParagraphStyle('TSubR', fontName='Helvetica-Bold', fontSize=8, leading=10, alignment=2, textColor=colors.HexColor('#1e3c72'))
 
-    style_total_final = ParagraphStyle('TFin', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=colors.HexColor('#155724'))
-    style_total_final_right = ParagraphStyle('TFinR', fontName='Helvetica-Bold', fontSize=8.5, leading=11, alignment=2, textColor=colors.HexColor('#155724'))
+    style_total_final = ParagraphStyle('TFin', fontName='Helvetica-Bold', fontSize=9, leading=12, textColor=colors.HexColor('#155724'))
+    style_total_final_right = ParagraphStyle('TFinR', fontName='Helvetica-Bold', fontSize=9, leading=12, alignment=2, textColor=colors.HexColor('#155724'))
 
-    # Hash y Token Criptográfico
+    # Criptografía SHA-256 y Token
     raw_string = f"{nombre_empresa}-{datos_flujo['fecha_inicio']}-{datos_flujo['fecha_fin']}-{datos_flujo['saldo_final']}-{uuid.uuid4()}"
     document_hash = hashlib.sha256(raw_string.encode('utf-8')).hexdigest()
     token_corto = document_hash[:12].upper()
@@ -9551,11 +9549,11 @@ def generar_pdf_flujo_caja_detallado(nombre_empresa, datos_flujo, cpc_info=None)
     buf_qr.seek(0)
     qr_flowable = RLImage(buf_qr, width=55, height=55)
 
-    # Encabezado institucional
+    # Encabezado Institucional
     header_text = Paragraph(
         "<b>Gylfi Software — Módulo de Tesorería y Auditoría Financiera</b><br/>"
-        "<b>ESTADO DE FLUJO DE CAJA DETALLADO (ESTILO ANALÍTICO)</b><br/>"
-        f"Período: <b>{datos_flujo['fecha_inicio']}</b> al <b>{datos_flujo['fecha_fin']}</b> | Token: <b>GYLFI-FC-{token_corto}</b>",
+        "<b>ESTADO DE FLUJO DE CAJA ANALÍTICO (DETALLADO)</b><br/>"
+        f"Entidad: <b>{nombre_empresa.upper()}</b> | Período: <b>{datos_flujo['fecha_inicio']}</b> al <b>{datos_flujo['fecha_fin']}</b>",
         subtitulo_style
     )
     
@@ -9569,57 +9567,70 @@ def generar_pdf_flujo_caja_detallado(nombre_empresa, datos_flujo, cpc_info=None)
     story.append(Spacer(1, 4))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1e3c72'), spaceAfter=8))
 
-    # Construcción de la matriz de datos estilo Excel
+    # Matriz de datos para la tabla estilo Excel
     table_data = []
-
-    # 1. Header de Fechas
-    table_data.append([Paragraph("Concepto / Cuenta Contable", style_left), Paragraph(f"{datos_flujo['fecha_fin']}", style_right)])
-
-    # 2. Bloque: Saldo Inicial
-    table_data.append([Paragraph("Saldo Inicial", style_bold), Paragraph(f"{datos_flujo['saldo_inicial']:,.2f}", style_bold_right)])
-
-    # 3. Bloque: Entradas de Efectivo
-    table_data.append([Paragraph("Entradas de Efectivo", style_category), Paragraph("Banco", style_category_right)])
-    if datos_flujo['entradas_agrupadas']:
-        for item in datos_flujo['entradas_agrupadas']:
-            table_data.append([Paragraph(f"• {item['cuenta']}", style_indent), Paragraph(f"{item['monto']:,.2f}", style_normal_right)])
-    else:
-        table_data.append([Paragraph("• Sin movimientos de entrada registrados", style_indent), Paragraph("0.00", style_normal_right)])
     
-    table_data.append([Paragraph("Total Entradas", style_subtotal), Paragraph(f"{datos_flujo['total_entradas']:,.2f}", style_subtotal_right)])
+    # 1. Cabecera con fecha de cierre
+    table_data.append([Paragraph("Concepto / Cuenta Contable", style_left), Paragraph(f"Cierre {datos_flujo['fecha_fin']}", style_right)])
 
-    # 4. Bloque: Salidas de Efectivo Operativo
-    table_data.append([Paragraph("Salida de Efectivo Operativo", style_category), Paragraph("", style_category_right)])
-    if datos_flujo['salidas_agrupadas']:
-        for item in datos_flujo['salidas_agrupadas']:
-            table_data.append([Paragraph(f"• {item['cuenta']}", style_indent), Paragraph(f"{item['monto']:,.2f}", style_normal_right)])
+    # 2. Saldo Inicial
+    table_data.append([Paragraph("Saldo Inicial en Bancos/Caja", style_bold), Paragraph(f"Bs. {datos_flujo['saldo_inicial']:,.2f}", style_bold_right)])
+
+    # Trackear índices de las filas de categorías para aplicarles fondo azul estilo Excel
+    cat_rows_indices = []
+
+    # 3. Entradas de Efectivo (Contrapartidas)
+    cat_rows_indices.append(len(table_data))
+    table_data.append([Paragraph("Entradas de Efectivo", style_category), Paragraph("Banco / Caja", style_category_right)])
+    
+    if datos_flujo.get('entradas_agrupadas'):
+        for item in datos_flujo['entradas_agrupadas']:
+            table_data.append([Paragraph(f"{item['cuenta']}", style_indent), Paragraph(f"{item['monto']:,.2f}", style_normal_right)])
     else:
-        table_data.append([Paragraph("• Sin movimientos de salida registrados", style_indent), Paragraph("0.00", style_normal_right)])
+        table_data.append([Paragraph("Sin ingresos registrados en el período", style_indent), Paragraph("0.00", style_normal_right)])
+    
+    table_data.append([Paragraph("Total Entradas de Efectivo", style_subtotal), Paragraph(f"Bs. {datos_flujo['total_entradas']:,.2f}", style_subtotal_right)])
 
-    table_data.append([Paragraph("Total Salidas", style_subtotal), Paragraph(f"{datos_flujo['total_salidas']:,.2f}", style_subtotal_right)])
+    # 4. Salidas de Efectivo (Contrapartidas)
+    cat_rows_indices.append(len(table_data))
+    table_data.append([Paragraph("Salida de Efectivo Operativo / Egresos", style_category), Paragraph("", style_category_right)])
+    
+    if datos_flujo.get('salidas_agrupadas'):
+        for item in datos_flujo['salidas_agrupadas']:
+            table_data.append([Paragraph(f"{item['cuenta']}", style_indent), Paragraph(f"{item['monto']:,.2f}", style_normal_right)])
+    else:
+        table_data.append([Paragraph("Sin egresos registrados en el período", style_indent), Paragraph("0.00", style_normal_right)])
 
-    # 5. Bloque Final: Saldo Final Disponible
-    table_data.append([Paragraph("Saldo Final Disponible (Caja / Banco)", style_total_final), Paragraph(f"{datos_flujo['saldo_final']:,.2f}", style_total_final_right)])
+    table_data.append([Paragraph("Total Salidas de Efectivo", style_subtotal), Paragraph(f"Bs. {datos_flujo['total_salidas']:,.2f}", style_subtotal_right)])
 
-    # Creación y estilizado de la tabla ReportLab
+    # 5. Saldo Final Disponible
+    table_data.append([Paragraph("Saldo Final Disponible (Caja / Banco)", style_total_final), Paragraph(f"Bs. {datos_flujo['saldo_final']:,.2f}", style_total_final_right)])
+
+    # Generación y formato gráfico de la tabla ReportLab
     t_detallada = Table(table_data, colWidths=[340, 164])
-    t_detallada.setStyle(TableStyle([
+    
+    t_styles = [
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#e9ecef')),
-        ('BACKGROUND', (0,2), (-1,2), colors.HexColor('#1e3c72')), # Barra categoría Entradas
-        ('BACKGROUND', (0, len(datos_flujo['entradas_agrupadas']) + 4), (-1, len(datos_flujo['entradas_agrupadas']) + 4), colors.HexColor('#1e3c72')), # Barra categoría Salidas
         ('ALIGN', (0,0), (-1,-1), 'LEFT'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#d1d5db')),
-        ('TOPPADDING', (0,0), (-1,-1), 3),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+        ('TOPPADDING', (0,0), (-1,-1), 2.5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2.5),
         ('LEFTPADDING', (0,0), (-1,-1), 6),
         ('RIGHTPADDING', (0,0), (-1,-1), 6),
-    ]))
+        ('BACKGROUND', (0, len(table_data)-1), (-1, len(table_data)-1), colors.HexColor('#d4edda')), # Verde claro para saldo final
+    ]
+
+    # Aplicar el fondo azul corporativo a las filas de encabezado de categoría
+    for idx in cat_rows_indices:
+        t_styles.append(('BACKGROUND', (0, idx), (-1, idx), colors.HexColor('#1e3c72')))
+
+    t_detallada.setStyle(TableStyle(t_styles))
     
     story.append(t_detallada)
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 12))
 
-    # Cierre y Firmas
+    # Pie de Firmas Institucional
     cpc_texto = cpc_info if cpc_info else "Validador Algorítmico Autónomo de Tesorería"
     firma_data = [
         [
@@ -9636,13 +9647,13 @@ def generar_pdf_flujo_caja_detallado(nombre_empresa, datos_flujo, cpc_info=None)
     story.append(t_firma)
     story.append(Spacer(1, 6))
 
-    # Hash Footer
+    # Sello SHA-256
     hash_footer_style = ParagraphStyle(
         'HashFooterFC', parent=styles['Normal'],
         fontName='Helvetica', fontSize=5.5, leading=7,
         textColor=colors.HexColor('#777777'), alignment=1
     )
-    story.append(Paragraph(f"<b>Sello Criptográfico SHA-256:</b> {document_hash}", hash_footer_style))
+    story.append(Paragraph(f"<b>Sello Criptográfico de Trazabilidad SHA-256:</b> {document_hash}", hash_footer_style))
 
     doc.build(story)
     buffer.seek(0)
