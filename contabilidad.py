@@ -9709,14 +9709,16 @@ def generar_pdf_flujo_caja_detallado(nombre_empresa, datos_flujo, cpc_info=None)
     buffer.seek(0)
     return buffer.getvalue()
 
-
 import streamlit as st
 from datetime import datetime
 
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el Estado de Flujo de Efectivo bajo el Método Indirecto utilizando
-    la fórmula exacta de Utilidad Neta = Clase 4 - Clase 5 - Clase 6 + Clase 7 - Clase 8.
+    Calcula el Estado de Flujo de Efectivo bajo el Método Indirecto:
+    1. Utiliza dinámicamente 'saldos_iniciales' (Nov 2025 - Abr 2026) o 
+       'asientos_contables' (May 2026 en adelante).
+    2. Aplica la fórmula exacta de Utilidad Neta (Clase 4 - 5 - 6 + 7 - 8).
+    3. Cuadra y concilia al final con la tabla de saldos_bancarios.
     """
     utilidad_neta = 0.0
     depreciaciones = 0.0
@@ -9724,11 +9726,42 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     variacion_cxp = 0.0
     flujo_inversion = 0.0
     flujo_financiamiento = 0.0
+    saldo_inicial_bancos = 0.0
+    saldo_final_bancos = 0.0
 
     try:
+        dt_ini = datetime.strptime(fecha_inicio, '%Y-%m-%d')
+        ano = dt_ini.year
+        mes_num = dt_ini.month
+
+        meses_es = {
+            1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 
+            5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto', 
+            9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+        }
+        nombre_mes = meses_es.get(mes_num, '')
+
         cursor = conn.cursor()
 
-        # A. Utilidad Neta exacta: Ingresos (4) - Costos (5) - Gastos (6) + Otros Ingresos (7) - Otros Egresos (8)
+        # 1. Obtener Saldo Inicial y Final de saldos_bancarios para el mes
+        query_saldos_banco = f"""
+            SELECT 
+                COALESCE(SUM(saldo_inicial), 0.0) as ini,
+                COALESCE(SUM(saldo_final), 0.0) as fin
+            FROM `{db_name}`.saldos_bancarios
+            WHERE ano = %s AND LOWER(mes) = LOWER(%s)
+        """
+        cursor.execute(query_saldos_banco, (ano, nombre_mes))
+        row_sb = cursor.fetchone()
+        if row_sb:
+            saldo_inicial_bancos = float(row_sb[0] or 0.0)
+            saldo_final_bancos = float(row_sb[1] or 0.0)
+
+        # 2. Selección inteligente de la tabla contable según la fecha
+        # Si es anterior a mayo de 2026, usa 'saldos_iniciales'; si es mayo de 2026 en adelante, usa 'asientos_contables'
+        tabla_fuente = "saldos_iniciales" if dt_ini < datetime(2026, 5, 1) else "asientos_contables"
+
+        # 3. A. Utilidad Neta exacta: Ingresos (4) - Costos (5) - Gastos (6) + Otros Ingresos (7) - Otros Egresos (8)
         query_utilidad = f"""
             SELECT 
                 (
@@ -9738,7 +9771,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%%' THEN haber - debe ELSE 0 END), 0) -
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN debe - haber ELSE 0 END), 0)
                 ) as util_neta
-            FROM `{db_name}`.asientos_contables
+            FROM `{db_name}`.`{tabla_fuente}`
             WHERE fecha BETWEEN %s AND %s
         """
         cursor.execute(query_utilidad, (fecha_inicio, fecha_fin))
@@ -9746,10 +9779,10 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         if row_util:
             utilidad_neta = float(row_util[0] or 0.0)
 
-        # B. Gastos que no usan efectivo (Depreciaciones y Amortizaciones)
+        # 4. B. Gastos que no usan efectivo (Depreciaciones y Amortizaciones)
         query_dep = f"""
             SELECT COALESCE(SUM(debe - haber), 0.0) as dep
-            FROM `{db_name}`.asientos_contables
+            FROM `{db_name}`.`{tabla_fuente}`
             WHERE fecha BETWEEN %s AND %s
               AND (LOWER(cuenta_contable) LIKE '%%deprec%%' OR LOWER(cuenta_contable) LIKE '%%amort%%' OR LOWER(plan_cuentas) LIKE '6.3%%')
         """
@@ -9758,10 +9791,10 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         if row_dep:
             depreciaciones = float(row_dep[0] or 0.0)
 
-        # C. Variación en Capital de Trabajo (Cuentas por Cobrar y Cuentas por Pagar)
+        # 5. C. Variación en Capital de Trabajo (Cuentas por Cobrar y Cuentas por Pagar)
         query_cxc = f"""
             SELECT COALESCE(SUM(debe - haber), 0.0) as var_cxc
-            FROM `{db_name}`.asientos_contables
+            FROM `{db_name}`.`{tabla_fuente}`
             WHERE fecha BETWEEN %s AND %s
               AND (LOWER(plan_cuentas) LIKE '1.1.02%%' OR LOWER(cuenta_contable) LIKE '%%cobrar%%')
         """
@@ -9772,7 +9805,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
         query_cxp = f"""
             SELECT COALESCE(SUM(haber - debe), 0.0) as var_cxp
-            FROM `{db_name}`.asientos_contables
+            FROM `{db_name}`.`{tabla_fuente}`
             WHERE fecha BETWEEN %s AND %s
               AND (LOWER(plan_cuentas) LIKE '2.1.01%%' OR LOWER(cuenta_contable) LIKE '%%pagar%%')
         """
@@ -9781,10 +9814,10 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         if row_cxp:
             variacion_cxp = float(row_cxp[0] or 0.0)
 
-        # D. Actividades de Inversión (Activos Fijos / Propiedad, Planta y Equipo - Clase 1.2)
+        # 6. D. Actividades de Inversión (Activos Fijos / Propiedad, Planta y Equipo - Clase 1.2)
         query_inv = f"""
             SELECT COALESCE(SUM(haber - debe), 0.0) as inv
-            FROM `{db_name}`.asientos_contables
+            FROM `{db_name}`.`{tabla_fuente}`
             WHERE fecha BETWEEN %s AND %s
               AND (LOWER(plan_cuentas) LIKE '1.2%%' OR LOWER(cuenta_contable) LIKE '%%maquinaria%%' OR LOWER(cuenta_contable) LIKE '%%vehiculo%%')
         """
@@ -9793,10 +9826,10 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         if row_inv:
             flujo_inversion = float(row_inv[0] or 0.0)
 
-        # E. Actividades de Financiamiento (Pasivos a largo plazo o Patrimonio - Clase 2.2 o 3)
+        # 7. E. Actividades de Financiamiento (Pasivos a largo plazo o Patrimonio - Clase 2.2 o 3)
         query_fin = f"""
             SELECT COALESCE(SUM(haber - debe), 0.0) as fin
-            FROM `{db_name}`.asientos_contables
+            FROM `{db_name}`.`{tabla_fuente}`
             WHERE fecha BETWEEN %s AND %s
               AND (LOWER(plan_cuentas) LIKE '2.2%%' OR LOWER(plan_cuentas) LIKE '3%%')
         """
@@ -9809,9 +9842,10 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     except Exception as e:
         st.error(f"Error al calcular el flujo de efectivo indirecto: {e}")
 
-    # Cálculos Totales por Categoría (Método Indirecto)
+    # Cálculos Totales por Categoría (Método Indirecto con Cuadre Bancario)
     flujo_operacion = utilidad_neta + depreciaciones - variacion_cxc + variacion_cxp
     cambio_neto_efectivo = flujo_operacion + flujo_inversion + flujo_financiamiento
+    efectivo_final_calculado = saldo_inicial_bancos + cambio_neto_efectivo
 
     return {
         'utilidad_neta': utilidad_neta,
@@ -9822,10 +9856,12 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         'flujo_inversion': flujo_inversion,
         'flujo_financiamiento': flujo_financiamiento,
         'cambio_neto_efectivo': cambio_neto_efectivo,
+        'saldo_inicial_bancos': saldo_inicial_bancos,
+        'saldo_final_bancos': saldo_final_bancos,
+        'efectivo_final_calculado': efectivo_final_calculado,
         'fecha_inicio': fecha_inicio,
         'fecha_fin': fecha_fin
     }
-
 
 import io
 import hashlib
