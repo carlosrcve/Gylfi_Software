@@ -10314,57 +10314,57 @@ if opcion_menu == "🏠 Inicio":
     
     #FLUJO DE CAJA
     # Sincronizamos la base de datos activa desde la sesión
-db = st.session_state.get('DB_ACTUAL')
+    db = st.session_state.get('DB_ACTUAL')
 
-if not db or db == "{db}" or db == "None" or str(db).strip() == "":
-    st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
-else:
-    # Obtenemos los datos institucionales reales de la empresa
-    empresa_actual = obtener_datos_empresa_activa()
-    
-    st.markdown("### 📊 Módulo de Tesorería y Flujo de Caja Real")
-    
-    col_f1, col_f2 = st.columns(2)
-    with col_f1:
-        fecha_ini = st.date_input("Fecha Desde:", datetime(2026, 7, 1))
-    with col_f2:
-        fecha_fin = st.date_input("Fecha Hasta:", datetime(2026, 7, 31))
+    if not db or db == "{db}" or db == "None" or str(db).strip() == "":
+        st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
+    else:
+        # Obtenemos los datos institucionales reales de la empresa
+        empresa_actual = obtener_datos_empresa_activa()
+        
+        st.markdown("### 📊 Módulo de Tesorería y Flujo de Caja Real")
+        
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            fecha_ini = st.date_input("Fecha Desde:", datetime(2026, 7, 1))
+        with col_f2:
+            fecha_fin = st.date_input("Fecha Hasta:", datetime(2026, 7, 31))
 
-    if st.button("🔄 Calcular Flujo de Caja por Rango"):
-        try:
-            conn = conectar_db(db)
-            if conn:
-                # Calculamos el flujo usando la base de datos actual
-                datos_flujo = calcular_flujo_caja_rango(
-                    conn, 
-                    db, 
-                    fecha_ini.strftime('%Y-%m-%d'), 
-                    fecha_fin.strftime('%Y-%m-%d')
-                )
-                conn.close()
+        if st.button("🔄 Calcular Flujo de Caja por Rango"):
+            try:
+                conn = conectar_db(db)
+                if conn:
+                    # Calculamos el flujo usando la base de datos actual
+                    datos_flujo = calcular_flujo_caja_rango(
+                        conn, 
+                        db, 
+                        fecha_ini.strftime('%Y-%m-%d'), 
+                        fecha_fin.strftime('%Y-%m-%d')
+                    )
+                    conn.close()
 
-                # Mostramos métricas rápidas en pantalla
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Saldo Inicial", f"Bs. {datos_flujo['saldo_inicial']:,.2f}")
-                m2.metric("Total Entradas", f"Bs. {datos_flujo['total_entradas']:,.2f}")
-                m3.metric("Total Salidas", f"Bs. {datos_flujo['total_salidas']:,.2f}")
-                m4.metric("Saldo Final", f"Bs. {datos_flujo['saldo_final']:,.2f}", delta=f"Bs. {datos_flujo['flujo_neto']:,.2f}")
+                    # Mostramos métricas rápidas en pantalla
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Saldo Inicial", f"Bs. {datos_flujo['saldo_inicial']:,.2f}")
+                    m2.metric("Total Entradas", f"Bs. {datos_flujo['total_entradas']:,.2f}")
+                    m3.metric("Total Salidas", f"Bs. {datos_flujo['total_salidas']:,.2f}")
+                    m4.metric("Saldo Final", f"Bs. {datos_flujo['saldo_final']:,.2f}", delta=f"Bs. {datos_flujo['flujo_neto']:,.2f}")
 
-                # Generamos el PDF oficial con ReportLab integrando el nombre real de la empresa
-                pdf_flujo = generar_pdf_flujo_caja(empresa_actual["nombre"], datos_flujo)
+                    # Generamos el PDF oficial con ReportLab integrando el nombre real de la empresa
+                    pdf_flujo = generar_pdf_flujo_caja(empresa_actual["nombre"], datos_flujo)
 
-                st.download_button(
-                    label="📄 Descargar Estado de Flujo de Caja (PDF)",
-                    data=pdf_flujo,
-                    file_name=f"Flujo_de_Caja_{db}_{fecha_ini}_{fecha_fin}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="btn_download_flujo_maestro"
-                )
-            else:
-                st.error("No se pudo establecer conexión con la base de datos seleccionada.")
-        except Exception as err:
-            st.error(f"Ocurrió un error al procesar el reporte: {err}")
+                    st.download_button(
+                        label="📄 Descargar Estado de Flujo de Caja (PDF)",
+                        data=pdf_flujo,
+                        file_name=f"Flujo_de_Caja_{db}_{fecha_ini}_{fecha_fin}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key="btn_download_flujo_maestro"
+                    )
+                else:
+                    st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+            except Exception as err:
+                st.error(f"Ocurrió un error al procesar el reporte: {err}")
 
 
 
