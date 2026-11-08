@@ -9366,17 +9366,20 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
 
 from datetime import datetime
 
-def calcular_flujo_caja_rango(conn, db_name, fecha_inicio, fecha_fin):
+import streamlit as st
+from datetime import datetime
+
+def calcular_flujo_caja_detallado(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el flujo de caja real conciliado filtrando por rango de fechas.
-    Obtiene el saldo inicial directamente de la tabla saldos_bancarios 
-    buscando el año y el mes exacto de la fecha de inicio.
+    Calcula el flujo de caja detallado y agrupado por cuenta contable,
+    obteniendo el saldo inicial de la tabla saldos_bancarios para el mes correspondiente
+    y agrupando las entradas y salidas para reflejar el formato analítico del Excel.
     """
     saldo_inicial = 0.0
-    entradas = 0.0
-    salidas = 0.0
-    desglose_entradas = []
-    desglose_salidas = []
+    entradas_agrupadas = []
+    salidas_agrupadas = []
+    total_entradas = 0.0
+    total_salidas = 0.0
 
     try:
         # Extraer año y mes numérico de la fecha de inicio (ej. '2026-07-01')
@@ -9405,17 +9408,11 @@ def calcular_flujo_caja_rango(conn, db_name, fecha_inicio, fecha_fin):
         if row_ini:
             saldo_inicial = float(row_ini[0] or 0.0)
 
-        # 2. Extracción de Entradas y Salidas de la tabla asientos_contables por rango de fechas
-        query_movimientos = f"""
+        # 2. Obtener Entradas Agrupadas por Cuenta (DEBE en cuentas de Banco/Caja)
+        query_entradas = f"""
             SELECT 
-                id,
-                n_comprobante,
-                fecha,
-                plan_cuentas,
                 cuenta_contable,
-                descripcion,
-                debe,
-                haber
+                SUM(debe) as total_monto
             FROM `{db_name}`.asientos_contables
             WHERE fecha BETWEEN %s AND %s
               AND (
@@ -9423,49 +9420,57 @@ def calcular_flujo_caja_rango(conn, db_name, fecha_inicio, fecha_fin):
                   OR LOWER(cuenta_contable) LIKE '%%banco%%' 
                   OR LOWER(cuenta_contable) LIKE '%%caja%%'
               )
-            ORDER BY fecha ASC
+              AND debe > 0
+            GROUP BY cuenta_contable
+            ORDER BY total_monto DESC
         """
-        cursor.execute(query_movimientos, (fecha_inicio, fecha_fin))
-        rows_movs = cursor.fetchall()
+        cursor.execute(query_entradas, (fecha_inicio, fecha_fin))
+        rows_ent = cursor.fetchall()
+        for r in rows_ent:
+            cta = r[0] or "Cuenta sin nombre"
+            monto = float(r[1] or 0.0)
+            entradas_agrupadas.append({'cuenta': cta, 'monto': monto})
+            total_entradas += monto
 
-        for row in rows_movs:
-            monto_debe = float(row[6] or 0.0)
-            monto_haber = float(row[7] or 0.0)
-            fecha_str = str(row[2])
-            desc = row[5] or row[4]
-
-            # En cuentas de Activo (Bancos): DEBE = Incremento (Entrada), HABER = Disminución (Salida)
-            if monto_debe > 0:
-                entradas += monto_debe
-                desglose_entradas.append({
-                    'fecha': fecha_str,
-                    'descripcion': desc,
-                    'monto': monto_debe
-                })
-            
-            if monto_haber > 0:
-                salidas += monto_haber
-                desglose_salidas.append({
-                    'fecha': fecha_str,
-                    'descripcion': desc,
-                    'monto': monto_haber
-                })
+        # 3. Obtener Salidas Agrupadas por Cuenta (HABER en cuentas de Banco/Caja)
+        query_salidas = f"""
+            SELECT 
+                cuenta_contable,
+                SUM(haber) as total_monto
+            FROM `{db_name}`.asientos_contables
+            WHERE fecha BETWEEN %s AND %s
+              AND (
+                  LOWER(plan_cuentas) LIKE '1.1.01%%' 
+                  OR LOWER(cuenta_contable) LIKE '%%banco%%' 
+                  OR LOWER(cuenta_contable) LIKE '%%caja%%'
+              )
+              AND haber > 0
+            GROUP BY cuenta_contable
+            ORDER BY total_monto DESC
+        """
+        cursor.execute(query_salidas, (fecha_inicio, fecha_fin))
+        rows_sal = cursor.fetchall()
+        for r in rows_sal:
+            cta = r[0] or "Cuenta sin nombre"
+            monto = float(r[1] or 0.0)
+            salidas_agrupadas.append({'cuenta': cta, 'monto': monto})
+            total_salidas += monto
 
         cursor.close()
     except Exception as e:
-        st.error(f"Error al calcular el flujo de caja: {e}")
+        st.error(f"Error al calcular el flujo de caja detallado: {e}")
 
-    flujo_neto = entradas - salidas
+    flujo_neto = total_entradas - total_salidas
     saldo_final = saldo_inicial + flujo_neto
 
     return {
         'saldo_inicial': saldo_inicial,
-        'total_entradas': entradas,
-        'total_salidas': salidas,
+        'entradas_agrupadas': entradas_agrupadas,
+        'total_entradas': total_entradas,
+        'salidas_agrupadas': salidas_agrupadas,
+        'total_salidas': total_salidas,
         'flujo_neto': flujo_neto,
         'saldo_final': saldo_final,
-        'desglose_entradas': desglose_entradas,
-        'desglose_salidas': desglose_salidas,
         'fecha_inicio': fecha_inicio,
         'fecha_fin': fecha_fin
     }
@@ -9480,7 +9485,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
-def generar_pdf_flujo_caja(nombre_empresa, datos_flujo, cpc_info=None):
+def generar_pdf_flujo_caja_detallado(nombre_empresa, datos_flujo, cpc_info=None):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, 
@@ -9491,48 +9496,52 @@ def generar_pdf_flujo_caja(nombre_empresa, datos_flujo, cpc_info=None):
     story = []
     styles = getSampleStyleSheet()
 
+    # Estilos tipográficos institucionales
     titulo_style = ParagraphStyle(
         'TituloFC', parent=styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=13, leading=16,
+        fontName='Helvetica-Bold', fontSize=12, leading=15,
         alignment=1, textColor=colors.HexColor('#1e3c72')
     )
     
     subtitulo_style = ParagraphStyle(
         'SubTituloFC', parent=styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=8.5, leading=11,
+        fontName='Helvetica-Bold', fontSize=8, leading=10,
         alignment=1, textColor=colors.HexColor('#555555')
     )
     
     body_style = ParagraphStyle(
         'BodyFC', parent=styles['Normal'],
-        fontName='Helvetica', fontSize=8.5, leading=12,
+        fontName='Helvetica', fontSize=8, leading=11,
         alignment=4, textColor=colors.HexColor('#222222')
     )
     
-    table_cell_style = ParagraphStyle(
-        'TableCell', parent=styles['Normal'],
-        fontName='Helvetica', fontSize=8, leading=10,
-        textColor=colors.HexColor('#212529')
-    )
+    # Estilos para celdas de la tabla estilo Excel
+    style_left = ParagraphStyle('TLeft', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.HexColor('#111111'))
+    style_right = ParagraphStyle('TRight', fontName='Helvetica-Bold', fontSize=8, leading=10, alignment=2, textColor=colors.HexColor('#111111'))
     
-    table_cell_bold = ParagraphStyle(
-        'TableCellBold', parent=table_cell_style, fontName='Helvetica-Bold'
-    )
+    style_bold = ParagraphStyle('TBold', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.HexColor('#1e3c72'))
+    style_bold_right = ParagraphStyle('TBoldR', fontName='Helvetica-Bold', fontSize=8, leading=10, alignment=2, textColor=colors.HexColor('#1e3c72'))
     
-    table_header_style = ParagraphStyle(
-        'TableHeader', parent=styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=8, leading=10,
-        textColor=colors.whitesmoke
-    )
+    style_category = ParagraphStyle('TCat', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.HexColor('#ffffff'))
+    style_category_right = ParagraphStyle('TCatR', fontName='Helvetica-Bold', fontSize=8, leading=10, alignment=2, textColor=colors.HexColor('#ffffff'))
+    
+    style_indent = ParagraphStyle('TInd', fontName='Helvetica', fontSize=7.5, leading=10, leftIndent=10, textColor=colors.HexColor('#333333'))
+    style_normal_right = ParagraphStyle('TNormR', fontName='Helvetica', fontSize=7.5, leading=10, alignment=2, textColor=colors.HexColor('#333333'))
+    
+    style_subtotal = ParagraphStyle('TSub', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.HexColor('#1e3c72'))
+    style_subtotal_right = ParagraphStyle('TSubR', fontName='Helvetica-Bold', fontSize=8, leading=10, alignment=2, textColor=colors.HexColor('#1e3c72'))
 
-    # Hash y Token Único
+    style_total_final = ParagraphStyle('TFin', fontName='Helvetica-Bold', fontSize=8.5, leading=11, textColor=colors.HexColor('#155724'))
+    style_total_final_right = ParagraphStyle('TFinR', fontName='Helvetica-Bold', fontSize=8.5, leading=11, alignment=2, textColor=colors.HexColor('#155724'))
+
+    # Hash y Token Criptográfico
     raw_string = f"{nombre_empresa}-{datos_flujo['fecha_inicio']}-{datos_flujo['fecha_fin']}-{datos_flujo['saldo_final']}-{uuid.uuid4()}"
     document_hash = hashlib.sha256(raw_string.encode('utf-8')).hexdigest()
     token_corto = document_hash[:12].upper()
 
-    # Generar QR
+    # Código QR
     url_verificacion = f"https://gylfisoftware.streamlit.app/verify_fc?token={token_corto}"
-    qr = qrcode.QRCode(version=1, box_size=5, border=1)
+    qr = qrcode.QRCode(version=1, box_size=4, border=1)
     qr.add_data(url_verificacion)
     qr.make(fit=True)
     img_qr = qr.make_image(fill_color="#1e3c72", back_color="white")
@@ -9540,18 +9549,17 @@ def generar_pdf_flujo_caja(nombre_empresa, datos_flujo, cpc_info=None):
     buf_qr = io.BytesIO()
     img_qr.save(buf_qr, format='PNG')
     buf_qr.seek(0)
-    qr_flowable = RLImage(buf_qr, width=60, height=60)
+    qr_flowable = RLImage(buf_qr, width=55, height=55)
 
-    # Header Institucional
+    # Encabezado institucional
     header_text = Paragraph(
         "<b>Gylfi Software — Módulo de Tesorería y Auditoría Financiera</b><br/>"
-        "<b>ESTADO DE FLUJO DE CAJA REAL Y CONCILIADO</b><br/>"
-        f"Período Evaluado: <b>{datos_flujo['fecha_inicio']}</b> al <b>{datos_flujo['fecha_fin']}</b><br/>"
-        f"Token de Verificación: <b>GYLFI-FC-{token_corto}</b>",
+        "<b>ESTADO DE FLUJO DE CAJA DETALLADO (ESTILO ANALÍTICO)</b><br/>"
+        f"Período: <b>{datos_flujo['fecha_inicio']}</b> al <b>{datos_flujo['fecha_fin']}</b> | Token: <b>GYLFI-FC-{token_corto}</b>",
         subtitulo_style
     )
     
-    t_header = Table([[header_text, qr_flowable]], colWidths=[435, 69])
+    t_header = Table([[header_text, qr_flowable]], colWidths=[440, 64])
     t_header.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('ALIGN', (1,0), (1,0), 'RIGHT'),
@@ -9561,92 +9569,57 @@ def generar_pdf_flujo_caja(nombre_empresa, datos_flujo, cpc_info=None):
     story.append(Spacer(1, 4))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1e3c72'), spaceAfter=8))
 
-    # Texto Intro
-    intro_p = (
-        f"Por medio del presente reporte, el sistema <b>Gylfi Software</b> certifica la dinámica de entradas y salidas "
-        f"efectivas de dinero para la entidad corporativa <b>{nombre_empresa.upper()}</b>, basándose en la conciliación "
-        f"de las cuentas bancarias registradas entre el {datos_flujo['fecha_inicio']} y el {datos_flujo['fecha_fin']}."
-    )
-    story.append(Paragraph(intro_p, body_style))
-    story.append(Spacer(1, 8))
+    # Construcción de la matriz de datos estilo Excel
+    table_data = []
 
-    # Diagnóstico del Flujo Neto
-    flujo_neto = datos_flujo['flujo_neto']
-    if flujo_neto > 0:
-        diag_flujo = "POSITIVO (Generación neta de efectivo en el período)"
-        color_flujo = colors.HexColor('#155724')
-    elif flujo_neto == 0:
-        diag_flujo = "NEUTRO (Equilibrio perfecto entre ingresos y egresos)"
-        color_flujo = colors.HexColor('#856404')
+    # 1. Header de Fechas
+    table_data.append([Paragraph("Concepto / Cuenta Contable", style_left), Paragraph(f"{datos_flujo['fecha_fin']}", style_right)])
+
+    # 2. Bloque: Saldo Inicial
+    table_data.append([Paragraph("Saldo Inicial", style_bold), Paragraph(f"{datos_flujo['saldo_inicial']:,.2f}", style_bold_right)])
+
+    # 3. Bloque: Entradas de Efectivo
+    table_data.append([Paragraph("Entradas de Efectivo", style_category), Paragraph("Banco", style_category_right)])
+    if datos_flujo['entradas_agrupadas']:
+        for item in datos_flujo['entradas_agrupadas']:
+            table_data.append([Paragraph(f"• {item['cuenta']}", style_indent), Paragraph(f"{item['monto']:,.2f}", style_normal_right)])
     else:
-        diag_flujo = "DEFICITARIO (Superación de egresos sobre ingresos efectivos)"
-        color_flujo = colors.HexColor('#721c24')
+        table_data.append([Paragraph("• Sin movimientos de entrada registrados", style_indent), Paragraph("0.00", style_normal_right)])
+    
+    table_data.append([Paragraph("Total Entradas", style_subtotal), Paragraph(f"{datos_flujo['total_entradas']:,.2f}", style_subtotal_right)])
 
-    # Tabla Resumen del Flujo de Caja
-    table_data = [
-        [
-            Paragraph("Concepto de Tesorería", table_header_style), 
-            Paragraph("Monto en Bolívares (Bs.)", table_header_style), 
-            Paragraph("Diagnóstico / Estado", table_header_style)
-        ],
-        [
-            Paragraph("<b>(+) Saldo Inicial en Bancos/Caja</b>", table_cell_bold),
-            Paragraph(f"Bs. {datos_flujo['saldo_inicial']:,.2f}", table_cell_style),
-            Paragraph("Disponibilidad inicial en cuentas (saldos_bancarios).", table_cell_style)
-        ],
-        [
-            Paragraph("<b>(+) Entradas de Efectivo (Ingresos)</b>", table_cell_bold),
-            Paragraph(f"Bs. {datos_flujo['total_entradas']:,.2f}", table_cell_style),
-            Paragraph("Cobranzas efectivas y créditos en cuenta.", table_cell_style)
-        ],
-        [
-            Paragraph("<b>(-) Salidas de Efectivo (Egresos)</b>", table_cell_bold),
-            Paragraph(f"Bs. {datos_flujo['total_salidas']:,.2f}", table_cell_style),
-            Paragraph("Pagos a proveedores, nómina y tributos conciliados.", table_cell_style)
-        ],
-        [
-            Paragraph("<b>(=) Flujo Neto del Período</b>", table_cell_bold),
-            Paragraph(f"<b>Bs. {flujo_neto:,.2f}</b>", table_cell_bold),
-            Paragraph(f"<b>{diag_flujo}</b>", table_cell_style)
-        ],
-        [
-            Paragraph("<b>(=) Saldo Final Disponible</b>", table_cell_bold),
-            Paragraph(f"<b>Bs. {datos_flujo['saldo_final']:,.2f}</b>", table_cell_bold),
-            Paragraph("Cierre de disponibilidad inmediata en bancos.", table_cell_style)
-        ]
-    ]
+    # 4. Bloque: Salidas de Efectivo Operativo
+    table_data.append([Paragraph("Salida de Efectivo Operativo", style_category), Paragraph("", style_category_right)])
+    if datos_flujo['salidas_agrupadas']:
+        for item in datos_flujo['salidas_agrupadas']:
+            table_data.append([Paragraph(f"• {item['cuenta']}", style_indent), Paragraph(f"{item['monto']:,.2f}", style_normal_right)])
+    else:
+        table_data.append([Paragraph("• Sin movimientos de salida registrados", style_indent), Paragraph("0.00", style_normal_right)])
 
-    t_resumen = Table(table_data, colWidths=[140, 115, 249])
-    t_resumen.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1e3c72')),
+    table_data.append([Paragraph("Total Salidas", style_subtotal), Paragraph(f"{datos_flujo['total_salidas']:,.2f}", style_subtotal_right)])
+
+    # 5. Bloque Final: Saldo Final Disponible
+    table_data.append([Paragraph("Saldo Final Disponible (Caja / Banco)", style_total_final), Paragraph(f"{datos_flujo['saldo_final']:,.2f}", style_total_final_right)])
+
+    # Creación y estilizado de la tabla ReportLab
+    t_detallada = Table(table_data, colWidths=[340, 164])
+    t_detallada.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#e9ecef')),
+        ('BACKGROUND', (0,2), (-1,2), colors.HexColor('#1e3c72')), # Barra categoría Entradas
+        ('BACKGROUND', (0, len(datos_flujo['entradas_agrupadas']) + 4), (-1, len(datos_flujo['entradas_agrupadas']) + 4), colors.HexColor('#1e3c72')), # Barra categoría Salidas
         ('ALIGN', (0,0), (-1,-1), 'LEFT'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#d1d5db')),
-        ('TOPPADDING', (0,0), (-1,-1), 4),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-        ('LEFTPADDING', (0,0), (-1,-1), 5),
-        ('RIGHTPADDING', (0,0), (-1,-1), 5),
-        ('BACKGROUND', (0,4), (-1,4), colors.HexColor('#e9ecef')),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
     ]))
-    story.append(t_resumen)
+    
+    story.append(t_detallada)
     story.append(Spacer(1, 10))
 
-    # Análisis Técnico de Liquidez
-    story.append(Paragraph("<b>🔍 Análisis Técnico de Liquidez Operativa</b>", body_style))
-    story.append(Spacer(1, 3))
-    
-    analisis_text = (
-        f"Durante el rango del <b>{datos_flujo['fecha_inicio']}</b> al <b>{datos_flujo['fecha_fin']}</b>, "
-        f"la empresa operó con una cobertura inicial de <b>Bs. {datos_flujo['saldo_inicial']:,.2f}</b>. "
-        f"El volumen total de cobros conciliados alcanzó <b>Bs. {datos_flujo['total_entradas']:,.2f}</b>, mientras que los "
-        f"desembolsos ejecutados sumaron <b>Bs. {datos_flujo['total_salidas']:,.2f}</b>. "
-        f"Esto deja a la entidad con una posición neta final en tesorería de <b>Bs. {datos_flujo['saldo_final']:,.2f}</b>, "
-        f"permitiendo evaluar su capacidad de respuesta inmediata para compromisos bancarios o de inversión a corto plazo."
-    )
-    story.append(Paragraph(analisis_text, body_style))
-    story.append(Spacer(1, 12))
-
-    # Bloque de Firma
+    # Cierre y Firmas
     cpc_texto = cpc_info if cpc_info else "Validador Algorítmico Autónomo de Tesorería"
     firma_data = [
         [
@@ -9661,15 +9634,15 @@ def generar_pdf_flujo_caja(nombre_empresa, datos_flujo, cpc_info=None):
         ('BOTTOMPADDING', (0,0), (-1,-1), 1),
     ]))
     story.append(t_firma)
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 6))
 
-    # Hash SHA-256
+    # Hash Footer
     hash_footer_style = ParagraphStyle(
         'HashFooterFC', parent=styles['Normal'],
-        fontName='Helvetica', fontSize=6, leading=7,
+        fontName='Helvetica', fontSize=5.5, leading=7,
         textColor=colors.HexColor('#777777'), alignment=1
     )
-    story.append(Paragraph(f"<b>Sello Criptográfico de Trazabilidad SHA-256:</b> {document_hash}", hash_footer_style))
+    story.append(Paragraph(f"<b>Sello Criptográfico SHA-256:</b> {document_hash}", hash_footer_style))
 
     doc.build(story)
     buffer.seek(0)
@@ -10329,10 +10302,9 @@ if opcion_menu == "🏠 Inicio":
     if not db or db == "{db}" or db == "None" or str(db).strip() == "":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
-        # Obtenemos los datos institucionales reales de la empresa
         empresa_actual = obtener_datos_empresa_activa()
         
-        st.markdown("### 📊 Módulo de Tesorería y Flujo de Caja Real")
+        st.markdown("### 📊 Módulo de Tesorería y Flujo de Caja Real (Detallado)")
         
         col_f1, col_f2 = st.columns(2)
         with col_f1:
@@ -10340,12 +10312,12 @@ if opcion_menu == "🏠 Inicio":
         with col_f2:
             fecha_fin = st.date_input("Fecha Hasta:", datetime(2026, 7, 31))
 
-        if st.button("🔄 Calcular Flujo de Caja por Rango"):
+        if st.button("🔄 Calcular Flujo de Caja Detallado"):
             try:
                 conn = conectar_db(db)
                 if conn:
-                    # Calculamos el flujo usando la base de datos actual
-                    datos_flujo = calcular_flujo_caja_rango(
+                    # Calculamos el flujo detallado y agrupado por cuenta
+                    datos_flujo = calcular_flujo_caja_detallado(
                         conn, 
                         db, 
                         fecha_ini.strftime('%Y-%m-%d'), 
@@ -10353,29 +10325,28 @@ if opcion_menu == "🏠 Inicio":
                     )
                     conn.close()
 
-                    # Mostramos métricas rápidas en pantalla
+                    # Mostramos métricas en pantalla
                     m1, m2, m3, m4 = st.columns(4)
                     m1.metric("Saldo Inicial", f"Bs. {datos_flujo['saldo_inicial']:,.2f}")
                     m2.metric("Total Entradas", f"Bs. {datos_flujo['total_entradas']:,.2f}")
                     m3.metric("Total Salidas", f"Bs. {datos_flujo['total_salidas']:,.2f}")
                     m4.metric("Saldo Final", f"Bs. {datos_flujo['saldo_final']:,.2f}", delta=f"Bs. {datos_flujo['flujo_neto']:,.2f}")
 
-                    # Generamos el PDF oficial con ReportLab integrando el nombre real de la empresa
-                    pdf_flujo = generar_pdf_flujo_caja(empresa_actual["nombre"], datos_flujo)
+                    # Generamos el PDF oficial detallado con la estructura de Excel
+                    pdf_flujo = generar_pdf_flujo_caja_detallado(empresa_actual["nombre"], datos_flujo)
 
                     st.download_button(
-                        label="📄 Descargar Estado de Flujo de Caja (PDF)",
+                        label="📄 Descargar Estado de Flujo de Caja Detallado (PDF)",
                         data=pdf_flujo,
-                        file_name=f"Flujo_de_Caja_{db}_{fecha_ini}_{fecha_fin}.pdf",
+                        file_name=f"Flujo_de_Caja_Detallado_{db}_{fecha_ini}_{fecha_fin}.pdf",
                         mime="application/pdf",
                         use_container_width=True,
-                        key="btn_download_flujo_maestro"
+                        key="btn_download_flujo_detallado"
                     )
                 else:
                     st.error("No se pudo establecer conexión con la base de datos seleccionada.")
             except Exception as err:
                 st.error(f"Ocurrió un error al procesar el reporte: {err}")
-
 
 
 
