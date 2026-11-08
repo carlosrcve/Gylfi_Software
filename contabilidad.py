@@ -9821,6 +9821,187 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         'fecha_inicio': fecha_inicio,
         'fecha_fin': fecha_fin
     }
+
+
+
+import io
+import hashlib
+import uuid
+import qrcode
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image as RLImage
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+
+def generar_pdf_flujo_efectivo(nombre_empresa, datos_efectivo, cpc_info=None):
+    """
+    Genera el PDF del Estado de Flujo de Efectivo bajo el Método Indirecto,
+    estructurado por Actividades de Operación, Inversión y Financiamiento.
+    """
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=letter, 
+        rightMargin=54, leftMargin=54, 
+        topMargin=54, bottomMargin=54
+    )
+    story = []
+    styles = getSampleStyleSheet()
+
+    # Estilos tipográficos institucionales
+    subtitulo_style = ParagraphStyle(
+        'SubTituloFE', parent=styles['Normal'],
+        fontName='Helvetica-Bold', fontSize=8, leading=10,
+        alignment=1, textColor=colors.HexColor('#555555')
+    )
+    
+    body_style = ParagraphStyle(
+        'BodyFE', parent=styles['Normal'],
+        fontName='Helvetica', fontSize=8, leading=11,
+        alignment=4, textColor=colors.HexColor('#222222')
+    )
+    
+    # Estilos para celdas de la tabla (formato contable IFRS / VEN-NIF)
+    style_left = ParagraphStyle('TLeftFE', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.HexColor('#111111'))
+    style_right = ParagraphStyle('TRightFE', fontName='Helvetica-Bold', fontSize=8, leading=10, alignment=2, textColor=colors.HexColor('#111111'))
+    
+    style_category = ParagraphStyle('TCatFE', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.HexColor('#ffffff'))
+    style_category_right = ParagraphStyle('TCatRFE', fontName='Helvetica-Bold', fontSize=8, leading=10, alignment=2, textColor=colors.HexColor('#ffffff'))
+    
+    style_indent = ParagraphStyle('TIndFE', fontName='Helvetica', fontSize=7.5, leading=10, leftIndent=12, textColor=colors.HexColor('#222222'))
+    style_normal_right = ParagraphStyle('TNormRFE', fontName='Helvetica', fontSize=7.5, leading=10, alignment=2, textColor=colors.HexColor('#222222'))
+    
+    style_subtotal = ParagraphStyle('TSubFE', fontName='Helvetica-Bold', fontSize=8, leading=10, textColor=colors.HexColor('#1e3c72'))
+    style_subtotal_right = ParagraphStyle('TSubRFE', fontName='Helvetica-Bold', fontSize=8, leading=10, alignment=2, textColor=colors.HexColor('#1e3c72'))
+
+    style_total_final = ParagraphStyle('TFinFE', fontName='Helvetica-Bold', fontSize=9, leading=12, textColor=colors.HexColor('#155724'))
+    style_total_final_right = ParagraphStyle('TFinRFE', fontName='Helvetica-Bold', fontSize=9, leading=12, alignment=2, textColor=colors.HexColor('#155724'))
+
+    # Hash Criptográfico y Token de Autenticidad SHA-256
+    raw_string = f"{nombre_empresa}-{datos_efectivo['fecha_inicio']}-{datos_efectivo['fecha_fin']}-{datos_efectivo['cambio_neto_efectivo']}-{uuid.uuid4()}"
+    document_hash = hashlib.sha256(raw_string.encode('utf-8')).hexdigest()
+    token_corto = document_hash[:12].upper()
+
+    # Código QR de Verificación
+    url_verificacion = f"https://gylfisoftware.streamlit.app/verify_fe?token={token_corto}"
+    qr = qrcode.QRCode(version=1, box_size=4, border=1)
+    qr.add_data(url_verificacion)
+    qr.make(fit=True)
+    img_qr = qr.make_image(fill_color="#1e3c72", back_color="white")
+    
+    buf_qr = io.BytesIO()
+    img_qr.save(buf_qr, format='PNG')
+    buf_qr.seek(0)
+    qr_flowable = RLImage(buf_qr, width=55, height=55)
+
+    # Header Institucional Gylfi Software
+    header_text = Paragraph(
+        "<b>Gylfi Software — Módulo de Auditoría Financiera NIF/IFRS</b><br/>"
+        "<b>ESTADO DE FLUJO DE EFECTIVO (MÉTODOS INDIRECTO)</b><br/>"
+        f"Entidad: <b>{nombre_empresa.upper()}</b> | Período: <b>{datos_efectivo['fecha_inicio']}</b> al <b>{datos_efectivo['fecha_fin']}</b>",
+        subtitulo_style
+    )
+    
+    t_header = Table([[header_text, qr_flowable]], colWidths=[440, 64])
+    t_header.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('ALIGN', (1,0), (1,0), 'RIGHT'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+    ]))
+    story.append(t_header)
+    story.append(Spacer(1, 4))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1e3c72'), spaceAfter=8))
+
+    # Matriz de datos contables estilo Estado Financiero Institucional
+    table_data = []
+    cat_rows_indices = []
+
+    # 1. Cabecera con fecha de cierre
+    table_data.append([Paragraph("Concepto / Rubro Financiero", style_left), Paragraph(f"Cierre {datos_efectivo['fecha_fin']}", style_right)])
+
+    # 2. ACTIVIDADES DE OPERACIÓN
+    cat_rows_indices.append(len(table_data))
+    table_data.append([Paragraph("Flujo de Efectivo de las Actividades de Operación", style_category), Paragraph("Monto (Bs.)", style_category_right)])
+    
+    table_data.append([Paragraph("Utilidad Neta del Período", style_indent), Paragraph(f"{datos_efectivo['utilidad_neta']:,.2f}", style_normal_right)])
+    table_data.append([Paragraph("(+) Ajustes por partidas que no implican efectivo (Depreciaciones/Amort.)", style_indent), Paragraph(f"{datos_efectivo['depreciaciones']:,.2f}", style_normal_right)])
+    table_data.append([Paragraph("(-/+) Variación en Cuentas por Cobrar (Capital de Trabajo)", style_indent), Paragraph(f"{-datos_efectivo['variacion_cxc']:,.2f}", style_normal_right)])
+    table_data.append([Paragraph("(+/-) Variación en Cuentas por Pagar (Capital de Trabajo)", style_indent), Paragraph(f"{datos_efectivo['variacion_cxp']:,.2f}", style_normal_right)])
+    
+    table_data.append([Paragraph("Flujo Neto de Actividades de Operación", style_subtotal), Paragraph(f"Bs. {datos_efectivo['flujo_operacion']:,.2f}", style_subtotal_right)])
+
+    # 3. ACTIVIDADES DE INVERSIÓN
+    cat_rows_indices.append(len(table_data))
+    table_data.append([Paragraph("Flujo de Efectivo de las Actividades de Inversión", style_category), Paragraph("", style_category_right)])
+    
+    table_data.append([Paragraph("Adquisición / Adiciones en Propiedad, Planta y Equipo (Activos Fijos)", style_indent), Paragraph(f"{datos_efectivo['flujo_inversion']:,.2f}", style_normal_right)])
+    
+    table_data.append([Paragraph("Flujo Neto de Actividades de Inversión", style_subtotal), Paragraph(f"Bs. {datos_efectivo['flujo_inversion']:,.2f}", style_subtotal_right)])
+
+    # 4. ACTIVIDADES DE FINANCIAMIENTO
+    cat_rows_indices.append(len(table_data))
+    table_data.append([Paragraph("Flujo de Efectivo de las Actividades de Financiamiento", style_category), Paragraph("", style_category_right)])
+    
+    table_data.append([Paragraph("Obtención / Amortización de Pasivos a Largo Plazo y Aportes de Capital", style_indent), Paragraph(f"{datos_efectivo['flujo_financiamiento']:,.2f}", style_normal_right)])
+    
+    table_data.append([Paragraph("Flujo Neto de Actividades de Financiamiento", style_subtotal), Paragraph(f"Bs. {datos_efectivo['flujo_financiamiento']:,.2f}", style_subtotal_right)])
+
+    # 5. CAMBIO NETO EN EFECTIVO Y EQUIVALENTES
+    table_data.append([Paragraph("Incremento / (Disminución) Neta de Efectivo y Equivalentes", style_total_final), Paragraph(f"Bs. {datos_efectivo['cambio_neto_efectivo']:,.2f}", style_total_final_right)])
+
+    # Formato gráfico de la tabla ReportLab
+    t_efectivo = Table(table_data, colWidths=[340, 164])
+    
+    t_styles = [
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#e9ecef')),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#d1d5db')),
+        ('TOPPADDING', (0,0), (-1,-1), 2.5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2.5),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
+        ('BACKGROUND', (0, len(table_data)-1), (-1, len(table_data)-1), colors.HexColor('#d4edda')), # Resaltado verde para el cambio neto
+    ]
+
+    # Aplicar el fondo azul corporativo a las barras de categoría
+    for idx in cat_rows_indices:
+        t_styles.append(('BACKGROUND', (0, idx), (-1, idx), colors.HexColor('#1e3c72')))
+
+    t_efectivo.setStyle(TableStyle(t_styles))
+    
+    story.append(t_efectivo)
+    story.append(Spacer(1, 12))
+
+    # Pie de Firmas Oficial
+    cpc_texto = cpc_info if cpc_info else "Validador Algorítmico Autónomo de Tesorería"
+    firma_data = [
+        [
+            Paragraph("<b>___________________________________</b><br/>Gylfi Software C.A.<br/>Auditoría Automatizada NIF/IFRS", body_style),
+            Paragraph(f"<b>___________________________________</b><br/>Aval Contador Público / CPC<br/>{cpc_texto}", body_style)
+        ]
+    ]
+    t_firma = Table(firma_data, colWidths=[250, 254])
+    t_firma.setStyle(TableStyle([
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+    ]))
+    story.append(t_firma)
+    story.append(Spacer(1, 6))
+
+    # Sello Cryptográfico
+    hash_footer_style = ParagraphStyle(
+        'HashFooterFE', parent=styles['Normal'],
+        fontName='Helvetica', fontSize=5.5, leading=7,
+        textColor=colors.HexColor('#777777'), alignment=1
+    )
+    story.append(Paragraph(f"<b>Sello Criptográfico de Trazabilidad SHA-256:</b> {document_hash}", hash_footer_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
