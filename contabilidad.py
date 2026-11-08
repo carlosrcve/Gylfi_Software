@@ -9714,14 +9714,18 @@ from datetime import datetime
 
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el Estado de Flujo de Efectivo por el Método Indirecto,
-    asegurando que el Flujo Operativo asuma la conciliación final para que 
-    el cambio neto del efectivo cuadre exactamente con la tabla saldos_bancarios.
+    Calcula el Estado de Flujo de Efectivo por el Método Indirecto puro:
+    1. Utilidad Neta (Clase 4 - 5 - 6 + 7 - 8).
+    2. Ajustes por partidas que no generan efectivo (Depreciaciones, amortizaciones, provisiones).
+    3. Variaciones de Capital de Trabajo (CxC, CxP, inventarios).
+    4. Flujos de Inversión y Financiamiento.
+    5. Línea de conciliación final para cuadrar exactamente con saldos_bancarios.
     """
     utilidad_neta = 0.0
     depreciaciones = 0.0
     variacion_cxc = 0.0
     variacion_cxp = 0.0
+    variacion_inventario = 0.0
     flujo_inversion = 0.0
     flujo_financiamiento = 0.0
     saldo_inicial_bancos = 0.0
@@ -9741,7 +9745,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
         cursor = conn.cursor()
 
-        # 1. Obtener Saldo Inicial y Final del Banco desde saldos_bancarios
+        # 1. Obtener Saldo Inicial y Final real del Banco desde saldos_bancarios
         query_saldos_banco = f"""
             SELECT 
                 COALESCE(SUM(saldo_inicial), 0.0) as ini,
@@ -9755,7 +9759,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             saldo_inicial_bancos = float(row_sb[0] or 0.0)
             saldo_final_bancos = float(row_sb[1] or 0.0)
 
-        # 2. Selección inteligente de tabla (saldos_iniciales para historicos, asientos_contables para mayo en adelante)
+        # 2. Selección de tabla fuente (saldos_iniciales para Nov 2025-Abr 2026, asientos_contables para May 2026 en adelante)
         tabla_fuente = "saldos_iniciales" if dt_ini < datetime(2026, 5, 1) else "asientos_contables"
 
         # 3. Utilidad Neta: Clase 4 - 5 - 6 + 7 - 8
@@ -9766,7 +9770,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%%' THEN debe - haber ELSE 0 END), 0) -
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%%' THEN debe - haber ELSE 0 END), 0) +
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%%' THEN haber - debe ELSE 0 END), 0) -
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN debe - haber ELSE 0 END), 0)
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN haber - debe ELSE 0 END), 0)
                 ) as util_neta
             FROM `{db_name}`.`{tabla_fuente}`
             WHERE fecha BETWEEN %s AND %s
@@ -9776,19 +9780,20 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         if row_util:
             utilidad_neta = float(row_util[0] or 0.0)
 
-        # 4. Depreciaciones y Amortizaciones
+        # 4. Gastos que no generan salida de efectivo (Depreciaciones, Amortizaciones y Provisiones Laborales)
         query_dep = f"""
             SELECT COALESCE(SUM(debe - haber), 0.0) as dep
             FROM `{db_name}`.`{tabla_fuente}`
             WHERE fecha BETWEEN %s AND %s
-              AND (LOWER(cuenta_contable) LIKE '%%deprec%%' OR LOWER(cuenta_contable) LIKE '%%amort%%' OR LOWER(plan_cuentas) LIKE '6.3%%')
+              AND (LOWER(cuenta_contable) LIKE '%%deprec%%' OR LOWER(cuenta_contable) LIKE '%%amort%%' OR LOWER(cuenta_contable) LIKE '%%provision%%' OR LOWER(plan_cuentas) LIKE '6.3%%')
         """
         cursor.execute(query_dep, (fecha_inicio, fecha_fin))
         row_dep = cursor.fetchone()
         if row_dep:
             depreciaciones = float(row_dep[0] or 0.0)
 
-        # 5. Variación de Capital de Trabajo (CxC y CxP)
+        # 5. Variación de Capital de Trabajo (Cuentas por Cobrar, Cuentas por Pagar e Inventarios)
+        # Nota: Un incremento en CxC resta efectivo. Un incremento en CxP suma efectivo.
         query_cxc = f"""
             SELECT COALESCE(SUM(debe - haber), 0.0) as var_cxc
             FROM `{db_name}`.`{tabla_fuente}`
@@ -9811,7 +9816,18 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         if row_cxp:
             variacion_cxp = float(row_cxp[0] or 0.0)
 
-        # 6. Actividades de Inversión
+        query_inv_s = f"""
+            SELECT COALESCE(SUM(debe - haber), 0.0) as var_inv
+            FROM `{db_name}`.`{tabla_fuente}`
+            WHERE fecha BETWEEN %s AND %s
+              AND (LOWER(plan_cuentas) LIKE '1.1.03%%' OR LOWER(cuenta_contable) LIKE '%%inventario%%' OR LOWER(cuenta_contable) LIKE '%%mercancia%%')
+        """
+        cursor.execute(query_inv_s, (fecha_inicio, fecha_fin))
+        row_inv = cursor.fetchone()
+        if row_inv:
+            variacion_inventario = float(row_inv[0] or 0.0)
+
+        # 6. Actividades de Inversión (Activos Fijos / Propiedad Planta y Equipo - Clase 1.2)
         query_inv = f"""
             SELECT COALESCE(SUM(haber - debe), 0.0) as inv
             FROM `{db_name}`.`{tabla_fuente}`
@@ -9823,7 +9839,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         if row_inv:
             flujo_inversion = float(row_inv[0] or 0.0)
 
-        # 7. Actividades de Financiamiento (Manteniendo su cálculo real y limpio)
+        # 7. Actividades de Financiamiento (Pasivos a largo plazo o Patrimonio - Clase 2.2 o 3)
         query_fin = f"""
             SELECT COALESCE(SUM(haber - debe), 0.0) as fin
             FROM `{db_name}`.`{tabla_fuente}`
@@ -9839,20 +9855,33 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     except Exception as e:
         st.error(f"Error al calcular el flujo de efectivo indirecto: {e}")
 
-    # REGLA DE ORO DE CIERRE BANCARIO:
-    # 1. El cambio neto total del efectivo viene dado por la variación real del banco
-    cambio_neto_efectivo = saldo_final_bancos - saldo_inicial_bancos
+    # CONSTRUCCIÓN PURA DEL FLUJO OPERATIVO POR COMPONENTES:
+    # Utilidad Neta + Depreciaciones/Provisiones - Incremento CxC - Incremento Inventarios + Incremento CxP
+    flujo_operacion_nat = utilidad_neta + depreciaciones - variacion_cxc - variacion_inventario + variacion_cxp
 
-    # 2. El Flujo Operativo se despeja por diferencia para que la ecuación cierre perfecto al centavo:
-    # Cambio Neto = Operación + Inversión + Financiamiento  =>  Operación = Cambio Neto - Inversión - Financiamiento
-    flujo_operacion = cambio_neto_efectivo - flujo_inversion - flujo_financiamiento
+    # Cambio Neto preliminar por componentes
+    cambio_neto_preliminar = flujo_operacion_nat + flujo_inversion + flujo_financiamiento
+
+    # Variación real exigida por el banco
+    cambio_neto_real_banco = saldo_final_bancos - saldo_inicial_bancos
+
+    # Ajuste de conciliación por otras cuentas menores de balance no mapeadas explícitamente
+    ajuste_conciliacion = cambio_neto_real_banco - cambio_neto_preliminar
+
+    # Flujo de operación final con su conciliación exacta incluida
+    flujo_operacion_final = flujo_operacion_nat + ajuste_conciliacion
+
+    # Cambio neto definitivo que cuadra perfecto con el banco
+    cambio_neto_efectivo = flujo_operacion_final + flujo_inversion + flujo_financiamiento
 
     return {
         'utilidad_neta': utilidad_neta,
         'depreciaciones': depreciaciones,
         'variacion_cxc': variacion_cxc,
         'variacion_cxp': variacion_cxp,
-        'flujo_operacion': flujo_operacion,
+        'variacion_inventario': variacion_inventario,
+        'ajuste_conciliacion': ajuste_conciliacion,
+        'flujo_operacion': flujo_operacion_final,
         'flujo_inversion': flujo_inversion,
         'flujo_financiamiento': flujo_financiamiento,
         'cambio_neto_efectivo': cambio_neto_efectivo,
