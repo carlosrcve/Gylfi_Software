@@ -9369,14 +9369,11 @@ from datetime import datetime
 import streamlit as st
 from datetime import datetime
 
-import streamlit as st
-from datetime import datetime
-
 def calcular_flujo_caja_detallado(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el flujo de caja detallado buscando los números de comprobante (n_comprobante)
-    que afectan a las cuentas de Banco/Caja y extrayendo las contrapartidas (cuentas o descripciones)
-    de esos mismos comprobantes para lograr el desglose analítico exacto idéntico al Excel.
+    Calcula el flujo de caja detallado y agrupado por cuenta contable,
+    obteniendo el saldo inicial de la tabla saldos_bancarios para el mes correspondiente
+    y agrupando las entradas y salidas para reflejar el formato analítico del Excel.
     """
     saldo_inicial = 0.0
     entradas_agrupadas = []
@@ -9385,10 +9382,12 @@ def calcular_flujo_caja_detallado(conn, db_name, fecha_inicio, fecha_fin):
     total_salidas = 0.0
 
     try:
+        # Extraer año y mes numérico de la fecha de inicio (ej. '2026-07-01')
         dt_ini = datetime.strptime(fecha_inicio, '%Y-%m-%d')
         ano = dt_ini.year
         mes_num = dt_ini.month
 
+        # Diccionario de meses en español para empatar con la columna 'mes' de saldos_bancarios
         meses_es = {
             1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 
             5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto', 
@@ -9398,7 +9397,7 @@ def calcular_flujo_caja_detallado(conn, db_name, fecha_inicio, fecha_fin):
 
         cursor = conn.cursor()
 
-        # 1. Obtener el saldo inicial del mes en saldos_bancarios
+        # 1. Obtener el saldo inicial directamente del mes correspondiente en saldos_bancarios
         query_saldo_init = f"""
             SELECT COALESCE(SUM(saldo_inicial), 0.0) as saldo_ini
             FROM `{db_name}`.saldos_bancarios
@@ -9409,63 +9408,57 @@ def calcular_flujo_caja_detallado(conn, db_name, fecha_inicio, fecha_fin):
         if row_ini:
             saldo_inicial = float(row_ini[0] or 0.0)
 
-        # 2. Entradas detalladas: Comprobantes donde el banco tiene movimiento en el DEBE
+        # 2. Obtener Entradas Agrupadas por Cuenta (DEBE en cuentas de Banco/Caja)
         query_entradas = f"""
             SELECT 
-                COALESCE(NULLIF(cuenta_contable, ''), descripcion, 'Otros Ingresos') as concepto,
-                SUM(haber) as total_monto
+                cuenta_contable,
+                SUM(debe) as total_monto
             FROM `{db_name}`.asientos_contables
             WHERE fecha BETWEEN %s AND %s
-              AND n_comprobante IN (
-                  SELECT DISTINCT n_comprobante 
-                  FROM `{db_name}`.asientos_contables 
-                  WHERE fecha BETWEEN %s AND %s 
-                    AND (LOWER(plan_cuentas) LIKE '1.1.01%%' OR LOWER(cuenta_contable) LIKE '%%banco%%' OR LOWER(cuenta_contable) LIKE '%%caja%%')
-                    AND debe > 0
+              AND (
+                  LOWER(plan_cuentas) LIKE '1.1.01%%' 
+                  OR LOWER(cuenta_contable) LIKE '%%banco%%' 
+                  OR LOWER(cuenta_contable) LIKE '%%caja%%'
               )
-              AND NOT (LOWER(plan_cuentas) LIKE '1.1.01%%' OR LOWER(cuenta_contable) LIKE '%%banco%%' OR LOWER(cuenta_contable) LIKE '%%caja%%')
-            GROUP BY concepto
+              AND debe > 0
+            GROUP BY cuenta_contable
             ORDER BY total_monto DESC
         """
-        cursor.execute(query_entradas, (fecha_inicio, fecha_fin, fecha_inicio, fecha_fin))
+        cursor.execute(query_entradas, (fecha_inicio, fecha_fin))
         rows_ent = cursor.fetchall()
         for r in rows_ent:
             cta = r[0] or "Cuenta sin nombre"
             monto = float(r[1] or 0.0)
-            if monto > 0:
-                entradas_agrupadas.append({'cuenta': cta, 'monto': monto})
-                total_entradas += monto
+            entradas_agrupadas.append({'cuenta': cta, 'monto': monto})
+            total_entradas += monto
 
-        # 3. Salidas detalladas: Comprobantes donde el banco tiene movimiento en el HABER
+        # 3. Obtener Salidas Agrupadas por Cuenta (HABER en cuentas de Banco/Caja)
         query_salidas = f"""
             SELECT 
-                COALESCE(NULLIF(cuenta_contable, ''), descripcion, 'Otros Egresos') as concepto,
-                SUM(debe) as total_monto
+                cuenta_contable,
+                SUM(haber) as total_monto
             FROM `{db_name}`.asientos_contables
             WHERE fecha BETWEEN %s AND %s
-              AND n_comprobante IN (
-                  SELECT DISTINCT n_comprobante 
-                  FROM `{db_name}`.asientos_contables 
-                  WHERE fecha BETWEEN %s AND %s 
-                    AND (LOWER(plan_cuentas) LIKE '1.1.01%%' OR LOWER(cuenta_contable) LIKE '%%banco%%' OR LOWER(cuenta_contable) LIKE '%%caja%%')
-                    AND haber > 0
+              AND (
+                  LOWER(plan_cuentas) LIKE '1.1.01%%' 
+                  OR LOWER(cuenta_contable) LIKE '%%banco%%' 
+                  OR LOWER(cuenta_contable) LIKE '%%caja%%'
               )
-              AND NOT (LOWER(plan_cuentas) LIKE '1.1.01%%' OR LOWER(cuenta_contable) LIKE '%%banco%%' OR LOWER(cuenta_contable) LIKE '%%caja%%')
-            GROUP BY concepto
+              AND haber > 0
+            GROUP BY cuenta_contable
             ORDER BY total_monto DESC
         """
-        cursor.execute(query_salidas, (fecha_inicio, fecha_fin, fecha_inicio, fecha_fin))
+        cursor.execute(query_salidas, (fecha_inicio, fecha_fin))
         rows_sal = cursor.fetchall()
         for r in rows_sal:
             cta = r[0] or "Cuenta sin nombre"
             monto = float(r[1] or 0.0)
-            if monto > 0:
-                salidas_agrupadas.append({'cuenta': cta, 'monto': monto})
-                total_salidas += monto
+            salidas_agrupadas.append({'cuenta': cta, 'monto': monto})
+            total_salidas += monto
 
         cursor.close()
     except Exception as e:
-        st.error(f"Error al calcular el flujo de caja detallado por comprobante: {e}")
+        st.error(f"Error al calcular el flujo de caja detallado: {e}")
 
     flujo_neto = total_entradas - total_salidas
     saldo_final = saldo_inicial + flujo_neto
