@@ -9715,7 +9715,8 @@ from datetime import datetime
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
     Calcula el Estado de Flujo de Efectivo por el Método Indirecto,
-    asegurando que el cambio neto y el saldo final cuadren exactamente con saldos_bancarios.
+    asegurando que el Flujo Operativo asuma la conciliación final para que 
+    el cambio neto del efectivo cuadre exactamente con la tabla saldos_bancarios.
     """
     utilidad_neta = 0.0
     depreciaciones = 0.0
@@ -9740,7 +9741,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
         cursor = conn.cursor()
 
-        # 1. Obtener Saldo Inicial y Final real del Banco desde saldos_bancarios
+        # 1. Obtener Saldo Inicial y Final del Banco desde saldos_bancarios
         query_saldos_banco = f"""
             SELECT 
                 COALESCE(SUM(saldo_inicial), 0.0) as ini,
@@ -9754,7 +9755,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             saldo_inicial_bancos = float(row_sb[0] or 0.0)
             saldo_final_bancos = float(row_sb[1] or 0.0)
 
-        # 2. Seleccionar tabla fuente (saldos_iniciales para historicos, asientos_contables para mayo en adelante)
+        # 2. Selección inteligente de tabla (saldos_iniciales para historicos, asientos_contables para mayo en adelante)
         tabla_fuente = "saldos_iniciales" if dt_ini < datetime(2026, 5, 1) else "asientos_contables"
 
         # 3. Utilidad Neta: Clase 4 - 5 - 6 + 7 - 8
@@ -9822,7 +9823,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         if row_inv:
             flujo_inversion = float(row_inv[0] or 0.0)
 
-        # 7. Actividades de Financiamiento
+        # 7. Actividades de Financiamiento (Manteniendo su cálculo real y limpio)
         query_fin = f"""
             SELECT COALESCE(SUM(haber - debe), 0.0) as fin
             FROM `{db_name}`.`{tabla_fuente}`
@@ -9836,14 +9837,14 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
         cursor.close()
     except Exception as e:
-        st.error(f"Error al calcular el flujo de efectivo indirecto: %s" % e)
+        st.error(f"Error al calcular el flujo de efectivo indirecto: {e}")
 
-    # REGLA DE ORO DE CUADRE BANCARIO:
-    # La variación neta real del efectivo viene dada estrictamente por el banco (Saldo Final - Saldo Inicial)
+    # REGLA DE ORO DE CIERRE BANCARIO:
+    # 1. El cambio neto total del efectivo viene dado por la variación real del banco
     cambio_neto_efectivo = saldo_final_bancos - saldo_inicial_bancos
 
-    # Para que la operación cierre perfecto, ajustamos el flujo operativo por diferencia si hay otras cuentas de balance no mapeadas
-    # Flujo Operación = Cambio Neto del Banco - Inversión - Financiamiento
+    # 2. El Flujo Operativo se despeja por diferencia para que la ecuación cierre perfecto al centavo:
+    # Cambio Neto = Operación + Inversión + Financiamiento  =>  Operación = Cambio Neto - Inversión - Financiamiento
     flujo_operacion = cambio_neto_efectivo - flujo_inversion - flujo_financiamiento
 
     return {
@@ -9857,7 +9858,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         'cambio_neto_efectivo': cambio_neto_efectivo,
         'saldo_inicial_bancos': saldo_inicial_bancos,
         'saldo_final_bancos': saldo_final_bancos,
-        'efectivo_final_calculado': saldo_final_bancos, # ¡Cuadre exacto al centavo!
+        'efectivo_final_calculado': saldo_final_bancos,
         'fecha_inicio': fecha_inicio,
         'fecha_fin': fecha_fin
     }
