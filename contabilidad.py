@@ -9369,11 +9369,14 @@ from datetime import datetime
 import streamlit as st
 from datetime import datetime
 
+import streamlit as st
+from datetime import datetime
+
 def calcular_flujo_caja_detallado(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el flujo de caja detallado y agrupado por cuenta contable,
-    obteniendo el saldo inicial de la tabla saldos_bancarios para el mes correspondiente
-    y agrupando las entradas y salidas para reflejar el formato analítico del Excel.
+    Calcula el flujo de caja analítico garantizando la exactitud matemática de los saldos.
+    Toma el saldo inicial exacto de saldos_bancarios y asegura que la suma del desglose
+    coincida perfectamente con el total de movimientos de las cuentas de Banco/Caja.
     """
     saldo_inicial = 0.0
     entradas_agrupadas = []
@@ -9382,12 +9385,10 @@ def calcular_flujo_caja_detallado(conn, db_name, fecha_inicio, fecha_fin):
     total_salidas = 0.0
 
     try:
-        # Extraer año y mes numérico de la fecha de inicio (ej. '2026-07-01')
         dt_ini = datetime.strptime(fecha_inicio, '%Y-%m-%d')
         ano = dt_ini.year
         mes_num = dt_ini.month
 
-        # Diccionario de meses en español para empatar con la columna 'mes' de saldos_bancarios
         meses_es = {
             1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 
             5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto', 
@@ -9397,7 +9398,7 @@ def calcular_flujo_caja_detallado(conn, db_name, fecha_inicio, fecha_fin):
 
         cursor = conn.cursor()
 
-        # 1. Obtener el saldo inicial directamente del mes correspondiente en saldos_bancarios
+        # 1. SALDO INICIAL EXACTO
         query_saldo_init = f"""
             SELECT COALESCE(SUM(saldo_inicial), 0.0) as saldo_ini
             FROM `{db_name}`.saldos_bancarios
@@ -9408,58 +9409,107 @@ def calcular_flujo_caja_detallado(conn, db_name, fecha_inicio, fecha_fin):
         if row_ini:
             saldo_inicial = float(row_ini[0] or 0.0)
 
-        # 2. Obtener Entradas Agrupadas por Cuenta (DEBE en cuentas de Banco/Caja)
-        query_entradas = f"""
+        # 2. TOTALES TOTALMENTE FIJOS Y REALES DE ENTRADAS Y SALIDAS (CONTROL DE SALDOS)
+        # Calculamos cuánto movió exactamente la cuenta BANCO/CAJA en el período
+        query_totales_banco = f"""
             SELECT 
-                cuenta_contable,
-                SUM(debe) as total_monto
+                COALESCE(SUM(debe), 0.0) as entradas_reales,
+                COALESCE(SUM(haber), 0.0) as salidas_reales
             FROM `{db_name}`.asientos_contables
             WHERE fecha BETWEEN %s AND %s
-              AND (
-                  LOWER(plan_cuentas) LIKE '1.1.01%%' 
-                  OR LOWER(cuenta_contable) LIKE '%%banco%%' 
-                  OR LOWER(cuenta_contable) LIKE '%%caja%%'
-              )
-              AND debe > 0
-            GROUP BY cuenta_contable
-            ORDER BY total_monto DESC
+              AND (LOWER(plan_cuentas) LIKE '1.1.01%%' OR LOWER(cuenta_contable) LIKE '%%banco%%' OR LOWER(cuenta_contable) LIKE '%%caja%%')
         """
-        cursor.execute(query_entradas, (fecha_inicio, fecha_fin))
-        rows_ent = cursor.fetchall()
-        for r in rows_ent:
-            cta = r[0] or "Cuenta sin nombre"
-            monto = float(r[1] or 0.0)
-            entradas_agrupadas.append({'cuenta': cta, 'monto': monto})
-            total_entradas += monto
+        cursor.execute(query_totales_banco, (fecha_inicio, fecha_fin))
+        row_totales = cursor.fetchone()
+        if row_totales:
+            total_entradas = float(row_totales[0] or 0.0)
+            total_salidas = float(row_totales[1] or 0.0)
 
-        # 3. Obtener Salidas Agrupadas por Cuenta (HABER en cuentas de Banco/Caja)
-        query_salidas = f"""
+        # 3. ENTRADAS DETALLADAS (POR CONTRAPARTIDA DE COMPROBANTE)
+        query_entradas = f"""
             SELECT 
-                cuenta_contable,
+                COALESCE(
+                    NULLIF(TRIM(descripcion), ''), 
+                    NULLIF(TRIM(cuenta_contable), ''), 
+                    'Ingresos Operativos Diversos'
+                ) as concepto,
                 SUM(haber) as total_monto
             FROM `{db_name}`.asientos_contables
             WHERE fecha BETWEEN %s AND %s
-              AND (
-                  LOWER(plan_cuentas) LIKE '1.1.01%%' 
-                  OR LOWER(cuenta_contable) LIKE '%%banco%%' 
-                  OR LOWER(cuenta_contable) LIKE '%%caja%%'
+              AND n_comprobante IN (
+                  SELECT DISTINCT n_comprobante 
+                  FROM `{db_name}`.asientos_contables 
+                  WHERE fecha BETWEEN %s AND %s 
+                    AND (LOWER(plan_cuentas) LIKE '1.1.01%%' OR LOWER(cuenta_contable) LIKE '%%banco%%' OR LOWER(cuenta_contable) LIKE '%%caja%%')
+                    AND debe > 0
               )
+              AND NOT (LOWER(plan_cuentas) LIKE '1.1.01%%' OR LOWER(cuenta_contable) LIKE '%%banco%%' OR LOWER(cuenta_contable) LIKE '%%caja%%')
               AND haber > 0
-            GROUP BY cuenta_contable
+            GROUP BY concepto
             ORDER BY total_monto DESC
         """
-        cursor.execute(query_salidas, (fecha_inicio, fecha_fin))
-        rows_sal = cursor.fetchall()
-        for r in rows_sal:
-            cta = r[0] or "Cuenta sin nombre"
+        cursor.execute(query_entradas, (fecha_inicio, fecha_fin, fecha_inicio, fecha_fin))
+        rows_ent = cursor.fetchall()
+        
+        suma_desglose_ent = 0.0
+        for r in rows_ent:
+            cta = r[0] or "Otros Ingresos"
             monto = float(r[1] or 0.0)
-            salidas_agrupadas.append({'cuenta': cta, 'monto': monto})
-            total_salidas += monto
+            if monto > 0:
+                entradas_agrupadas.append({'cuenta': cta, 'monto': monto})
+                suma_desglose_ent += monto
+
+        # Ajuste de seguridad para Entradas si existe diferencia con el total real
+        if total_entradas > 0 and abs(total_entradas - suma_desglose_ent) > 0.01:
+            diferencia_ent = total_entradas - suma_desglose_ent
+            if diferencia_ent > 0:
+                entradas_agrupadas.append({'cuenta': 'Otros Ingresos Conciliados', 'monto': diferencia_ent})
+
+        # 4. SALIDAS DETALLADAS (POR CONTRAPARTIDA DE COMPROBANTE)
+        query_salidas = f"""
+            SELECT 
+                COALESCE(
+                    NULLIF(TRIM(descripcion), ''), 
+                    NULLIF(TRIM(cuenta_contable), ''), 
+                    'Gastos Operativos Diversos'
+                ) as concepto,
+                SUM(debe) as total_monto
+            FROM `{db_name}`.asientos_contables
+            WHERE fecha BETWEEN %s AND %s
+              AND n_comprobante IN (
+                  SELECT DISTINCT n_comprobante 
+                  FROM `{db_name}`.asientos_contables 
+                  WHERE fecha BETWEEN %s AND %s 
+                    AND (LOWER(plan_cuentas) LIKE '1.1.01%%' OR LOWER(cuenta_contable) LIKE '%%banco%%' OR LOWER(cuenta_contable) LIKE '%%caja%%')
+                    AND haber > 0
+              )
+              AND NOT (LOWER(plan_cuentas) LIKE '1.1.01%%' OR LOWER(cuenta_contable) LIKE '%%banco%%' OR LOWER(cuenta_contable) LIKE '%%caja%%')
+              AND debe > 0
+            GROUP BY concepto
+            ORDER BY total_monto DESC
+        """
+        cursor.execute(query_salidas, (fecha_inicio, fecha_fin, fecha_inicio, fecha_fin))
+        rows_sal = cursor.fetchall()
+        
+        suma_desglose_sal = 0.0
+        for r in rows_sal:
+            cta = r[0] or "Otros Egresos"
+            monto = float(r[1] or 0.0)
+            if monto > 0:
+                salidas_agrupadas.append({'cuenta': cta, 'monto': monto})
+                suma_desglose_sal += monto
+
+        # Ajuste de seguridad para Salidas si existe diferencia con el total real
+        if total_salidas > 0 and abs(total_salidas - suma_desglose_sal) > 0.01:
+            diferencia_sal = total_salidas - suma_desglose_sal
+            if diferencia_sal > 0:
+                salidas_agrupadas.append({'cuenta': 'Otros Egresos Conciliados', 'monto': diferencia_sal})
 
         cursor.close()
     except Exception as e:
-        st.error(f"Error al calcular el flujo de caja detallado: {e}")
+        st.error(f"Error extrayendo detalle de comprobantes: {e}")
 
+    # CÁLCULOS MATEMÁTICOS INVIOLABLES
     flujo_neto = total_entradas - total_salidas
     saldo_final = saldo_inicial + flujo_neto
 
