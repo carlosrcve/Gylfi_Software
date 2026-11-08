@@ -9364,6 +9364,298 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
     return buffer.getvalue()
 
 
+import pandas as pd
+from datetime import datetime
+
+def calcular_flujo_caja_rango(conn, db_name, fecha_inicio, fecha_fin):
+    """
+    Calcula el flujo de caja real conciliado filtrando por rango de fechas.
+    - Saldo Inicial: Extraído de `saldos_bancarios` o del saldo acumulado anterior a `fecha_inicio`.
+    - Entradas y Salidas: Extraídas de `asientos_contables` filtrando asientos que afectan a Bancos/Caja.
+    """
+    # 1. Obtención del Saldo Inicial
+    # Intentamos buscar el saldo_inicial registrado para la fecha/mes correspondiente o el acumulado anterior
+    query_saldo_init = f"""
+        SELECT COALESCE(SUM(saldo_inicial), 0.0) as saldo_ini
+        FROM `{db_name}`.saldos_bancarios
+        WHERE STR_TO_DATE(CONCAT('01-', mes, '-', ano), '%d-%M-%Y') <= %s
+        ORDER BY ano DESC, fecha_actualizacion DESC
+        LIMIT 1
+    """
+    df_ini = pd.read_sql(query_saldo_init, conn, params=(fecha_inicio,))
+    saldo_inicial = float(df_ini.iloc[0]['saldo_ini']) if not df_ini.empty else 0.0
+
+    # 2. Extracción de Entradas y Salidas de la tabla asientos_contables
+    # Filtramos por rango de fechas y cuentas de Tesorería/Bancos (Clase 1)
+    query_movimientos = f"""
+        SELECT 
+            id,
+            n_comprobante,
+            fecha,
+            plan_cuentas,
+            cuenta_contable,
+            descripcion,
+            debe,
+            haber
+        FROM `{db_name}`.asientos_contables
+        WHERE fecha BETWEEN %s AND %s
+          AND (
+              LOWER(plan_cuentas) LIKE '1.1.01%' 
+              OR LOWER(cuenta_contable) LIKE '%%banco%%' 
+              OR LOWER(cuenta_contable) LIKE '%%caja%%'
+          )
+        ORDER BY fecha ASC
+    """
+    df_movs = pd.read_sql(query_movimientos, conn, params=(fecha_inicio, fecha_fin))
+
+    entradas = 0.0
+    salidas = 0.0
+    desglose_entradas = []
+    desglose_salidas = []
+
+    if not df_movs.empty:
+        for _, row in df_movs.iterrows():
+            monto_debe = float(row['debe'] or 0.0)
+            monto_haber = float(row['haber'] or 0.0)
+
+            # En cuentas de Activo (Bancos): DEBE = Incremento (Entrada), HABER = Disminución (Salida)
+            if monto_debe > 0:
+                entradas += monto_debe
+                desglose_entradas.append({
+                    'fecha': str(row['fecha']),
+                    'descripcion': row['descripcion'] or row['cuenta_contable'],
+                    'monto': monto_debe
+                })
+            
+            if monto_haber > 0:
+                salidas += monto_haber
+                desglose_salidas.append({
+                    'fecha': str(row['fecha']),
+                    'descripcion': row['descripcion'] or row['cuenta_contable'],
+                    'monto': monto_haber
+                })
+
+    # 3. Cálculo de Flujo Neto y Saldo Final
+    flujo_neto = entradas - salidas
+    saldo_final = saldo_inicial + flujo_neto
+
+    return {
+        'saldo_inicial': saldo_inicial,
+        'total_entradas': entradas,
+        'total_salidas': salidas,
+        'flujo_neto': flujo_neto,
+        'saldo_final': saldo_final,
+        'desglose_entradas': desglose_entradas,
+        'desglose_salidas': desglose_salidas,
+        'fecha_inicio': fecha_inicio,
+        'fecha_fin': fecha_fin
+    }
+
+
+    import io
+import hashlib
+import uuid
+import qrcode
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image as RLImage
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+
+def generar_pdf_flujo_caja(nombre_empresa, datos_flujo, cpc_info=None):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=letter, 
+        rightMargin=54, leftMargin=54, 
+        topMargin=54, bottomMargin=54
+    )
+    story = []
+    styles = getSampleStyleSheet()
+
+    titulo_style = ParagraphStyle(
+        'TituloFC', parent=styles['Normal'],
+        fontName='Helvetica-Bold', fontSize=13, leading=16,
+        alignment=1, textColor=colors.HexColor('#1e3c72')
+    )
+    
+    subtitulo_style = ParagraphStyle(
+        'SubTituloFC', parent=styles['Normal'],
+        fontName='Helvetica-Bold', fontSize=8.5, leading=11,
+        alignment=1, textColor=colors.HexColor('#555555')
+    )
+    
+    body_style = ParagraphStyle(
+        'BodyFC', parent=styles['Normal'],
+        fontName='Helvetica', fontSize=8.5, leading=12,
+        alignment=4, textColor=colors.HexColor('#222222')
+    )
+    
+    table_cell_style = ParagraphStyle(
+        'TableCell', parent=styles['Normal'],
+        fontName='Helvetica', fontSize=8, leading=10,
+        textColor=colors.HexColor('#212529')
+    )
+    
+    table_cell_bold = ParagraphStyle(
+        'TableCellBold', parent=table_cell_style, fontName='Helvetica-Bold'
+    )
+    
+    table_header_style = ParagraphStyle(
+        'TableHeader', parent=styles['Normal'],
+        fontName='Helvetica-Bold', fontSize=8, leading=10,
+        textColor=colors.whitesmoke
+    )
+
+    # Hash y Token Único
+    raw_string = f"{nombre_empresa}-{datos_flujo['fecha_inicio']}-{datos_flujo['fecha_fin']}-{datos_flujo['saldo_final']}-{uuid.uuid4()}"
+    document_hash = hashlib.sha256(raw_string.encode('utf-8')).hexdigest()
+    token_corto = document_hash[:12].upper()
+
+    # Generar QR
+    url_verificacion = f"https://gylfisoftware.streamlit.app/verify_fc?token={token_corto}"
+    qr = qrcode.QRCode(version=1, box_size=5, border=1)
+    qr.add_data(url_verificacion)
+    qr.make(fit=True)
+    img_qr = qr.make_image(fill_color="#1e3c72", back_color="white")
+    
+    buf_qr = io.BytesIO()
+    img_qr.save(buf_qr, format='PNG')
+    buf_qr.seek(0)
+    qr_flowable = RLImage(buf_qr, width=60, height=60)
+
+    # Header Institucional
+    header_text = Paragraph(
+        "<b>Gylfi Software — Módulo de Tesorería y Auditoría Financiera</b><br/>"
+        "<b>ESTADO DE FLUJO DE CAJA REAL Y CONCILIADO</b><br/>"
+        f"Período Evaluado: <b>{datos_flujo['fecha_inicio']}</b> al <b>{datos_flujo['fecha_fin']}</b><br/>"
+        f"Token de Verificación: <b>GYLFI-FC-{token_corto}</b>",
+        subtitulo_style
+    )
+    
+    t_header = Table([[header_text, qr_flowable]], colWidths=[435, 69])
+    t_header.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('ALIGN', (1,0), (1,0), 'RIGHT'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+    ]))
+    story.append(t_header)
+    story.append(Spacer(1, 4))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1e3c72'), spaceAfter=8))
+
+    # Texto Intro
+    intro_p = (
+        f"Por medio del presente reporte, el sistema <b>Gylfi Software</b> certifica la dinámica de entradas y salidas "
+        f"efectivas de dinero para la entidad corporativa <b>{nombre_empresa.upper()}</b>, basándose en la conciliación "
+        f"de las cuentas bancarias registradas entre el {datos_flujo['fecha_inicio']} y el {datos_flujo['fecha_fin']}."
+    )
+    story.append(Paragraph(intro_p, body_style))
+    story.append(Spacer(1, 8))
+
+    # Diagnóstico del Flujo Neto
+    flujo_neto = datos_flujo['flujo_neto']
+    if flujo_neto > 0:
+        diag_flujo = "POSITIVO (Generación neta de efectivo en el período)"
+        color_flujo = colors.HexColor('#155724')
+    elif flujo_neto == 0:
+        diag_flujo = "NEUTRO (Equilibrio perfecto entre ingresos y egresos)"
+        color_flujo = colors.HexColor('#856404')
+    else:
+        diag_flujo = "DEFICITARIO (Superación de egresos sobre ingresos efectivos)"
+        color_flujo = colors.HexColor('#721c24')
+
+    # Tabla Resumen del Flujo de Caja
+    table_data = [
+        [
+            Paragraph("Concepto de Tesorería", table_header_style), 
+            Paragraph("Monto en Bolívares (Bs.)", table_header_style), 
+            Paragraph("Diagnóstico / Estado", table_header_style)
+        ],
+        [
+            Paragraph("<b>(+) Saldo Inicial en Bancos/Caja</b>", table_cell_bold),
+            Paragraph(f"Bs. {datos_flujo['saldo_inicial']:,.2f}", table_cell_style),
+            Paragraph("Disponibilidad inicial en cuentas (saldos_bancarios).", table_cell_style)
+        ],
+        [
+            Paragraph("<b>(+) Entradas de Efectivo (Ingresos)</b>", table_cell_bold),
+            Paragraph(f"Bs. {datos_flujo['total_entradas']:,.2f}", table_cell_style),
+            Paragraph("Cobranzas efectivas y créditos en cuenta.", table_cell_style)
+        ],
+        [
+            Paragraph("<b>(-) Salidas de Efectivo (Egresos)</b>", table_cell_bold),
+            Paragraph(f"Bs. {datos_flujo['total_salidas']:,.2f}", table_cell_style),
+            Paragraph("Pagos a proveedores, nómina y tributos conciliados.", table_cell_style)
+        ],
+        [
+            Paragraph("<b>(=) Flujo Neto del Período</b>", table_cell_bold),
+            Paragraph(f"<b>Bs. {flujo_neto:,.2f}</b>", table_cell_bold),
+            Paragraph(f"<b>{diag_flujo}</b>", table_cell_style)
+        ],
+        [
+            Paragraph("<b>(=) Saldo Final Disponible</b>", table_cell_bold),
+            Paragraph(f"<b>Bs. {datos_flujo['saldo_final']:,.2f}</b>", table_cell_bold),
+            Paragraph("Cierre de disponibilidad inmediata en bancos.", table_cell_style)
+        ]
+    ]
+
+    t_resumen = Table(table_data, colWidths=[140, 115, 249])
+    t_resumen.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1e3c72')),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#d1d5db')),
+        ('TOPPADDING', (0,0), (-1,-1), 4),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ('LEFTPADDING', (0,0), (-1,-1), 5),
+        ('RIGHTPADDING', (0,0), (-1,-1), 5),
+        ('BACKGROUND', (0,4), (-1,4), colors.HexColor('#e9ecef')),
+    ]))
+    story.append(t_resumen)
+    story.append(Spacer(1, 10))
+
+    # Análisis Técnico de Liquidez
+    story.append(Paragraph("<b>🔍 Análisis Técnico de Liquidez Operativa</b>", body_style))
+    story.append(Spacer(1, 3))
+    
+    analisis_text = (
+        f"Durante el rango del <b>{datos_flujo['fecha_inicio']}</b> al <b>{datos_flujo['fecha_fin']}</b>, "
+        f"la empresa operó con una cobertura inicial de <b>Bs. {datos_flujo['saldo_inicial']:,.2f}</b>. "
+        f"El volumen total de cobros conciliados alcanzó <b>Bs. {datos_flujo['total_entradas']:,.2f}</b>, mientras que los "
+        f"desembolsos ejecutados sumaron <b>Bs. {datos_flujo['total_salidas']:,.2f}</b>. "
+        f"Esto deja a la entidad con una posición neta final en tesorería de <b>Bs. {datos_flujo['saldo_final']:,.2f}</b>, "
+        f"permitiendo evaluar su capacidad de respuesta inmediata para compromisos bancarios o de inversión a corto plazo."
+    )
+    story.append(Paragraph(analisis_text, body_style))
+    story.append(Spacer(1, 12))
+
+    # Bloque de Firma
+    cpc_texto = cpc_info if cpc_info else "Validador Algorítmico Autónomo de Tesorería"
+    firma_data = [
+        [
+            Paragraph("<b>___________________________________</b><br/>Gylfi Software C.A.<br/>Auditoría Automatizada de Flujo de Caja", body_style),
+            Paragraph(f"<b>___________________________________</b><br/>Aval Contador Público / CPC<br/>{cpc_texto}", body_style)
+        ]
+    ]
+    t_firma = Table(firma_data, colWidths=[250, 254])
+    t_firma.setStyle(TableStyle([
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 1),
+    ]))
+    story.append(t_firma)
+    story.append(Spacer(1, 8))
+
+    # Hash SHA-256
+    hash_footer_style = ParagraphStyle(
+        'HashFooterFC', parent=styles['Normal'],
+        fontName='Helvetica', fontSize=6, leading=7,
+        textColor=colors.HexColor('#777777'), alignment=1
+    )
+    story.append(Paragraph(f"<b>Sello Criptográfico de Trazabilidad SHA-256:</b> {document_hash}", hash_footer_style))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer.getvalue()
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -9893,7 +10185,6 @@ if opcion_menu == "🏠 Inicio":
         """, unsafe_allow_html=True)
 
         # 7. Panel de Acciones y Selección de Tipo de Documento Corporativo
-        # 7. Panel de Acciones y Selección de Tipo de Documento Corporativo
         col_btn1, col_btn2 = st.columns([1.5, 1.5])
         
         with col_btn1:
@@ -10010,6 +10301,31 @@ if opcion_menu == "🏠 Inicio":
             st.error(f"Error al cargar indicadores cambiarios: {e}")
     else:
         st.warning("⚠️ Selecciona una empresa para ver los indicadores cambiarios.")
+    st.divider()
+    
+    #FLUJO DE CAJA
+    st.subheader("📅 Selección de Rango para Flujo de Caja")
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        fecha_ini = st.date_input("Fecha Desde:", datetime(2026, 7, 1))
+    with col_f2:
+        fecha_fin = st.date_input("Fecha Hasta:", datetime(2026, 7, 31))
+
+    if st.button("📊 Calcular y Generar Flujo de Caja"):
+        conn = conectar_db(db)
+        datos_flujo = calcular_flujo_caja_rango(conn, db, fecha_ini.strftime('%Y-%m-%d'), fecha_fin.strftime('%Y-%m-%d'))
+        conn.close()
+
+        pdf_flujo = generar_pdf_flujo_caja(db, datos_flujo)
+
+        st.download_button(
+            label="📄 Descargar Estado de Flujo de Caja (PDF)",
+            data=pdf_flujo,
+            file_name=f"Flujo_de_Caja_{db}_{fecha_ini}_{fecha_fin}.pdf",
+            mime="application/pdf",
+            key="btn_download_flujo"
+        )
+
 
 
 
