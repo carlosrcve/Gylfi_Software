@@ -9709,6 +9709,118 @@ def generar_pdf_flujo_caja_detallado(nombre_empresa, datos_flujo, cpc_info=None)
     buffer.seek(0)
     return buffer.getvalue()
 
+
+import streamlit as st
+from datetime import datetime
+
+def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
+    """
+    Calcula el Estado de Flujo de Efectivo bajo el Método Indirecto consultando 
+    la tabla asientos_contables de la base de datos activa (db_name).
+    """
+    utilidad_neta = 0.0
+    depreciaciones = 0.0
+    variacion_cxc = 0.0
+    variacion_cxp = 0.0
+    flujo_inversion = 0.0
+    flujo_financiamiento = 0.0
+
+    try:
+        cursor = conn.cursor()
+
+        # A. Calcular Utilidad Neta del período 
+        # (Clase 4: Ingresos [Haber - Debe], Clase 5 y 6: Costos y Gastos [Debe - Haber])
+        query_utilidad = f"""
+            SELECT 
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%%' THEN haber - debe ELSE 0 END), 0) -
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%%' OR plan_cuentas LIKE '6%%' THEN debe - haber ELSE 0 END), 0) as util_neta
+            FROM `{db_name}`.asientos_contables
+            WHERE fecha BETWEEN %s AND %s
+        """
+        cursor.execute(query_utilidad, (fecha_inicio, fecha_fin))
+        row_util = cursor.fetchone()
+        if row_util:
+            utilidad_neta = float(row_util[0] or 0.0)
+
+        # B. Identificar Gastos que no usan efectivo (Depreciaciones y Amortizaciones)
+        query_dep = f"""
+            SELECT COALESCE(SUM(debe - haber), 0.0) as dep
+            FROM `{db_name}`.asientos_contables
+            WHERE fecha BETWEEN %s AND %s
+              AND (LOWER(cuenta_contable) LIKE '%%deprec%%' OR LOWER(cuenta_contable) LIKE '%%amort%%' OR LOWER(plan_cuentas) LIKE '6.3%%')
+        """
+        cursor.execute(query_dep, (fecha_inicio, fecha_fin))
+        row_dep = cursor.fetchone()
+        if row_dep:
+            depreciaciones = float(row_dep[0] or 0.0)
+
+        # C. Variación en Capital de Trabajo (Cuentas por Cobrar y Cuentas por Pagar)
+        query_cxc = f"""
+            SELECT COALESCE(SUM(debe - haber), 0.0) as var_cxc
+            FROM `{db_name}`.asientos_contables
+            WHERE fecha BETWEEN %s AND %s
+              AND (LOWER(plan_cuentas) LIKE '1.1.02%%' OR LOWER(cuenta_contable) LIKE '%%cobrar%%')
+        """
+        cursor.execute(query_cxc, (fecha_inicio, fecha_fin))
+        row_cxc = cursor.fetchone()
+        if row_cxc:
+            variacion_cxc = float(row_cxc[0] or 0.0)
+
+        query_cxp = f"""
+            SELECT COALESCE(SUM(haber - debe), 0.0) as var_cxp
+            FROM `{db_name}`.asientos_contables
+            WHERE fecha BETWEEN %s AND %s
+              AND (LOWER(plan_cuentas) LIKE '2.1.01%%' OR LOWER(cuenta_contable) LIKE '%%pagar%%')
+        """
+        cursor.execute(query_cxp, (fecha_inicio, fecha_fin))
+        row_cxp = cursor.fetchone()
+        if row_cxp:
+            variacion_cxp = float(row_cxp[0] or 0.0)
+
+        # D. Actividades de Inversión (Activos Fijos / Propiedad, Planta y Equipo - Clase 1.2)
+        query_inv = f"""
+            SELECT COALESCE(SUM(haber - debe), 0.0) as inv
+            FROM `{db_name}`.asientos_contables
+            WHERE fecha BETWEEN %s AND %s
+              AND (LOWER(plan_cuentas) LIKE '1.2%%' OR LOWER(cuenta_contable) LIKE '%%maquinaria%%' OR LOWER(cuenta_contable) LIKE '%%vehiculo%%')
+        """
+        cursor.execute(query_inv, (fecha_inicio, fecha_fin))
+        row_inv = cursor.fetchone()
+        if row_inv:
+            flujo_inversion = float(row_inv[0] or 0.0)
+
+        # E. Actividades de Financiamiento (Pasivos a largo plazo o Patrimonio - Clase 2.2 o 3)
+        query_fin = f"""
+            SELECT COALESCE(SUM(haber - debe), 0.0) as fin
+            FROM `{db_name}`.asientos_contables
+            WHERE fecha BETWEEN %s AND %s
+              AND (LOWER(plan_cuentas) LIKE '2.2%%' OR LOWER(plan_cuentas) LIKE '3%%')
+        """
+        cursor.execute(query_fin, (fecha_inicio, fecha_fin))
+        row_fin = cursor.fetchone()
+        if row_fin:
+            flujo_financiamiento = float(row_fin[0] or 0.0)
+
+        cursor.close()
+    except Exception as e:
+        st.error(f"Error al calcular el flujo de efectivo indirecto: {e}")
+
+    # Cálculos Totales por Categoría (Método Indirecto)
+    flujo_operacion = utilidad_neta + depreciaciones - variacion_cxc + variacion_cxp
+    cambio_neto_efectivo = flujo_operacion + flujo_inversion + flujo_financiamiento
+
+    return {
+        'utilidad_neta': utilidad_neta,
+        'depreciaciones': depreciaciones,
+        'variacion_cxc': variacion_cxc,
+        'variacion_cxp': variacion_cxp,
+        'flujo_operacion': flujo_operacion,
+        'flujo_inversion': flujo_inversion,
+        'flujo_financiamiento': flujo_financiamiento,
+        'cambio_neto_efectivo': cambio_neto_efectivo,
+        'fecha_inicio': fecha_inicio,
+        'fecha_fin': fecha_fin
+    }
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -10408,6 +10520,67 @@ if opcion_menu == "🏠 Inicio":
                     st.error("No se pudo establecer conexión con la base de datos seleccionada.")
             except Exception as err:
                 st.error(f"Ocurrió un error al procesar el reporte: {err}")
+
+    #Estado de Flujo de Efectivo (IFRS / VEN-NIF)
+    import streamlit as st
+    from datetime import datetime
+
+    # Asegúrate de importar tus funciones previas:
+    # from tu_archivo import conectar_db, obtener_datos_empresa_activa, calcular_flujo_efectivo_indirecto, generar_pdf_flujo_efectivo
+
+    db = st.session_state.get('DB_ACTUAL')
+
+    if not db or db == "{db}" or db == "None" or str(db).strip() == "":
+        st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
+    else:
+        # Obtenemos los datos institucionales reales de la empresa desde control_central
+        empresa_actual = obtener_datos_empresa_activa()
+        
+        st.markdown("### 📊 Estado de Flujo de Efectivo (Método Indirecto)")
+        st.info("Este reporte ajusta la utilidad neta con partidas que no implican efectivo y variaciones en el capital de trabajo, desglosando las actividades de Operación, Inversión y Financiamiento.")
+        
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            fecha_ini = st.date_input("Fecha Desde (Flujo Efectivo):", datetime(2026, 7, 1), key="fe_ini")
+        with col_f2:
+            fecha_fin = st.date_input("Fecha Hasta (Flujo Efectivo):", datetime(2026, 7, 31), key="fe_fin")
+
+        if st.button("🔄 Calcular Flujo de Efectivo (Método Indirecto)", key="btn_calc_fe"):
+            try:
+                conn = conectar_db(db)
+                if conn:
+                    # Calculamos el flujo usando la base de datos actual
+                    datos_efectivo = calcular_flujo_efectivo_indirecto(
+                        conn, 
+                        db, 
+                        fecha_ini.strftime('%Y-%m-%d'), 
+                        fecha_fin.strftime('%Y-%m-%d')
+                    )
+                    conn.close()
+
+                    # Mostramos métricas principales en pantalla
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Utilidad Neta", f"Bs. {datos_efectivo['utilidad_neta']:,.2f}")
+                    m2.metric("Flujo Operación", f"Bs. {datos_efectivo['flujo_operacion']:,.2f}")
+                    m3.metric("Flujo Inversión", f"Bs. {datos_efectivo['flujo_inversion']:,.2f}")
+                    m4.metric("Flujo Financiamiento", f"Bs. {datos_efectivo['flujo_financiamiento']:,.2f}", delta=f"Neto: Bs. {datos_efectivo['cambio_neto_efectivo']:,.2f}")
+
+                    # Generamos el PDF oficial con ReportLab integrando el nombre real de la empresa
+                    # (Nota: Asegúrate de tener o adaptar la función generar_pdf_flujo_efectivo para este módulo)
+                    pdf_efectivo = generar_pdf_flujo_efectivo(empresa_actual["nombre"], datos_efectivo)
+
+                    st.download_button(
+                        label="📄 Descargar Estado de Flujo de Efectivo (PDF)",
+                        data=pdf_efectivo,
+                        file_name=f"Flujo_Efectivo_Indirecto_{db}_{fecha_ini}_{fecha_fin}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key="btn_download_flujo_efectivo"
+                    )
+                else:
+                    st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+            except Exception as err:
+                st.error(f"Ocurrió un error al procesar el reporte de flujo de efectivo: {err}")
 
 
 
