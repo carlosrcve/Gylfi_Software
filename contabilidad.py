@@ -9364,78 +9364,87 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
     return buffer.getvalue()
 
 
-import pandas as pd
-from datetime import datetime
+import streamlit as st
+import pymysql
 
 def calcular_flujo_caja_rango(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el flujo de caja real conciliado filtrando por rango de fechas.
-    - Saldo Inicial: Extraído de `saldos_bancarios` o del saldo acumulado anterior a `fecha_inicio`.
-    - Entradas y Salidas: Extraídas de `asientos_contables` filtrando asientos que afectan a Bancos/Caja.
+    Calcula el flujo de caja real conciliado filtrando por rango de fechas 
+    utilizando PyMySQL nativo para evitar errores de tipo en pandas.
     """
-    # 1. Obtención del Saldo Inicial
-    # Intentamos buscar el saldo_inicial registrado para la fecha/mes correspondiente o el acumulado anterior
-    query_saldo_init = f"""
-        SELECT COALESCE(SUM(saldo_inicial), 0.0) as saldo_ini
-        FROM `{db_name}`.saldos_bancarios
-        WHERE STR_TO_DATE(CONCAT('01-', mes, '-', ano), '%d-%M-%Y') <= %s
-        ORDER BY ano DESC, fecha_actualizacion DESC
-        LIMIT 1
-    """
-    df_ini = pd.read_sql(query_saldo_init, conn, params=(fecha_inicio,))
-    saldo_inicial = float(df_ini.iloc[0]['saldo_ini']) if not df_ini.empty else 0.0
-
-    # 2. Extracción de Entradas y Salidas de la tabla asientos_contables
-    # Filtramos por rango de fechas y cuentas de Tesorería/Bancos (Clase 1)
-    query_movimientos = f"""
-        SELECT 
-            id,
-            n_comprobante,
-            fecha,
-            plan_cuentas,
-            cuenta_contable,
-            descripcion,
-            debe,
-            haber
-        FROM `{db_name}`.asientos_contables
-        WHERE fecha BETWEEN %s AND %s
-          AND (
-              LOWER(plan_cuentas) LIKE '1.1.01%' 
-              OR LOWER(cuenta_contable) LIKE '%%banco%%' 
-              OR LOWER(cuenta_contable) LIKE '%%caja%%'
-          )
-        ORDER BY fecha ASC
-    """
-    df_movs = pd.read_sql(query_movimientos, conn, params=(fecha_inicio, fecha_fin))
-
+    saldo_inicial = 0.0
     entradas = 0.0
     salidas = 0.0
     desglose_entradas = []
     desglose_salidas = []
 
-    if not df_movs.empty:
-        for _, row in df_movs.iterrows():
-            monto_debe = float(row['debe'] or 0.0)
-            monto_haber = float(row['haber'] or 0.0)
+    try:
+        cursor = conn.cursor()
+
+        # 1. Obtención del Saldo Inicial desde la tabla saldos_bancarios de la BD actual
+        query_saldo_init = f"""
+            SELECT COALESCE(SUM(saldo_inicial), 0.0) as saldo_ini
+            FROM `{db_name}`.saldos_bancarios
+            WHERE STR_TO_DATE(CONCAT('01-', mes, '-', ano), '%d-%M-%Y') <= %s
+            ORDER BY ano DESC, fecha_actualizacion DESC
+            LIMIT 1
+        """
+        cursor.execute(query_saldo_init, (fecha_inicio,))
+        row_ini = cursor.fetchone()
+        if row_ini:
+            saldo_inicial = float(row_ini[0] or 0.0)
+
+        # 2. Extracción de Entradas y Salidas de la tabla asientos_contables
+        query_movimientos = f"""
+            SELECT 
+                id,
+                n_comprobante,
+                fecha,
+                plan_cuentas,
+                cuenta_contable,
+                descripcion,
+                debe,
+                haber
+            FROM `{db_name}`.asientos_contables
+            WHERE fecha BETWEEN %s AND %s
+              AND (
+                  LOWER(plan_cuentas) LIKE '1.1.01%' 
+                  OR LOWER(cuenta_contable) LIKE '%%banco%%' 
+                  OR LOWER(cuenta_contable) LIKE '%%caja%%'
+              )
+            ORDER BY fecha ASC
+        """
+        cursor.execute(query_movimientos, (fecha_inicio, fecha_fin))
+        rows_movs = cursor.fetchall()
+
+        for row in rows_movs:
+            # Estructura del row: (id, n_comprobante, fecha, plan_cuentas, cuenta_contable, descripcion, debe, haber)
+            monto_debe = float(row[6] or 0.0)
+            monto_haber = float(row[7] or 0.0)
+            fecha_str = str(row[2])
+            desc = row[5] or row[4]
 
             # En cuentas de Activo (Bancos): DEBE = Incremento (Entrada), HABER = Disminución (Salida)
             if monto_debe > 0:
                 entradas += monto_debe
                 desglose_entradas.append({
-                    'fecha': str(row['fecha']),
-                    'descripcion': row['descripcion'] or row['cuenta_contable'],
+                    'fecha': fecha_str,
+                    'descripcion': desc,
                     'monto': monto_debe
                 })
             
             if monto_haber > 0:
                 salidas += monto_haber
                 desglose_salidas.append({
-                    'fecha': str(row['fecha']),
-                    'descripcion': row['descripcion'] or row['cuenta_contable'],
+                    'fecha': fecha_str,
+                    'descripcion': desc,
                     'monto': monto_haber
                 })
 
-    # 3. Cálculo de Flujo Neto y Saldo Final
+        cursor.close()
+    except Exception as e:
+        st.error(f"Error al calcular el flujo de caja: {e}")
+
     flujo_neto = entradas - salidas
     saldo_final = saldo_inicial + flujo_neto
 
@@ -9452,7 +9461,7 @@ def calcular_flujo_caja_rango(conn, db_name, fecha_inicio, fecha_fin):
     }
 
 
-    import io
+import io
 import hashlib
 import uuid
 import qrcode
@@ -10304,27 +10313,58 @@ if opcion_menu == "🏠 Inicio":
     st.divider()
     
     #FLUJO DE CAJA
-    st.subheader("📅 Selección de Rango para Flujo de Caja")
+    # Sincronizamos la base de datos activa desde la sesión
+db = st.session_state.get('DB_ACTUAL')
+
+if not db or db == "{db}" or db == "None" or str(db).strip() == "":
+    st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
+else:
+    # Obtenemos los datos institucionales reales de la empresa
+    empresa_actual = obtener_datos_empresa_activa()
+    
+    st.markdown("### 📊 Módulo de Tesorería y Flujo de Caja Real")
+    
     col_f1, col_f2 = st.columns(2)
     with col_f1:
         fecha_ini = st.date_input("Fecha Desde:", datetime(2026, 7, 1))
     with col_f2:
         fecha_fin = st.date_input("Fecha Hasta:", datetime(2026, 7, 31))
 
-    if st.button("📊 Calcular y Generar Flujo de Caja"):
-        conn = conectar_db(db)
-        datos_flujo = calcular_flujo_caja_rango(conn, db, fecha_ini.strftime('%Y-%m-%d'), fecha_fin.strftime('%Y-%m-%d'))
-        conn.close()
+    if st.button("🔄 Calcular Flujo de Caja por Rango"):
+        try:
+            conn = conectar_db(db)
+            if conn:
+                # Calculamos el flujo usando la base de datos actual
+                datos_flujo = calcular_flujo_caja_rango(
+                    conn, 
+                    db, 
+                    fecha_ini.strftime('%Y-%m-%d'), 
+                    fecha_fin.strftime('%Y-%m-%d')
+                )
+                conn.close()
 
-        pdf_flujo = generar_pdf_flujo_caja(db, datos_flujo)
+                # Mostramos métricas rápidas en pantalla
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Saldo Inicial", f"Bs. {datos_flujo['saldo_inicial']:,.2f}")
+                m2.metric("Total Entradas", f"Bs. {datos_flujo['total_entradas']:,.2f}")
+                m3.metric("Total Salidas", f"Bs. {datos_flujo['total_salidas']:,.2f}")
+                m4.metric("Saldo Final", f"Bs. {datos_flujo['saldo_final']:,.2f}", delta=f"Bs. {datos_flujo['flujo_neto']:,.2f}")
 
-        st.download_button(
-            label="📄 Descargar Estado de Flujo de Caja (PDF)",
-            data=pdf_flujo,
-            file_name=f"Flujo_de_Caja_{db}_{fecha_ini}_{fecha_fin}.pdf",
-            mime="application/pdf",
-            key="btn_download_flujo"
-        )
+                # Generamos el PDF oficial con ReportLab integrando el nombre real de la empresa
+                pdf_flujo = generar_pdf_flujo_caja(empresa_actual["nombre"], datos_flujo)
+
+                st.download_button(
+                    label="📄 Descargar Estado de Flujo de Caja (PDF)",
+                    data=pdf_flujo,
+                    file_name=f"Flujo_de_Caja_{db}_{fecha_ini}_{fecha_fin}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="btn_download_flujo_maestro"
+                )
+            else:
+                st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+        except Exception as err:
+            st.error(f"Ocurrió un error al procesar el reporte: {err}")
 
 
 
