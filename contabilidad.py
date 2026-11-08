@@ -9715,8 +9715,8 @@ from datetime import datetime
 
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el Estado de Flujo de Efectivo bajo el Método Indirecto consultando 
-    la tabla asientos_contables de la base de datos activa (db_name).
+    Calcula el Estado de Flujo de Efectivo bajo el Método Indirecto utilizando
+    la fórmula exacta de Utilidad Neta = Clase 4 - Clase 5 - Clase 6 + Clase 7 - Clase 8.
     """
     utilidad_neta = 0.0
     depreciaciones = 0.0
@@ -9728,12 +9728,16 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     try:
         cursor = conn.cursor()
 
-        # A. Calcular Utilidad Neta del período 
-        # (Clase 4: Ingresos [Haber - Debe], Clase 5 y 6: Costos y Gastos [Debe - Haber])
+        # A. Utilidad Neta exacta: Ingresos (4) - Costos (5) - Gastos (6) + Otros Ingresos (7) - Otros Egresos (8)
         query_utilidad = f"""
             SELECT 
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%%' THEN haber - debe ELSE 0 END), 0) -
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%%' OR plan_cuentas LIKE '6%%' THEN debe - haber ELSE 0 END), 0) as util_neta
+                (
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%%' THEN haber - debe ELSE 0 END), 0) -
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%%' THEN debe - haber ELSE 0 END), 0) -
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%%' THEN debe - haber ELSE 0 END), 0) +
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%%' THEN haber - debe ELSE 0 END), 0) -
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN debe - haber ELSE 0 END), 0)
+                ) as util_neta
             FROM `{db_name}`.asientos_contables
             WHERE fecha BETWEEN %s AND %s
         """
@@ -9742,7 +9746,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         if row_util:
             utilidad_neta = float(row_util[0] or 0.0)
 
-        # B. Identificar Gastos que no usan efectivo (Depreciaciones y Amortizaciones)
+        # B. Gastos que no usan efectivo (Depreciaciones y Amortizaciones)
         query_dep = f"""
             SELECT COALESCE(SUM(debe - haber), 0.0) as dep
             FROM `{db_name}`.asientos_contables
@@ -9821,7 +9825,6 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         'fecha_inicio': fecha_inicio,
         'fecha_fin': fecha_fin
     }
-
 
 
 import io
