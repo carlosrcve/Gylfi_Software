@@ -10705,6 +10705,7 @@ if opcion_menu == "🏠 Inicio":
             except Exception as err:
                 st.error(f"Ocurrió un error al procesar el reporte: {err}")
 
+    st.divider()
     #Estado de Flujo de Efectivo (IFRS / VEN-NIF)
     import streamlit as st
     from datetime import datetime
