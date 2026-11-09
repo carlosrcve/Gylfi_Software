@@ -9715,8 +9715,8 @@ from datetime import datetime
 
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el Estado de Flujo de Efectivo IFRS 100% dinámico desde MySQL,
-    con captura robusta y exacta del Gasto de Depreciación.
+    Calcula el Estado de Flujo de Efectivo IFRS desde MySQL filtrando con precisión 
+    el rango 6.1.1.03. y excluyendo la depreciación del vehículo (.024).
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
@@ -9780,18 +9780,12 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             
             utilidad_neta = float(c4 - c5 - c6 + c7 - c8)
 
-            # --- GASTO DE DEPRECIACIÓN DINÁMICO Y LIMPIO ---
-            # Busca cualquier cuenta que tenga 'deprec' o empiece por el ramo de depreciaciones/gastos acumulados
+            # --- GASTO DE DEPRECIACIÓN EXACTO (Rango 6.1.1.03 excepteando la .024) ---
             dep_df = df[
-                df['cuenta_lower'].str.contains('deprec') | 
-                df['plan_cuentas'].str.startswith('1.2.1') | 
-                df['plan_cuentas'].str.startswith('5.1.3')
+                (df['plan_cuentas'].str.startswith('6.1.1.03')) & 
+                (~df['plan_cuentas'].str.startswith('6.1.1.03.024'))
             ]
-            # Filtramos para asegurar que no agarre vehículos ni activos fijos puros
-            dep_df = dep_df[~dep_df['cuenta_lower'].str.contains('vehículo') & ~dep_df['cuenta_lower'].str.contains('compra')]
-            
             if not dep_df.empty:
-                # Sumamos el movimiento neto absoluto del mes en la cuenta de depreciación
                 gasto_depreciacion = abs(float((dep_df['debe'] - dep_df['haber']).sum()))
                 if gasto_depreciacion == 0.0:
                     gasto_depreciacion = abs(float((dep_df['haber'] - dep_df['debe']).sum()))
@@ -9853,11 +9847,11 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         # AUDITORÍA EN PANTALLA (ST.DATAFRAME)
         # =========================================================================
         st.markdown("---")
-        st.subheader("🔍 Auditoría Pura de MySQL")
+        st.subheader("🔍 Auditoría Pura de MySQL (Depreciación Filtrada 6.1.1.03)")
         df_audit = pd.DataFrame({
             "Sección / Concepto MySQL": [
                 "Utilidad Neta del Ejercicio",
-                "(+) Gasto de Depreciación",
+                "(+) Gasto de Depreciación (Activos Fijos)",
                 "(-) Aumento en Anticipo a Proveedores",
                 "(+) Aumento en Proveedores Nacionales",
                 "(+) Aumento en Retención ISLR",
