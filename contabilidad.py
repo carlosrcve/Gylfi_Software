@@ -9911,7 +9911,6 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         'fecha_fin': fecha_fin
     }
 
-
 import io
 import hashlib
 import uuid
