@@ -9715,7 +9715,7 @@ from datetime import datetime
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
     Calcula el Estado de Flujo de Efectivo por el Método Indirecto 100% dinámico desde MySQL,
-    utilizando los códigos exactos del plan de cuentas de la base de datos.
+    utilizando los códigos exactos del plan de cuentas y la tabla de saldos bancarios.
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
@@ -9742,7 +9742,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
         cursor = conn.cursor()
 
-        # 1. Obtener Saldo Inicial y Final del Banco desde saldos_bancarios
+        # 1. Obtener Saldo Inicial y Final del Banco dinámicamente desde saldos_bancarios
         query_saldos_banco = f"""
             SELECT 
                 COALESCE(SUM(saldo_inicial), 0.0) as ini,
@@ -9767,7 +9767,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%%' THEN debe - haber ELSE 0 END), 0) -
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%%' THEN debe - haber ELSE 0 END), 0) +
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%%' THEN haber - debe ELSE 0 END), 0) -
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN haber - debe ELSE 0 END), 0)
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN debe - haber ELSE 0 END), 0)
                 ) as util_neta
             FROM `{db_name}`.`{tabla_fuente}`
             WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s
@@ -9797,7 +9797,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             cxp_accionistas = float(row_d[1] or 0.0)
             credito_cashea = float(row_d[2] or 0.0)
             retencion_islr = float(row_d[3] or 0.0)
-            # Los aumentos de activos (anticipos y cuentas por cobrar) restan efectivo
+            # Los aumentos de activos restan efectivo
             anticipo_proveedores = -abs(float(row_d[4] or 0.0))
             cxc_jean = -abs(float(row_d[5] or 0.0))
             cxc_sandra = -abs(float(row_d[6] or 0.0))
@@ -9838,7 +9838,8 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         'cambio_neto_efectivo': variacion_efectivo,
         'variacion_efectivo': variacion_efectivo,
         'saldo_inicial_bancos': saldo_inicial_bancos,
-        'saldo_final_bancos': saldo_final_calculado,
+        'saldo_final_bancos': saldo_final_bancos,
+        'saldo_final_calculado': saldo_final_calculado,   # <--- ¡Clave añadida para evitar el error!
         'efectivo_final_calculado': saldo_final_calculado,
         'fecha_inicio': fecha_inicio,
         'fecha_fin': fecha_fin
