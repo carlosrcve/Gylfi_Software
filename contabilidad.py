@@ -9782,7 +9782,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
             # --- GASTO DE DEPRECIACIÓN EXACTO (Rango 6.1.1.03 excepteando la .024) ---
             dep_df = df[
-                (df['plan_cuentas'].str.startswith('6.1.1.03')) & 
+                (df['plan_cuentas'].str.startswith('6.1.1.03.019')) & 
                 (~df['plan_cuentas'].str.startswith('6.1.1.03.024'))
             ]
             if not dep_df.empty:
