@@ -9709,13 +9709,14 @@ def generar_pdf_flujo_caja_detallado(nombre_empresa, datos_flujo, cpc_info=None)
     buffer.seek(0)
     return buffer.getvalue()
 
+import pandas as pd
 import streamlit as st
 from datetime import datetime
 
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el Estado de Flujo de Efectivo por el Método Indirecto 100% dinámico desde MySQL,
-    utilizando el rango de fechas exacto (BETWEEN) y los códigos del plan de cuentas.
+    Calcula el Estado de Flujo de Efectivo por el Método Indirecto 100% dinámico 
+    desde MySQL utilizando Pandas para garantizar la precisión exacta de los montos de Mayo.
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
@@ -9740,73 +9741,84 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         }
         nombre_mes = meses_es.get(mes_num, '')
 
-        cursor = conn.cursor()
-
         # 1. Obtener Saldo Inicial y Final del Banco desde saldos_bancarios
-        query_saldos_banco = f"""
-            SELECT 
-                COALESCE(SUM(saldo_inicial), 0.0) as ini,
-                COALESCE(SUM(saldo_final), 0.0) as fin
-            FROM `{db_name}`.saldos_bancarios
-            WHERE ano = %s AND LOWER(mes) = LOWER(%s)
+        query_sb = f"""
+            SELECT saldo_inicial, saldo_final 
+            FROM `{db_name}`.saldos_bancarios 
+            WHERE ano = {ano} AND LOWER(mes) = LOWER('{nombre_mes}')
         """
-        cursor.execute(query_saldos_banco, (ano, nombre_mes))
-        row_sb = cursor.fetchone()
-        if row_sb:
-            saldo_inicial_bancos = float(row_sb[0] or 0.0)
-            saldo_final_bancos = float(row_sb[1] or 0.0)
+        df_sb = pd.read_sql(query_sb, conn)
+        if not df_sb.empty:
+            saldo_inicial_bancos = float(df_sb['saldo_inicial'].sum() or 0.0)
+            saldo_final_bancos = float(df_sb['saldo_final'].sum() or 0.0)
 
         # 2. Selección de tabla fuente contable
         tabla_fuente = "saldos_iniciales" if dt_ini < datetime(2026, 5, 1) else "asientos_contables"
 
-        # 3. Utilidad Neta exacta: Clase 4 - 5 - 6 + 7 - 8 usando BETWEEN
-        query_util = f"""
-            SELECT 
-                (
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%%' THEN haber - debe ELSE 0 END), 0) -
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%%' THEN debe - haber ELSE 0 END), 0) -
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%%' THEN debe - haber ELSE 0 END), 0) +
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%%' THEN haber - debe ELSE 0 END), 0) -
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN debe - haber ELSE 0 END), 0)
-                ) as util_neta
-            FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s
+        # 3. Leer los asientos contables del período en Pandas
+        query_asientos = f"""
+            SELECT plan_cuentas, cuenta_contable, debe, haber, fecha 
+            FROM `{db_name}`.`{tabla_fuente}` 
+            WHERE fecha BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
         """
-        cursor.execute(query_util, (fecha_inicio, fecha_fin))
-        row_util = cursor.fetchone()
-        if row_util:
-            utilidad_neta = float(row_util[0] or 0.0)
+        df = pd.read_sql(query_asientos, conn)
 
-        # 4. Consulta SQL dinámica con BETWEEN para capturar las cuentas del análisis de mayo
-        query_dinamica = f"""
-            SELECT 
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.2.1.02%%' THEN haber - debe ELSE 0 END), 0) as dep,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2.2.01.001%%' THEN haber - debe ELSE 0 END), 0) as cxp_acc,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2.1.3.01.001%%' THEN haber - debe ELSE 0 END), 0) as cashea,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%%' THEN haber - debe ELSE 0 END), 0) as islr,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.1.6.01.001%%' THEN debe - haber ELSE 0 END), 0) as ant_prov,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.1.5.01.001%%' THEN debe - haber ELSE 0 END), 0) as cxc_jm,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.1.5.01.002%%' THEN debe - haber ELSE 0 END), 0) as cxc_sa
-            FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s
-        """
-        cursor.execute(query_dinamica, (fecha_inicio, fecha_fin))
-        row_d = cursor.fetchone()
-        if row_d:
-            gasto_depreciacion = abs(float(row_d[0] or 0.0))
-            cxp_accionistas = float(row_d[1] or 0.0)
-            credito_cashea = float(row_d[2] or 0.0)
-            retencion_islr = float(row_d[3] or 0.0)
-            # Aumentos de activos restan efectivo
-            anticipo_proveedores = -abs(float(row_d[4] or 0.0))
-            cxc_jean = -abs(float(row_d[5] or 0.0))
-            cxc_sandra = -abs(float(row_d[6] or 0.0))
+        # Respaldo por si el rango de fechas estricto no encuentra filas debido al formato
+        if df.empty:
+            query_alt = f"""
+                SELECT plan_cuentas, cuenta_contable, debe, haber, fecha 
+                FROM `{db_name}`.`{tabla_fuente}` 
+                WHERE YEAR(fecha) = {ano} AND MONTH(fecha) = {mes_num}
+            """
+            df = pd.read_sql(query_alt, conn)
 
-        cursor.close()
+        if not df.empty:
+            # Asegurar limpieza y tipos numéricos
+            df['debe'] = pd.to_numeric(df['debe'], errors='coerce').fillna(0.0)
+            df['haber'] = pd.to_numeric(df['haber'], errors='coerce').fillna(0.0)
+            df['plan_cuentas'] = df['plan_cuentas'].astype(str).str.strip()
+
+            # Utilidad Neta exacta: Clase 4 - 5 - 6 + 7 - 8
+            c4 = df[df['plan_cuentas'].str.startswith('4')]['haber'].sum() - df[df['plan_cuentas'].str.startswith('4')]['debe'].sum()
+            c5 = df[df['plan_cuentas'].str.startswith('5')]['debe'].sum() - df[df['plan_cuentas'].str.startswith('5')]['haber'].sum()
+            c6 = df[df['plan_cuentas'].str.startswith('6')]['debe'].sum() - df[df['plan_cuentas'].str.startswith('6')]['haber'].sum()
+            c7 = df[df['plan_cuentas'].str.startswith('7')]['haber'].sum() - df[df['plan_cuentas'].str.startswith('7')]['debe'].sum()
+            c8 = df[df['plan_cuentas'].str.startswith('8')]['debe'].sum() - df[df['plan_cuentas'].str.startswith('8')]['haber'].sum()
+            
+            utilidad_neta = float(c4 - c5 - c6 + c7 - c8)
+
+            # Gasto de Depreciación (1.2.1.02...) -> Haber - Debe
+            dep_df = df[df['plan_cuentas'].str.startswith('1.2.1.02')]
+            gasto_depreciacion = abs(float(dep_df['haber'].sum() - dep_df['debe'].sum()))
+
+            # Cuentas por Pagar Accionistas (2.2.01.001) -> Haber - Debe
+            cxpa_df = df[df['plan_cuentas'].str.startswith('2.2.01.001')]
+            cxp_accionistas = float(cxpa_df['haber'].sum() - cxpa_df['debe'].sum())
+
+            # Crédito Cashea (2.1.3.01.001) -> Haber - Debe
+            cashea_df = df[df['plan_cuentas'].str.startswith('2.1.3.01.001')]
+            credito_cashea = float(cashea_df['haber'].sum() - cashea_df['debe'].sum())
+
+            # Retención ISLR Proveedores (2.1.2.01.005) -> Haber - Debe
+            islr_df = df[df['plan_cuentas'].str.startswith('2.1.2.01.005')]
+            retencion_islr = float(islr_df['haber'].sum() - islr_df['debe'].sum())
+
+            # Anticipos a Proveedores (1.1.6.01.001) -> Debe - Haber (negativo por aumento de activo)
+            ant_df = df[df['plan_cuentas'].str.startswith('1.1.6.01.001')]
+            anticipo_proveedores = -abs(float(ant_df['debe'].sum() - ant_df['haber'].sum()))
+
+            # CxC Accionista Jean Marco (1.1.5.01.001) -> Debe - Haber (negativo)
+            jm_df = df[df['plan_cuentas'].str.startswith('1.1.5.01.001')]
+            cxc_jean = -abs(float(jm_df['debe'].sum() - jm_df['haber'].sum()))
+
+            # CxC Accionista Sandra Arroyo (1.1.5.01.002) -> Debe - Haber (negativo)
+            sa_df = df[df['plan_cuentas'].str.startswith('1.1.5.01.002')]
+            cxc_sandra = -abs(float(sa_df['debe'].sum() - sa_df['haber'].sum()))
+
     except Exception as e:
-        st.error(f"Error al calcular el flujo de efectivo desde MySQL: {e}")
+        st.error(f"Error al procesar el flujo con Pandas: {e}")
 
-    # 5. Consolidación de la variación total del efectivo
+    # Consolidación de la variación total del efectivo
     variacion_efectivo = (
         utilidad_neta + 
         gasto_depreciacion + 
@@ -9818,7 +9830,6 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         cxc_sandra
     )
 
-    # El saldo final del banco se calcula sumando la variación real al saldo inicial bancario
     saldo_final_calculado = saldo_inicial_bancos + variacion_efectivo
 
     return {
