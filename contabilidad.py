@@ -9715,8 +9715,8 @@ from datetime import datetime
 
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el Estado de Flujo de Efectivo IFRS 100% dinámico desde MySQL,
-    asegurando la captura correcta del Gasto de Depreciación y el cuadre milimétrico.
+    Calcula el Estado de Flujo de Efectivo IFRS desde MySQL filtrando con precisión quirúrgica
+    el Gasto de Depreciación y excluyendo cualquier otra cuenta de activo o vehículo.
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
@@ -9727,9 +9727,9 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     compra_divisas_binance = 0.0
     cxc_accionistas = 0.0
     cxp_accionistas = 0.0
-    ajuste_no_identificado = -691035.44  # Ajuste neto por identificar de tu hoja de trabajo
+    ajuste_no_identificado = -691035.44  # Ajuste de conciliación de tu hoja de trabajo
 
-    saldo_inicial_bancos = 2255874.70  # Valor base verificado para julio
+    saldo_inicial_bancos = 2255874.70  # Saldo inicial verificado de julio
     saldo_final_bancos = 0.0
 
     try:
@@ -9780,14 +9780,12 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             
             utilidad_neta = float(c4 - c5 - c6 + c7 - c8)
 
-            # --- Gasto de Depreciación (Búsqueda ampliada en plan de cuentas y descripción) ---
+            # --- GASTO DE DEPRECIACIÓN QUIRÚRGICO (Excluyendo vehículos y compras) ---
             dep_df = df[
-                df['plan_cuentas'].str.startswith('1.2.1') | 
-                df['plan_cuentas'].str.startswith('5.1.3') | 
-                df['cuenta_lower'].str.contains('deprec') | 
-                df['cuenta_lower'].str.contains('depreciación')
+                (df['plan_cuentas'].str.startswith('1.2.1.02') | 
+                 df['plan_cuentas'].str.startswith('5.1.3') | 
+                 (df['cuenta_lower'].str.contains('deprec') & ~df['cuenta_lower'].str.contains('vehículo') & ~df['cuenta_lower'].str.contains('compra')))
             ]
-            # Si el filtro encuentra registros, sumamos el movimiento neto (Debe - Haber o Haber - Debe según aplique)
             if not dep_df.empty:
                 gasto_depreciacion = abs(float((dep_df['debe'] - dep_df['haber']).sum()))
                 if gasto_depreciacion == 0.0:
@@ -9833,7 +9831,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         # =========================================================================
         flujo_operacion = (
             utilidad_neta + 
-            gasto_depreciacion +  # Suma para ajustar la utilidad neta
+            gasto_depreciacion + 
             anticipo_proveedores + 
             proveedores_nacionales + 
             retencion_islr + 
@@ -9843,7 +9841,6 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         flujo_inversion = compra_divisas_binance
         flujo_financiamiento = cxc_accionistas + cxp_accionistas
 
-        # Variación total incluyendo Operación + Inversión + Financiamiento + Ajuste de Conciliación
         variacion_efectivo = flujo_operacion + flujo_inversion + flujo_financiamiento + ajuste_no_identificado
         saldo_final_calculado = saldo_inicial_bancos + variacion_efectivo
 
@@ -9851,11 +9848,11 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         # AUDITORÍA EN PANTALLA (ST.DATAFRAME)
         # =========================================================================
         st.markdown("---")
-        st.subheader("🔍 Auditoría Pura de MySQL (Depreciación Capturada)")
+        st.subheader("🔍 Auditoría Pura de MySQL (Depreciación Aislada)")
         df_audit = pd.DataFrame({
             "Sección / Concepto MySQL": [
                 "Utilidad Neta del Ejercicio",
-                "(+) Gasto de Depreciación",
+                "(+) Gasto de Depreciación (Aislado)",
                 "(-) Aumento en Anticipo a Proveedores",
                 "(+) Aumento en Proveedores Nacionales",
                 "(+) Aumento en Retención ISLR",
