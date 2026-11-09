@@ -9715,12 +9715,9 @@ from datetime import datetime
 
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el Estado de Flujo de Efectivo por el Método Indirecto 100% dinámico 
-    desde MySQL utilizando Pandas y con alerta visual para verificar ejecución.
+    Calcula el Estado de Flujo de Efectivo por el Método Indirecto y muestra 
+    un desglose detallado cuenta por cuenta en Streamlit para auditoría.
     """
-    # PRUEBA DE FUEGO EN PANTALLA: Esto te dirá inmediatamente si está leyendo este código
-    st.error("🚀 ¡CONFIRMADO: SÍ ESTOY EJECUTANDO EL NUEVO CÓDIGO CON PANDAS PARA MAYO! 🚀")
-
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
     cxp_accionistas = 0.0
@@ -9744,7 +9741,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         }
         nombre_mes = meses_es.get(mes_num, '')
 
-        # 1. Obtener Saldo Inicial y Final del Banco desde saldos_bancarios
+        # 1. Obtener Saldo Inicial y Final del Banco
         query_sb = f"""
             SELECT saldo_inicial, saldo_final 
             FROM `{db_name}`.saldos_bancarios 
@@ -9758,7 +9755,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         # 2. Selección de tabla fuente contable
         tabla_fuente = "saldos_iniciales" if dt_ini < datetime(2026, 5, 1) else "asientos_contables"
 
-        # 3. Leer los asientos contables del período en Pandas por mes y año
+        # 3. Leer los asientos contables del período en Pandas
         query_asientos = f"""
             SELECT plan_cuentas, cuenta_contable, debe, haber, fecha 
             FROM `{db_name}`.`{tabla_fuente}` 
@@ -9780,38 +9777,70 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             
             utilidad_neta = float(c4 - c5 - c6 + c7 - c8)
 
-            # Gasto de Depreciación (1.2.1.02...)
+            # Extracción individual para auditoría
             dep_df = df[df['plan_cuentas'].str.startswith('1.2.1.02')]
             gasto_depreciacion = abs(float(dep_df['haber'].sum() - dep_df['debe'].sum()))
 
-            # Cuentas por Pagar Accionistas (2.2.01.001)
             cxpa_df = df[df['plan_cuentas'].str.startswith('2.2.01.001')]
             cxp_accionistas = float(cxpa_df['haber'].sum() - cxpa_df['debe'].sum())
 
-            # Crédito Cashea (2.1.3.01.001)
             cashea_df = df[df['plan_cuentas'].str.startswith('2.1.3.01.001')]
             credito_cashea = float(cashea_df['haber'].sum() - cashea_df['debe'].sum())
 
-            # Retención ISLR Proveedores (2.1.2.01.005)
             islr_df = df[df['plan_cuentas'].str.startswith('2.1.2.01.005')]
             retencion_islr = float(islr_df['haber'].sum() - islr_df['debe'].sum())
 
-            # Anticipos a Proveedores (1.1.6.01.001) -> Resta
             ant_df = df[df['plan_cuentas'].str.startswith('1.1.6.01.001')]
             anticipo_proveedores = -abs(float(ant_df['debe'].sum() - ant_df['haber'].sum()))
 
-            # CxC Accionista Jean Marco (1.1.5.01.001) -> Resta
             jm_df = df[df['plan_cuentas'].str.startswith('1.1.5.01.001')]
             cxc_jean = -abs(float(jm_df['debe'].sum() - jm_df['haber'].sum()))
 
-            # CxC Accionista Sandra Arroyo (1.1.5.01.002) -> Resta
             sa_df = df[df['plan_cuentas'].str.startswith('1.1.5.01.002')]
             cxc_sandra = -abs(float(sa_df['debe'].sum() - sa_df['haber'].sum()))
+
+            # =========================================================================
+            # DESGLOSE DETALLADO EN PANTALLA (ST.WRITE / ST.DATAFRAME) PARA AUDITORÍA
+            # =========================================================================
+            st.markdown("---")
+            st.subheader("🔍 Auditoría Detallada de Cuentas (Pandas MySQL)")
+            
+            # Mostramos un resumen tabular con lo que arrojó cada filtro
+            df_auditoria = pd.DataFrame({
+                "Concepto / Cuenta": [
+                    "Utilidad Neta", 
+                    "Gasto de Depreciación (1.2.1.02)", 
+                    "Cuentas por Pagar Accionistas (2.2.01.001)", 
+                    "Crédito Cashea (2.1.3.01.001)", 
+                    "Retención ISLR (2.1.2.01.005)", 
+                    "Anticipos a Proveedores (1.1.6.01.001)", 
+                    "CxC Accionista Jean Marco (1.1.5.01.001)", 
+                    "CxC Accionista Sandra Arroyo (1.1.5.01.002)"
+                ],
+                "Monto Calculado (Bs.)": [
+                    utilidad_neta,
+                    gasto_depreciacion,
+                    cxp_accionistas,
+                    credito_cashea,
+                    retencion_islr,
+                    anticipo_proveedores,
+                    cxc_jean,
+                    cxc_sandra
+                ]
+            })
+            st.dataframe(df_auditoria, use_container_width=True)
+
+            # Mostramos las filas completas encontradas para las cuentas específicas que dieron cero o diferente
+            with st.expander("📂 Ver registros crudos en BD para estas cuentas"):
+                cuentas_objetivo = ['1.2.1.02', '2.2.01.001', '2.1.3.01.001', '2.1.2.01.005', '1.1.6.01.001', '1.1.5.01.001', '1.1.5.01.002']
+                df_filtrado = df[df['plan_cuentas'].apply(lambda x: any(x.startswith(c) for c in cuentas_objetivo))]
+                st.dataframe(df_filtrado, use_container_width=True)
+            st.markdown("---")
 
     except Exception as e:
         st.error(f"Error al procesar el flujo con Pandas: {e}")
 
-    # Consolidación de la variación total del efectivo
+    # Consolidación total
     variacion_efectivo = (
         utilidad_neta + 
         gasto_depreciacion + 
