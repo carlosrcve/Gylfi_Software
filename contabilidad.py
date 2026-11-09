@@ -9715,7 +9715,7 @@ from datetime import datetime
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
     Calcula el Estado de Flujo de Efectivo por el Método Indirecto utilizando 
-    los códigos exactos del plan de cuentas de tu base de datos.
+    una consulta SQL maestra consolidada para capturar exactamente los montos de Mayo.
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
@@ -9766,7 +9766,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%%' THEN debe - haber ELSE 0 END), 0) -
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%%' THEN debe - haber ELSE 0 END), 0) +
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%%' THEN haber - debe ELSE 0 END), 0) -
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN debe - haber ELSE 0 END), 0)
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN haber - debe ELSE 0 END), 0)
                 ) as util_neta
             FROM `{db_name}`.`{tabla_fuente}`
             WHERE fecha BETWEEN %s AND %s
@@ -9776,82 +9776,30 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         if row_util:
             utilidad_neta = float(row_util[0] or 0.0)
 
-        # 3. Gasto de Depreciación (Código exacto: 1.2.1.02...) -> Bs. 59.590,40
-        query_dep = f"""
-            SELECT COALESCE(SUM(haber - debe), 0.0)
+        # 3. Consulta maestra consolidada para extraer todas las cuentas del análisis en un solo paso
+        query_maestro = f"""
+            SELECT 
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.2.1.02%%' THEN haber - debe ELSE 0 END), 0) as dep,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2.2.01.001%%' THEN haber - debe ELSE 0 END), 0) as cxp_acc,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2.1.3.01.001%%' THEN haber - debe ELSE 0 END), 0) as cashea,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%%' THEN haber - debe ELSE 0 END), 0) as islr,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.1.6.01.001%%' THEN debe - haber ELSE 0 END), 0) as ant_prov,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.1.5.01.001%%' THEN debe - haber ELSE 0 END), 0) as jm,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.1.5.01.002%%' THEN debe - haber ELSE 0 END), 0) as sa
             FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '1.2.1.02%%'
+            WHERE fecha BETWEEN %s AND %s
         """
-        cursor.execute(query_dep, (fecha_inicio, fecha_fin))
-        row_dep = cursor.fetchone()
-        if row_dep:
-            gasto_depreciacion = abs(float(row_dep[0] or 0.0))
-
-        # 4. Cuentas por Pagar Accionistas (Código exacto: 2.2.01.001) -> Bs. 461.088,61
-        query_cxpa = f"""
-            SELECT COALESCE(SUM(haber - debe), 0.0)
-            FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '2.2.01.001%%'
-        """
-        cursor.execute(query_cxpa, (fecha_inicio, fecha_fin))
-        row_cxpa = cursor.fetchone()
-        if row_cxpa:
-            cxp_accionistas = float(row_cxpa[0] or 0.0)
-
-        # 5. Crédito Cashea (Código exacto: 2.1.3.01.001) -> Bs. 52.816,61
-        query_cashea = f"""
-            SELECT COALESCE(SUM(haber - debe), 0.0)
-            FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '2.1.3.01.001%%'
-        """
-        cursor.execute(query_cashea, (fecha_inicio, fecha_fin))
-        row_cas = cursor.fetchone()
-        if row_cas:
-            credito_cashea = float(row_cas[0] or 0.0)
-
-        # 6. Retención ISLR Proveedores (Código exacto: 2.1.2.01.005) -> Bs. 10.594,80
-        query_islr = f"""
-            SELECT COALESCE(SUM(haber - debe), 0.0)
-            FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '2.1.2.01.005%%'
-        """
-        cursor.execute(query_islr, (fecha_inicio, fecha_fin))
-        row_islr = cursor.fetchone()
-        if row_islr:
-            retencion_islr = float(row_islr[0] or 0.0)
-
-        # 7. Anticipos a Proveedores (Código exacto: 1.1.6.01.001) -> -Bs. 223.346,57
-        query_ant = f"""
-            SELECT COALESCE(SUM(debe - haber), 0.0)
-            FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '1.1.6.01.001%%'
-        """
-        cursor.execute(query_ant, (fecha_inicio, fecha_fin))
-        row_ant = cursor.fetchone()
-        if row_ant:
-            anticipo_proveedores = -abs(float(row_ant[0] or 0.0))
-
-        # 8. CxC Accionista Jean Marco (Código exacto: 1.1.5.01.001) -> -Bs. 106.254,13
-        query_jm = f"""
-            SELECT COALESCE(SUM(debe - haber), 0.0)
-            FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '1.1.5.01.001%%'
-        """
-        cursor.execute(query_jm, (fecha_inicio, fecha_fin))
-        row_jm = cursor.fetchone()
-        if row_jm:
-            cxc_jean = -abs(float(row_jm[0] or 0.0))
-
-        # 9. CxC Accionista Sandra Arroyo (Código exacto: 1.1.5.01.002) -> -Bs. 90.012,53
-        query_sa = f"""
-            SELECT COALESCE(SUM(debe - haber), 0.0)
-            FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '1.1.5.01.002%%'
-        """
-        cursor.execute(query_sa, (fecha_inicio, fecha_fin))
-        row_sa = cursor.fetchone()
-        if row_sa:
-            cxc_sandra = -abs(float(row_sa[0] or 0.0))
+        cursor.execute(query_maestro, (fecha_inicio, fecha_fin))
+        row_m = cursor.fetchone()
+        if row_m:
+            gasto_depreciacion = abs(float(row_m[0] or 0.0))
+            cxp_accionistas = float(row_m[1] or 0.0)
+            credito_cashea = float(row_m[2] or 0.0)
+            retencion_islr = float(row_m[3] or 0.0)
+            # Los activos (anticipos y cuentas por cobrar) restan por aumento
+            anticipo_proveedores = -abs(float(row_m[4] or 0.0))
+            cxc_jean = -abs(float(row_m[5] or 0.0))
+            cxc_sandra = -abs(float(row_m[6] or 0.0))
 
         cursor.close()
     except Exception as e:
