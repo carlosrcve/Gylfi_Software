@@ -9781,12 +9781,13 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             utilidad_neta = float(c4 - c5 - c6 + c7 - c8)
 
             # --- GASTO DE DEPRECIACIÓN EXACTO (Excluyendo vehículo .024 y tomando el movimiento neto correcto) ---
-            dep_df = df[
-                (df['plan_cuentas'].str.startswith('6.1.1.03')) & 
-                (~df['plan_cuentas'].str.startswith('6.1.1.03.024'))
+            cuentas_deprec_validas = [
+                '6.1.1.03.019', '6.1.1.03.020', '6.1.1.03.021', 
+                '6.1.1.03.022', '6.1.1.03.023', '6.1.1.03.024'
             ]
+            dep_df = df[df['plan_cuentas'].isin(cuentas_deprec_validas)]
+            
             if not dep_df.empty:
-                # Tomamos la suma del debe de las cuentas de depreciación del mes (gasto)
                 gasto_depreciacion = float(dep_df['debe'].sum() - dep_df['haber'].sum())
                 if gasto_depreciacion <= 0:
                     gasto_depreciacion = abs(float(dep_df['debe'].sum()))
