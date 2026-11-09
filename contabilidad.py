@@ -9716,8 +9716,11 @@ from datetime import datetime
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
     Calcula el Estado de Flujo de Efectivo por el Método Indirecto 100% dinámico 
-    desde MySQL utilizando Pandas para garantizar la precisión exacta de los montos de Mayo.
+    desde MySQL utilizando Pandas y con alerta visual para verificar ejecución.
     """
+    # PRUEBA DE FUEGO EN PANTALLA: Esto te dirá inmediatamente si está leyendo este código
+    st.error("🚀 ¡CONFIRMADO: SÍ ESTOY EJECUTANDO EL NUEVO CÓDIGO CON PANDAS PARA MAYO! 🚀")
+
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
     cxp_accionistas = 0.0
@@ -9755,7 +9758,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         # 2. Selección de tabla fuente contable
         tabla_fuente = "saldos_iniciales" if dt_ini < datetime(2026, 5, 1) else "asientos_contables"
 
-        # 3. Leer los asientos contables del período en Pandas por mes y año para evitar fallos de formato de fecha
+        # 3. Leer los asientos contables del período en Pandas por mes y año
         query_asientos = f"""
             SELECT plan_cuentas, cuenta_contable, debe, haber, fecha 
             FROM `{db_name}`.`{tabla_fuente}` 
@@ -9793,7 +9796,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             islr_df = df[df['plan_cuentas'].str.startswith('2.1.2.01.005')]
             retencion_islr = float(islr_df['haber'].sum() - islr_df['debe'].sum())
 
-            # Anticipos a Proveedores (1.1.6.01.001) -> Resta por aumento de activo
+            # Anticipos a Proveedores (1.1.6.01.001) -> Resta
             ant_df = df[df['plan_cuentas'].str.startswith('1.1.6.01.001')]
             anticipo_proveedores = -abs(float(ant_df['debe'].sum() - ant_df['haber'].sum()))
 
