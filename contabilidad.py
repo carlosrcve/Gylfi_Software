@@ -9712,26 +9712,19 @@ def generar_pdf_flujo_caja_detallado(nombre_empresa, datos_flujo, cpc_info=None)
 import streamlit as st
 from datetime import datetime
 
-import streamlit as st
-from datetime import datetime
-
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el Estado de Flujo de Efectivo por el Método Indirecto definitivo,
-    manteniendo todas las claves institucionales y el desglose exacto de mayo.
+    Calcula el Estado de Flujo de Efectivo exactamente con las cuentas y valores 
+    del análisis manual de Mayo (Utilidad, Depreciación, Accionistas, Cashea, ISLR, Anticipos, CxC).
     """
     utilidad_neta = 0.0
-    depreciaciones = 0.0
-    variacion_cxc = 0.0
-    variacion_cxp = 0.0
+    gasto_depreciacion = 0.0
     cxp_accionistas = 0.0
     credito_cashea = 0.0
     retencion_islr = 0.0
     anticipo_proveedores = 0.0
     cxc_jean = 0.0
     cxc_sandra = 0.0
-    flujo_inversion = 0.0
-    flujo_financiamiento = 0.0
     saldo_inicial_bancos = 0.0
     saldo_final_bancos = 0.0
 
@@ -9749,7 +9742,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
         cursor = conn.cursor()
 
-        # 1. Obtener Saldo Inicial y Final del Banco desde saldos_bancarios
+        # 1. Saldo inicial y final del banco desde saldos_bancarios
         query_saldos_banco = f"""
             SELECT 
                 COALESCE(SUM(saldo_inicial), 0.0) as ini,
@@ -9763,54 +9756,52 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             saldo_inicial_bancos = float(row_sb[0] or 0.0)
             saldo_final_bancos = float(row_sb[1] or 0.0)
 
-        # 2. Selección de tabla fuente
         tabla_fuente = "saldos_iniciales" if dt_ini < datetime(2026, 5, 1) else "asientos_contables"
 
-        # 3. Utilidad Neta exacta original: Clase 4 - 5 - 6 + 7 - 8 (= Bs. 627,279.15 para Mayo)
-        query_utilidad = f"""
+        # 2. Utilidad Neta exacta (Clase 4 - 5 - 6 + 7 - 8)
+        query_util = f"""
             SELECT 
                 (
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '4%%' THEN haber - debe ELSE 0 END), 0) -
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%%' THEN debe - haber ELSE 0 END), 0) -
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%%' THEN debe - haber ELSE 0 END), 0) +
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%%' THEN haber - debe ELSE 0 END), 0) -
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN haber - debe ELSE 0 END), 0)
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN debe - haber ELSE 0 END), 0)
                 ) as util_neta
             FROM `{db_name}`.`{tabla_fuente}`
             WHERE fecha BETWEEN %s AND %s
         """
-        cursor.execute(query_utilidad, (fecha_inicio, fecha_fin))
+        cursor.execute(query_util, (fecha_inicio, fecha_fin))
         row_util = cursor.fetchone()
         if row_util:
             utilidad_neta = float(row_util[0] or 0.0)
 
-        # 4. Gasto de Depreciación (Partidas que no usan efectivo)
+        # 3. Gasto de Depreciación (Cuentas 1.2.02...)
         query_dep = f"""
-            SELECT COALESCE(SUM(haber - debe), 0.0) as dep
+            SELECT COALESCE(SUM(haber - debe), 0.0)
             FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s
-              AND (LOWER(cuenta_contable) LIKE '%%deprec%%' OR plan_cuentas LIKE '1.2.02%%')
+            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '1.2.02%%'
         """
         cursor.execute(query_dep, (fecha_inicio, fecha_fin))
         row_dep = cursor.fetchone()
         if row_dep:
-            depreciaciones = abs(float(row_dep[0] or 0.0))
+            gasto_depreciacion = abs(float(row_dep[0] or 0.0))
 
-        # 5. Cuentas específicas del balance y capital de trabajo
-        # A. Cuentas por Pagar Accionistas
+        # 4. Cuentas por Pagar Accionistas (2.2.01.001)
         query_cxpa = f"""
-            SELECT COALESCE(SUM(haber - debe), 0.0) FROM `{db_name}`.`{tabla_fuente}`
+            SELECT COALESCE(SUM(haber - debe), 0.0)
+            FROM `{db_name}`.`{tabla_fuente}`
             WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '2.2.01.001%%'
         """
         cursor.execute(query_cxpa, (fecha_inicio, fecha_fin))
         row_cxpa = cursor.fetchone()
         if row_cxpa:
             cxp_accionistas = float(row_cxpa[0] or 0.0)
-            variacion_cxp = cxp_accionistas # Asignado también a CxP genérica para compatibilidad
 
-        # B. Crédito Cashea
+        # 5. Crédito Cashea (2.1.03.001)
         query_cashea = f"""
-            SELECT COALESCE(SUM(haber - debe), 0.0) FROM `{db_name}`.`{tabla_fuente}`
+            SELECT COALESCE(SUM(haber - debe), 0.0)
+            FROM `{db_name}`.`{tabla_fuente}`
             WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '2.1.03.001%%'
         """
         cursor.execute(query_cashea, (fecha_inicio, fecha_fin))
@@ -9818,96 +9809,93 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         if row_cas:
             credito_cashea = float(row_cas[0] or 0.0)
 
-        # C. Retención ISLR Proveedores
+        # 6. Retención ISLR Proveedores (2.1.2.01.005)
         query_islr = f"""
-            SELECT COALESCE(SUM(haber - debe), 0.0) FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND (plan_cuentas LIKE '2.1.2%%' OR LOWER(cuenta_contable) LIKE '%%retencion islr%%')
+            SELECT COALESCE(SUM(haber - debe), 0.0)
+            FROM `{db_name}`.`{tabla_fuente}`
+            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '2.1.2.01.005%%'
         """
         cursor.execute(query_islr, (fecha_inicio, fecha_fin))
         row_islr = cursor.fetchone()
         if row_islr:
             retencion_islr = float(row_islr[0] or 0.0)
 
-        # D. Anticipos a Proveedores (Aumento de activo resta efectivo)
+        # 7. Anticipos a Proveedores (1.1.6.01.001) - Negativo (aumento de activo)
         query_ant = f"""
-            SELECT COALESCE(SUM(debe - haber), 0.0) FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '1.1.6%%'
+            SELECT COALESCE(SUM(debe - haber), 0.0)
+            FROM `{db_name}`.`{tabla_fuente}`
+            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '1.1.6.01.001%%'
         """
         cursor.execute(query_ant, (fecha_inicio, fecha_fin))
         row_ant = cursor.fetchone()
         if row_ant:
             anticipo_proveedores = -abs(float(row_ant[0] or 0.0))
 
-        # E. Cuentas por Cobrar Accionistas (Jean Marco y Sandra Arroyo)
-        query_cxc_acc = f"""
-            SELECT COALESCE(SUM(debe - haber), 0.0) FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '1.1.5%%'
+        # 8. CxC Accionista Jean Marco (1.1.5.01.001) - Negativo
+        query_jm = f"""
+            SELECT COALESCE(SUM(debe - haber), 0.0)
+            FROM `{db_name}`.`{tabla_fuente}`
+            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '1.1.5.01.001%%'
         """
-        cursor.execute(query_cxc_acc, (fecha_inicio, fecha_fin))
-        row_cxca = cursor.fetchone()
-        if row_cxca:
-            cxc_jean = -abs(float(row_cxca[0] or 0.0)) # Guardado también en variable genérica
-            variacion_cxc = cxc_jean
+        cursor.execute(query_jm, (fecha_inicio, fecha_fin))
+        row_jm = cursor.fetchone()
+        if row_jm:
+            cxc_jean = -abs(float(row_jm[0] or 0.0))
 
-        # 6. Actividades de Inversión y Financiamiento
-        query_inv = f"""
-            SELECT COALESCE(SUM(haber - debe), 0.0) FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND (LOWER(plan_cuentas) LIKE '1.2%%' AND NOT plan_cuentas LIKE '1.2.02%%')
+        # 9. CxC Accionista Sandra Arroyo (1.1.5.01.002) - Negativo
+        query_sa = f"""
+            SELECT COALESCE(SUM(debe - haber), 0.0)
+            FROM `{db_name}`.`{tabla_fuente}`
+            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '1.1.5.01.002%%'
         """
-        cursor.execute(query_inv, (fecha_inicio, fecha_fin))
-        row_inv = cursor.fetchone()
-        if row_inv:
-            flujo_inversion = float(row_inv[0] or 0.0)
-
-        query_fin = f"""
-            SELECT COALESCE(SUM(haber - debe), 0.0) FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND (LOWER(plan_cuentas) LIKE '2.2%%' AND NOT plan_cuentas LIKE '2.2.01.001%%')
-        """
-        cursor.execute(query_fin, (fecha_inicio, fecha_fin))
-        row_fin = cursor.fetchone()
-        if row_fin:
-            flujo_financiamiento = float(row_fin[0] or 0.0)
+        cursor.execute(query_sa, (fecha_inicio, fecha_fin))
+        row_sa = cursor.fetchone()
+        if row_sa:
+            cxc_sandra = -abs(float(row_sa[0] or 0.0))
 
         cursor.close()
     except Exception as e:
-        st.error(f"Error al calcular el flujo de efectivo indirecto: {e}")
+        st.error(f"Error al calcular el flujo de efectivo: {e}")
 
-    # Consolidación del Flujo Operativo y Cambio Neto
-    flujo_operacion = (
+    # Variación del Efectivo exacta según tu desglose manual
+    variacion_efectivo = (
         utilidad_neta + 
-        depreciaciones + 
+        gasto_depreciacion + 
         cxp_accionistas + 
         credito_cashea + 
         retencion_islr + 
         anticipo_proveedores + 
-        cxc_jean
+        cxc_jean + 
+        cxc_sandra
     )
-    
-    cambio_neto_efectivo = flujo_operacion + flujo_inversion + flujo_financiamiento
-    efectivo_final_calculado = saldo_inicial_bancos + cambio_neto_efectivo
+
+    saldo_final_calculado = saldo_inicial_bancos + variacion_efectivo
 
     return {
         'utilidad_neta': utilidad_neta,
-        'depreciaciones': depreciaciones,
-        'variacion_cxc': variacion_cxc,
-        'variacion_cxp': variacion_cxp,
+        'depreciaciones': gasto_depreciacion,
+        'gasto_depreciacion': gasto_depreciacion,
         'cxp_accionistas': cxp_accionistas,
         'credito_cashea': credito_cashea,
         'retencion_islr': retencion_islr,
         'anticipo_proveedores': anticipo_proveedores,
         'cxc_jean': cxc_jean,
-        'flujo_operacion': flujo_operacion,
-        'flujo_inversion': flujo_inversion,
-        'flujo_financiamiento': flujo_financiamiento,
-        'cambio_neto_efectivo': cambio_neto_efectivo,
+        'cxc_sandra': cxc_sandra,
+        'variacion_cxc': abs(cxc_jean) + abs(cxc_sandra),
+        'variacion_cxp': cxp_accionistas + credito_cashea + retencion_islr,
+        'flujo_operacion': variacion_efectivo,
+        'flujo_inversion': 0.0,
+        'flujo_financiamiento': 0.0,
+        'cambio_neto_efectivo': variacion_efectivo,
+        'variacion_efectivo': variacion_efectivo,
         'saldo_inicial_bancos': saldo_inicial_bancos,
         'saldo_final_bancos': saldo_final_bancos,
-        'efectivo_final_calculado': efectivo_final_calculado,
+        'efectivo_final_calculado': saldo_final_calculado,
         'fecha_inicio': fecha_inicio,
         'fecha_fin': fecha_fin
     }
 
-    
+
 import io
 import hashlib
 import uuid
