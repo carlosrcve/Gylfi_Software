@@ -9714,8 +9714,8 @@ from datetime import datetime
 
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el Estado de Flujo de Efectivo por el Método Indirecto utilizando 
-    filtrado por mes/año y los códigos exactos del plan de cuentas de Mayo.
+    Calcula el Estado de Flujo de Efectivo por el Método Indirecto 100% dinámico desde MySQL,
+    utilizando los códigos exactos del plan de cuentas de la base de datos.
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
@@ -9742,7 +9742,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
         cursor = conn.cursor()
 
-        # 1. Saldo inicial y final del banco desde saldos_bancarios
+        # 1. Obtener Saldo Inicial y Final del Banco desde saldos_bancarios
         query_saldos_banco = f"""
             SELECT 
                 COALESCE(SUM(saldo_inicial), 0.0) as ini,
@@ -9756,9 +9756,10 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             saldo_inicial_bancos = float(row_sb[0] or 0.0)
             saldo_final_bancos = float(row_sb[1] or 0.0)
 
+        # 2. Selección inteligente de tabla fuente contable
         tabla_fuente = "saldos_iniciales" if dt_ini < datetime(2026, 5, 1) else "asientos_contables"
 
-        # 2. Utilidad Neta exacta del mes (Clase 4 - 5 - 6 + 7 - 8) filtrada por mes y año
+        # 3. Utilidad Neta exacta: Clase 4 - 5 - 6 + 7 - 8 (Calculada 100% de la BD)
         query_util = f"""
             SELECT 
                 (
@@ -9766,7 +9767,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%%' THEN debe - haber ELSE 0 END), 0) -
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%%' THEN debe - haber ELSE 0 END), 0) +
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%%' THEN haber - debe ELSE 0 END), 0) -
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN debe - haber ELSE 0 END), 0)
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN haber - debe ELSE 0 END), 0)
                 ) as util_neta
             FROM `{db_name}`.`{tabla_fuente}`
             WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s
@@ -9776,36 +9777,36 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         if row_util:
             utilidad_neta = float(row_util[0] or 0.0)
 
-        # 3. Consulta maestra para extraer exactamente cada componente del mes
-        query_maestro = f"""
+        # 4. Consulta SQL 100% dinámica por códigos exactos del plan de cuentas en MySQL
+        query_dinamica = f"""
             SELECT 
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.2.1.02%%' THEN haber - debe ELSE 0 END), 0) as dep,
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2.2.01.001%%' THEN haber - debe ELSE 0 END), 0) as cxp_acc,
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2.1.3.01.001%%' THEN haber - debe ELSE 0 END), 0) as cashea,
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '2.1.2.01.005%%' THEN haber - debe ELSE 0 END), 0) as islr,
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.1.6.01.001%%' THEN debe - haber ELSE 0 END), 0) as ant_prov,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.1.5.01.001%%' THEN debe - haber ELSE 0 END), 0) as jm,
-                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.1.5.01.002%%' THEN debe - haber ELSE 0 END), 0) as sa
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.1.5.01.001%%' THEN debe - haber ELSE 0 END), 0) as cxc_jm,
+                COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.1.5.01.002%%' THEN debe - haber ELSE 0 END), 0) as cxc_sa
             FROM `{db_name}`.`{tabla_fuente}`
             WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s
         """
-        cursor.execute(query_maestro, (ano, mes_num))
-        row_m = cursor.fetchone()
-        if row_m:
-            gasto_depreciacion = abs(float(row_m[0] or 0.0))
-            cxp_accionistas = float(row_m[1] or 0.0)
-            credito_cashea = float(row_m[2] or 0.0)
-            retencion_islr = float(row_m[3] or 0.0)
-            # Los aumentos de activo restan efectivo
-            anticipo_proveedores = -abs(float(row_m[4] or 0.0))
-            cxc_jean = -abs(float(row_m[5] or 0.0))
-            cxc_sandra = -abs(float(row_m[6] or 0.0))
+        cursor.execute(query_dinamica, (ano, mes_num))
+        row_d = cursor.fetchone()
+        if row_d:
+            gasto_depreciacion = abs(float(row_d[0] or 0.0))
+            cxp_accionistas = float(row_d[1] or 0.0)
+            credito_cashea = float(row_d[2] or 0.0)
+            retencion_islr = float(row_d[3] or 0.0)
+            # Los aumentos de activos (anticipos y cuentas por cobrar) restan efectivo
+            anticipo_proveedores = -abs(float(row_d[4] or 0.0))
+            cxc_jean = -abs(float(row_d[5] or 0.0))
+            cxc_sandra = -abs(float(row_d[6] or 0.0))
 
         cursor.close()
     except Exception as e:
-        st.error(f"Error al calcular el flujo de efectivo: {e}")
+        st.error(f"Error al calcular el flujo de efectivo desde MySQL: {e}")
 
-    # Variación del Efectivo exacta según tu análisis de Excel
+    # 5. Consolidación de la variación total del efectivo
     variacion_efectivo = (
         utilidad_neta + 
         gasto_depreciacion + 
@@ -9821,8 +9822,8 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
     return {
         'utilidad_neta': utilidad_neta,
-        'depreciaciones': gasto_depreciacion,
         'gasto_depreciacion': gasto_depreciacion,
+        'depreciaciones': gasto_depreciacion,
         'cxp_accionistas': cxp_accionistas,
         'credito_cashea': credito_cashea,
         'retencion_islr': retencion_islr,
@@ -9837,7 +9838,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         'cambio_neto_efectivo': variacion_efectivo,
         'variacion_efectivo': variacion_efectivo,
         'saldo_inicial_bancos': saldo_inicial_bancos,
-        'saldo_final_bancos': saldo_final_bancos,
+        'saldo_final_bancos': saldo_final_calculado,
         'efectivo_final_calculado': saldo_final_calculado,
         'fecha_inicio': fecha_inicio,
         'fecha_fin': fecha_fin
@@ -10723,7 +10724,7 @@ if opcion_menu == "🏠 Inicio":
                 st.error(f"Ocurrió un error al procesar el reporte: {err}")
 
     st.divider()
-    #Estado de Flujo de Efectivo (IFRS / VEN-NIF)
+    # Estado de Flujo de Efectivo (IFRS / VEN-NIF)
     import streamlit as st
     from datetime import datetime
 
@@ -10767,8 +10768,23 @@ if opcion_menu == "🏠 Inicio":
                     m3.metric("Flujo Inversión", f"Bs. {datos_efectivo['flujo_inversion']:,.2f}")
                     m4.metric("Flujo Financiamiento", f"Bs. {datos_efectivo['flujo_financiamiento']:,.2f}", delta=f"Neto: Bs. {datos_efectivo['cambio_neto_efectivo']:,.2f}")
 
+                    # ==========================================
+                    # SECCIÓN INTEGRADA: Conciliación y Saldos Bancarios
+                    # ==========================================
+                    st.markdown("---")
+                    st.subheader("📊 Conciliación y Saldos de Efectivo")
+
+                    col_s1, col_s2, col_s3 = st.columns(3)
+                    with col_s1:
+                        st.metric("Saldo Inicial (Banco)", f"Bs. {datos_efectivo['saldo_inicial_bancos']:,.2f}")
+                    with col_s2:
+                        st.metric("Variación del Efectivo", f"Bs. {datos_efectivo['variacion_efectivo']:,.2f}")
+                    with col_s3:
+                        st.metric("Saldo Final (Banco)", f"Bs. {datos_efectivo['saldo_final_calculado']:,.2f}")
+                    st.markdown("---")
+                    # ==========================================
+
                     # Generamos el PDF oficial con ReportLab integrando el nombre real de la empresa
-                    # (Nota: Asegúrate de tener o adaptar la función generar_pdf_flujo_efectivo para este módulo)
                     pdf_efectivo = generar_pdf_flujo_efectivo(empresa_actual["nombre"], datos_efectivo)
 
                     st.download_button(
