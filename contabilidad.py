@@ -9715,7 +9715,7 @@ from datetime import datetime
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
     Calcula el Estado de Flujo de Efectivo por el Método Indirecto utilizando 
-    una consulta SQL maestra consolidada para capturar exactamente los montos de Mayo.
+    filtrado por mes/año y los códigos exactos del plan de cuentas de Mayo.
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
@@ -9758,7 +9758,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
         tabla_fuente = "saldos_iniciales" if dt_ini < datetime(2026, 5, 1) else "asientos_contables"
 
-        # 2. Utilidad Neta exacta (Clase 4 - 5 - 6 + 7 - 8) -> Bs. 627.279,15
+        # 2. Utilidad Neta exacta del mes (Clase 4 - 5 - 6 + 7 - 8) filtrada por mes y año
         query_util = f"""
             SELECT 
                 (
@@ -9766,17 +9766,17 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '5%%' THEN debe - haber ELSE 0 END), 0) -
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '6%%' THEN debe - haber ELSE 0 END), 0) +
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '7%%' THEN haber - debe ELSE 0 END), 0) -
-                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN haber - debe ELSE 0 END), 0)
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN debe - haber ELSE 0 END), 0)
                 ) as util_neta
             FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s
+            WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s
         """
-        cursor.execute(query_util, (fecha_inicio, fecha_fin))
+        cursor.execute(query_util, (ano, mes_num))
         row_util = cursor.fetchone()
         if row_util:
             utilidad_neta = float(row_util[0] or 0.0)
 
-        # 3. Consulta maestra consolidada para extraer todas las cuentas del análisis en un solo paso
+        # 3. Consulta maestra para extraer exactamente cada componente del mes
         query_maestro = f"""
             SELECT 
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.2.1.02%%' THEN haber - debe ELSE 0 END), 0) as dep,
@@ -9787,16 +9787,16 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.1.5.01.001%%' THEN debe - haber ELSE 0 END), 0) as jm,
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.1.5.01.002%%' THEN debe - haber ELSE 0 END), 0) as sa
             FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s
+            WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s
         """
-        cursor.execute(query_maestro, (fecha_inicio, fecha_fin))
+        cursor.execute(query_maestro, (ano, mes_num))
         row_m = cursor.fetchone()
         if row_m:
             gasto_depreciacion = abs(float(row_m[0] or 0.0))
             cxp_accionistas = float(row_m[1] or 0.0)
             credito_cashea = float(row_m[2] or 0.0)
             retencion_islr = float(row_m[3] or 0.0)
-            # Los activos (anticipos y cuentas por cobrar) restan por aumento
+            # Los aumentos de activo restan efectivo
             anticipo_proveedores = -abs(float(row_m[4] or 0.0))
             cxc_jean = -abs(float(row_m[5] or 0.0))
             cxc_sandra = -abs(float(row_m[6] or 0.0))
@@ -9805,7 +9805,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     except Exception as e:
         st.error(f"Error al calcular el flujo de efectivo: {e}")
 
-    # Variación del Efectivo exacta (Suma algebraica de los 8 componentes)
+    # Variación del Efectivo exacta según tu análisis de Excel
     variacion_efectivo = (
         utilidad_neta + 
         gasto_depreciacion + 
