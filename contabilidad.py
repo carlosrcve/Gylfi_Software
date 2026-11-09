@@ -9715,7 +9715,7 @@ from datetime import datetime
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
     Calcula el Estado de Flujo de Efectivo por el Método Indirecto 100% dinámico desde MySQL,
-    utilizando los códigos exactos del plan de cuentas y la tabla de saldos bancarios.
+    utilizando el rango de fechas exacto (BETWEEN) y los códigos del plan de cuentas.
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
@@ -9742,7 +9742,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
         cursor = conn.cursor()
 
-        # 1. Obtener Saldo Inicial y Final del Banco dinámicamente desde saldos_bancarios
+        # 1. Obtener Saldo Inicial y Final del Banco desde saldos_bancarios
         query_saldos_banco = f"""
             SELECT 
                 COALESCE(SUM(saldo_inicial), 0.0) as ini,
@@ -9756,10 +9756,10 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             saldo_inicial_bancos = float(row_sb[0] or 0.0)
             saldo_final_bancos = float(row_sb[1] or 0.0)
 
-        # 2. Selección inteligente de tabla fuente contable
+        # 2. Selección de tabla fuente contable
         tabla_fuente = "saldos_iniciales" if dt_ini < datetime(2026, 5, 1) else "asientos_contables"
 
-        # 3. Utilidad Neta exacta: Clase 4 - 5 - 6 + 7 - 8 (Calculada 100% de la BD)
+        # 3. Utilidad Neta exacta: Clase 4 - 5 - 6 + 7 - 8 usando BETWEEN
         query_util = f"""
             SELECT 
                 (
@@ -9770,14 +9770,14 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE '8%%' THEN debe - haber ELSE 0 END), 0)
                 ) as util_neta
             FROM `{db_name}`.`{tabla_fuente}`
-            WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s
+            WHERE fecha BETWEEN %s AND %s
         """
-        cursor.execute(query_util, (ano, mes_num))
+        cursor.execute(query_util, (fecha_inicio, fecha_fin))
         row_util = cursor.fetchone()
         if row_util:
             utilidad_neta = float(row_util[0] or 0.0)
 
-        # 4. Consulta SQL 100% dinámica por códigos exactos del plan de cuentas en MySQL
+        # 4. Consulta SQL dinámica con BETWEEN para capturar las cuentas del análisis de mayo
         query_dinamica = f"""
             SELECT 
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.2.1.02%%' THEN haber - debe ELSE 0 END), 0) as dep,
@@ -9788,16 +9788,16 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.1.5.01.001%%' THEN debe - haber ELSE 0 END), 0) as cxc_jm,
                 COALESCE(SUM(CASE WHEN plan_cuentas LIKE '1.1.5.01.002%%' THEN debe - haber ELSE 0 END), 0) as cxc_sa
             FROM `{db_name}`.`{tabla_fuente}`
-            WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s
+            WHERE fecha BETWEEN %s AND %s
         """
-        cursor.execute(query_dinamica, (ano, mes_num))
+        cursor.execute(query_dinamica, (fecha_inicio, fecha_fin))
         row_d = cursor.fetchone()
         if row_d:
             gasto_depreciacion = abs(float(row_d[0] or 0.0))
             cxp_accionistas = float(row_d[1] or 0.0)
             credito_cashea = float(row_d[2] or 0.0)
             retencion_islr = float(row_d[3] or 0.0)
-            # Los aumentos de activos restan efectivo
+            # Aumentos de activos restan efectivo
             anticipo_proveedores = -abs(float(row_d[4] or 0.0))
             cxc_jean = -abs(float(row_d[5] or 0.0))
             cxc_sandra = -abs(float(row_d[6] or 0.0))
@@ -9818,6 +9818,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         cxc_sandra
     )
 
+    # El saldo final del banco se calcula sumando la variación real al saldo inicial bancario
     saldo_final_calculado = saldo_inicial_bancos + variacion_efectivo
 
     return {
@@ -9839,7 +9840,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         'variacion_efectivo': variacion_efectivo,
         'saldo_inicial_bancos': saldo_inicial_bancos,
         'saldo_final_bancos': saldo_final_bancos,
-        'saldo_final_calculado': saldo_final_calculado,   # <--- ¡Clave añadida para evitar el error!
+        'saldo_final_calculado': saldo_final_calculado,
         'efectivo_final_calculado': saldo_final_calculado,
         'fecha_inicio': fecha_inicio,
         'fecha_fin': fecha_fin
