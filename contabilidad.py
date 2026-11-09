@@ -9755,25 +9755,15 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         # 2. Selección de tabla fuente contable
         tabla_fuente = "saldos_iniciales" if dt_ini < datetime(2026, 5, 1) else "asientos_contables"
 
-        # 3. Leer los asientos contables del período en Pandas
+        # 3. Leer los asientos contables del período en Pandas por mes y año para evitar fallos de formato de fecha
         query_asientos = f"""
             SELECT plan_cuentas, cuenta_contable, debe, haber, fecha 
             FROM `{db_name}`.`{tabla_fuente}` 
-            WHERE fecha BETWEEN '{fecha_inicio}' AND '{fecha_fin}'
+            WHERE YEAR(fecha) = {ano} AND MONTH(fecha) = {mes_num}
         """
         df = pd.read_sql(query_asientos, conn)
 
-        # Respaldo por si el rango de fechas estricto no encuentra filas debido al formato
-        if df.empty:
-            query_alt = f"""
-                SELECT plan_cuentas, cuenta_contable, debe, haber, fecha 
-                FROM `{db_name}`.`{tabla_fuente}` 
-                WHERE YEAR(fecha) = {ano} AND MONTH(fecha) = {mes_num}
-            """
-            df = pd.read_sql(query_alt, conn)
-
         if not df.empty:
-            # Asegurar limpieza y tipos numéricos
             df['debe'] = pd.to_numeric(df['debe'], errors='coerce').fillna(0.0)
             df['haber'] = pd.to_numeric(df['haber'], errors='coerce').fillna(0.0)
             df['plan_cuentas'] = df['plan_cuentas'].astype(str).str.strip()
@@ -9787,31 +9777,31 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             
             utilidad_neta = float(c4 - c5 - c6 + c7 - c8)
 
-            # Gasto de Depreciación (1.2.1.02...) -> Haber - Debe
+            # Gasto de Depreciación (1.2.1.02...)
             dep_df = df[df['plan_cuentas'].str.startswith('1.2.1.02')]
             gasto_depreciacion = abs(float(dep_df['haber'].sum() - dep_df['debe'].sum()))
 
-            # Cuentas por Pagar Accionistas (2.2.01.001) -> Haber - Debe
+            # Cuentas por Pagar Accionistas (2.2.01.001)
             cxpa_df = df[df['plan_cuentas'].str.startswith('2.2.01.001')]
             cxp_accionistas = float(cxpa_df['haber'].sum() - cxpa_df['debe'].sum())
 
-            # Crédito Cashea (2.1.3.01.001) -> Haber - Debe
+            # Crédito Cashea (2.1.3.01.001)
             cashea_df = df[df['plan_cuentas'].str.startswith('2.1.3.01.001')]
             credito_cashea = float(cashea_df['haber'].sum() - cashea_df['debe'].sum())
 
-            # Retención ISLR Proveedores (2.1.2.01.005) -> Haber - Debe
+            # Retención ISLR Proveedores (2.1.2.01.005)
             islr_df = df[df['plan_cuentas'].str.startswith('2.1.2.01.005')]
             retencion_islr = float(islr_df['haber'].sum() - islr_df['debe'].sum())
 
-            # Anticipos a Proveedores (1.1.6.01.001) -> Debe - Haber (negativo por aumento de activo)
+            # Anticipos a Proveedores (1.1.6.01.001) -> Resta por aumento de activo
             ant_df = df[df['plan_cuentas'].str.startswith('1.1.6.01.001')]
             anticipo_proveedores = -abs(float(ant_df['debe'].sum() - ant_df['haber'].sum()))
 
-            # CxC Accionista Jean Marco (1.1.5.01.001) -> Debe - Haber (negativo)
+            # CxC Accionista Jean Marco (1.1.5.01.001) -> Resta
             jm_df = df[df['plan_cuentas'].str.startswith('1.1.5.01.001')]
             cxc_jean = -abs(float(jm_df['debe'].sum() - jm_df['haber'].sum()))
 
-            # CxC Accionista Sandra Arroyo (1.1.5.01.002) -> Debe - Haber (negativo)
+            # CxC Accionista Sandra Arroyo (1.1.5.01.002) -> Resta
             sa_df = df[df['plan_cuentas'].str.startswith('1.1.5.01.002')]
             cxc_sandra = -abs(float(sa_df['debe'].sum() - sa_df['haber'].sum()))
 
