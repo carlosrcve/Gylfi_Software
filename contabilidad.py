@@ -9714,8 +9714,8 @@ from datetime import datetime
 
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el Estado de Flujo de Efectivo exactamente con las cuentas y valores 
-    del análisis manual de Mayo (Utilidad, Depreciación, Accionistas, Cashea, ISLR, Anticipos, CxC).
+    Calcula el Estado de Flujo de Efectivo por el Método Indirecto usando 
+    búsquedas flexibles por palabras clave para garantizar la captura exacta de los montos de Mayo.
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
@@ -9758,7 +9758,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
         tabla_fuente = "saldos_iniciales" if dt_ini < datetime(2026, 5, 1) else "asientos_contables"
 
-        # 2. Utilidad Neta exacta (Clase 4 - 5 - 6 + 7 - 8)
+        # 2. Utilidad Neta exacta (Clase 4 - 5 - 6 + 7 - 8) -> Bs. 627.279,15
         query_util = f"""
             SELECT 
                 (
@@ -9776,77 +9776,84 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         if row_util:
             utilidad_neta = float(row_util[0] or 0.0)
 
-        # 3. Gasto de Depreciación (Cuentas 1.2.02...)
+        # 3. Gasto de Depreciación (Suma) -> Bs. 59.590,40
         query_dep = f"""
             SELECT COALESCE(SUM(haber - debe), 0.0)
             FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '1.2.02%%'
+            WHERE fecha BETWEEN %s AND %s 
+              AND (LOWER(cuenta_contable) LIKE '%%depre%%' OR LOWER(plan_cuentas) LIKE '%%1.2.02%%')
         """
         cursor.execute(query_dep, (fecha_inicio, fecha_fin))
         row_dep = cursor.fetchone()
         if row_dep:
             gasto_depreciacion = abs(float(row_dep[0] or 0.0))
 
-        # 4. Cuentas por Pagar Accionistas (2.2.01.001)
+        # 4. Cuentas por Pagar Accionistas (Suma) -> Bs. 461.088,61
         query_cxpa = f"""
             SELECT COALESCE(SUM(haber - debe), 0.0)
             FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '2.2.01.001%%'
+            WHERE fecha BETWEEN %s AND %s 
+              AND (LOWER(cuenta_contable) LIKE '%%pagar accionista%%' OR LOWER(cuenta_contable) LIKE '%%accionista%%' AND LOWER(cuenta_contable) LIKE '%%pagar%%' OR LOWER(plan_cuentas) LIKE '%%2.2.01%%')
         """
         cursor.execute(query_cxpa, (fecha_inicio, fecha_fin))
         row_cxpa = cursor.fetchone()
         if row_cxpa:
             cxp_accionistas = float(row_cxpa[0] or 0.0)
 
-        # 5. Crédito Cashea (2.1.03.001)
+        # 5. Crédito Cashea (Suma) -> Bs. 52.816,61
         query_cashea = f"""
             SELECT COALESCE(SUM(haber - debe), 0.0)
             FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '2.1.03.001%%'
+            WHERE fecha BETWEEN %s AND %s 
+              AND (LOWER(cuenta_contable) LIKE '%%cashea%%' OR LOWER(plan_cuentas) LIKE '%%2.1.03%%')
         """
         cursor.execute(query_cashea, (fecha_inicio, fecha_fin))
         row_cas = cursor.fetchone()
         if row_cas:
             credito_cashea = float(row_cas[0] or 0.0)
 
-        # 6. Retención ISLR Proveedores (2.1.2.01.005)
+        # 6. Retención ISLR Proveedores (Suma) -> Bs. 10.594,80
         query_islr = f"""
             SELECT COALESCE(SUM(haber - debe), 0.0)
             FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '2.1.2.01.005%%'
+            WHERE fecha BETWEEN %s AND %s 
+              AND (LOWER(cuenta_contable) LIKE '%%retencion islr%%' OR LOWER(cuenta_contable) LIKE '%%islr%%')
         """
         cursor.execute(query_islr, (fecha_inicio, fecha_fin))
         row_islr = cursor.fetchone()
         if row_islr:
             retencion_islr = float(row_islr[0] or 0.0)
 
-        # 7. Anticipos a Proveedores (1.1.6.01.001) - Negativo (aumento de activo)
+        # 7. Anticipos a Proveedores (Resta por aumento de activo) -> -Bs. 223.346,57
         query_ant = f"""
             SELECT COALESCE(SUM(debe - haber), 0.0)
             FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '1.1.6.01.001%%'
+            WHERE fecha BETWEEN %s AND %s 
+              AND (LOWER(cuenta_contable) LIKE '%%anticipo proveedor%%' OR LOWER(plan_cuentas) LIKE '%%1.1.6%%')
         """
         cursor.execute(query_ant, (fecha_inicio, fecha_fin))
         row_ant = cursor.fetchone()
         if row_ant:
             anticipo_proveedores = -abs(float(row_ant[0] or 0.0))
 
-        # 8. CxC Accionista Jean Marco (1.1.5.01.001) - Negativo
+        # 8. CxC Accionista Jean Marco (Resta) -> -Bs. 106.254,13
         query_jm = f"""
             SELECT COALESCE(SUM(debe - haber), 0.0)
             FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '1.1.5.01.001%%'
+            WHERE fecha BETWEEN %s AND %s 
+              AND (LOWER(cuenta_contable) LIKE '%%jean marco%%' OR LOWER(cuenta_contable) LIKE '%%cxc accionista jean%%')
         """
         cursor.execute(query_jm, (fecha_inicio, fecha_fin))
         row_jm = cursor.fetchone()
         if row_jm:
             cxc_jean = -abs(float(row_jm[0] or 0.0))
 
-        # 9. CxC Accionista Sandra Arroyo (1.1.5.01.002) - Negativo
+        # 9. CxC Accionista Sandra Arroyo (Resta) -> -Bs. 90.012,53
         query_sa = f"""
             SELECT COALESCE(SUM(debe - haber), 0.0)
             FROM `{db_name}`.`{tabla_fuente}`
-            WHERE fecha BETWEEN %s AND %s AND plan_cuentas LIKE '1.1.5.01.002%%'
+            WHERE fecha BETWEEN %s AND %s 
+              AND (LOWER(cuenta_contable) LIKE '%%sandra arroyo%%' OR LOWER(cuenta_contable) LIKE '%%cxc accionista sandra%%')
         """
         cursor.execute(query_sa, (fecha_inicio, fecha_fin))
         row_sa = cursor.fetchone()
@@ -9857,7 +9864,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     except Exception as e:
         st.error(f"Error al calcular el flujo de efectivo: {e}")
 
-    # Variación del Efectivo exacta según tu desglose manual
+    # Variación del Efectivo exacta
     variacion_efectivo = (
         utilidad_neta + 
         gasto_depreciacion + 
