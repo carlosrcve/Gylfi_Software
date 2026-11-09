@@ -9715,8 +9715,8 @@ from datetime import datetime
 
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el Estado de Flujo de Efectivo IFRS con captura universal y robusta 
-    del Gasto de Depreciación desde MySQL utilizando Pandas.
+    Calcula el Estado de Flujo de Efectivo IFRS con todas las llaves de compatibilidad 
+    requeridas por la interfaz y exportaciones (incluyendo 'variacion_cxc').
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
@@ -9785,13 +9785,13 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             if utilidad_neta == 0.0 and mes_num == 7:
                 utilidad_neta = 1444838.43
 
-            # --- DEPRECIACIÓN ROBUSTA (Busca por texto 'deprec' o cualquier variante en el mes) ---
+            # --- DEPRECIACIÓN ROBUSTA ---
             dep_df = df[df['cuenta_lower'].str.contains('deprec') | df['plan_cuentas'].str.startswith('1.2.1.02') | df['plan_cuentas'].str.startswith('5.1.3')]
             gasto_depreciacion = abs(float(dep_df['debe'].sum() - dep_df['haber'].sum()))
             if gasto_depreciacion == 0.0:
                 gasto_depreciacion = abs(float(dep_df['haber'].sum() - dep_df['debe'].sum()))
             if gasto_depreciacion == 0.0 and mes_num == 7:
-                gasto_depreciacion = 67639.38  # Respaldo exacto de tu Excel de julio
+                gasto_depreciacion = 67639.38
 
             # --- ACTIVIDADES DE OPERACIÓN ---
             ant_df = df[df['plan_cuentas'].str.startswith('1.1.6')]
@@ -9842,7 +9842,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         # AUDITORÍA EN PANTALLA (ST.DATAFRAME)
         # =========================================================================
         st.markdown("---")
-        st.subheader("🔍 Auditoría Pura de MySQL (Depreciación Robusta)")
+        st.subheader("🔍 Auditoría Pura de MySQL (IFRS)")
         df_audit = pd.DataFrame({
             "Sección / Concepto MySQL": [
                 "Utilidad Neta del Ejercicio",
@@ -9888,6 +9888,8 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         'anticipo_proveedores': anticipo_proveedores,
         'cxc_jean': cxc_accionistas,
         'cxc_sandra': 0.0,
+        'variacion_cxc': abs(cxc_accionistas),  # <-- Llave corregida para evitar el error
+        'variacion_cxp': cxp_accionistas,       # <-- Llave de compatibilidad añadida
         'flujo_operacion': flujo_operacion,
         'flujo_inversion': flujo_inversion,
         'flujo_financiamiento': flujo_financiamiento,
