@@ -9781,7 +9781,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             utilidad_neta = float(c4 - c5 - c6 + c7 - c8)
 
             # --- GASTO DE DEPRECIACIÓN EXACTO (Excluyendo vehículo .024 y tomando el movimiento neto correcto) ---
-            cuentas_deprec_validas = [
+            cuentas_deprec_validas = ['6.1.1.03.018',
                 '6.1.1.03.019', '6.1.1.03.020', '6.1.1.03.021', 
                 '6.1.1.03.022', '6.1.1.03.023', '6.1.1.03.024'
             ]
