@@ -9777,9 +9777,9 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             dep_df = df[df['plan_cuentas'].str.startswith('1.2.1.02')]
             gasto_depreciacion = abs(float(dep_df['haber'].sum() - dep_df['debe'].sum()))
 
-            # CxP Accionistas (Búsqueda flexible en MySQL por código base o texto clave)
-            cxpa_df = df[df['plan_cuentas'].str.startswith('2.2.01') | df['cuenta_lower'].str.contains('accionista')]
-            cxp_accionistas = float(cxpa_df['haber'].sum() - cxpa_df['debe'].sum())
+            # CxP Accionistas: Exclusivo pasivos (2.2.01) sin mezclar cuentas por cobrar
+            cxpa_df = df[df['plan_cuentas'].str.startswith('2.2.01') & ~df['cuenta_lower'].str.contains('cobrar')]
+            cxp_accionistas = abs(float(cxpa_df['haber'].sum() - cxpa_df['debe'].sum()))
 
             # Cashea
             cashea_df = df[df['plan_cuentas'].str.startswith('2.1.3.01.001')]
@@ -9789,15 +9789,15 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             islr_df = df[df['plan_cuentas'].str.startswith('2.1.2.01.005')]
             retencion_islr = float(islr_df['haber'].sum() - islr_df['debe'].sum())
 
-            # Anticipos a Proveedores
+            # Anticipos a Proveedores (Activo que resta)
             ant_df = df[df['plan_cuentas'].str.startswith('1.1.6.01.001')]
             anticipo_proveedores = -abs(float(ant_df['debe'].sum() - ant_df['haber'].sum()))
 
-            # CxC Jean Marco
+            # CxC Jean Marco (Activo que resta)
             jm_df = df[df['plan_cuentas'].str.startswith('1.1.5.01.001')]
             cxc_jean = -abs(float(jm_df['debe'].sum() - jm_df['haber'].sum()))
 
-            # CxC Sandra Arroyo
+            # CxC Sandra Arroyo (Activo que resta)
             sa_df = df[df['plan_cuentas'].str.startswith('1.1.5.01.002')]
             cxc_sandra = -abs(float(sa_df['debe'].sum() - sa_df['haber'].sum()))
 
@@ -9805,12 +9805,12 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         # AUDITORÍA EN PANTALLA
         # =========================================================================
         st.markdown("---")
-        st.subheader("🔍 Auditoría Pura de MySQL (Dinámica)")
+        st.subheader("🔍 Auditoría Pura de MySQL (Corregida)")
         df_audit = pd.DataFrame({
             "Concepto / Cuenta MySQL": [
                 "Clases 4, 5, 6, 7, 8 (Utilidad)",
                 "1.2.1.02 (Depreciación)",
-                "2.2.01 (CxP Accionistas - Flexible)",
+                "2.2.01 (CxP Accionistas - Depurado)",
                 "2.1.3.01.001 (Cashea)",
                 "2.1.2.01.005 (ISLR)",
                 "1.1.6.01.001 (Anticipo Prov.)",
