@@ -9713,10 +9713,14 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime
 
+import pandas as pd
+import streamlit as st
+from datetime import datetime
+
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el Estado de Flujo de Efectivo IFRS clasificado por Operación, Inversión y Financiamiento
-    directamente desde MySQL utilizando Pandas, incluyendo todas las llaves de compatibilidad ('depreciaciones').
+    Calcula el Estado de Flujo de Efectivo IFRS con cálculo preciso de depreciación 
+    directamente desde MySQL mediante Pandas.
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
@@ -9782,50 +9786,40 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             c8 = df[df['plan_cuentas'].str.startswith('8')]['debe'].sum() - df[df['plan_cuentas'].str.startswith('8')]['haber'].sum()
             
             utilidad_neta = float(c4 - c5 - c6 + c7 - c8)
-            if utilidad_neta == 0.0 and mes_num == 7:
-                utilidad_neta = 1444838.43  # Respaldo exacto para julio si aplica
 
-            # --- ACTIVIDADES DE OPERACIÓN ---
-            dep_df = df[df['plan_cuentas'].str.startswith('1.2.1.02') | df['cuenta_lower'].str.contains('depreciaci')]
-            gasto_depreciacion = abs(float(dep_df['haber'].sum() - dep_df['debe'].sum()))
-            if gasto_depreciacion == 0.0 and mes_num == 7:
-                gasto_depreciacion = 67639.38
+            # --- ACTIVIDADES DE OPERACIÓN: DEPRECIACIÓN CORREGIDA ---
+            # Busca estrictamente por el código 1.2.1.02 o por texto clave de depreciación en el movimiento del mes
+            dep_df = df[df['plan_cuentas'].str.startswith('1.2.1.02') | df['plan_cuentas'].str.startswith('5.1.3') | df['cuenta_lower'].str.contains('deprec')]
+            gasto_depreciacion = abs(float(dep_df['debe'].sum() - dep_df['haber'].sum()))
+            if gasto_depreciacion == 0.0:
+                # Si viene en cero por el balance general, revisamos el movimiento neto de la cuenta
+                gasto_depreciacion = abs(float(dep_df['haber'].sum() - dep_df['debe'].sum()))
 
             ant_df = df[df['plan_cuentas'].str.startswith('1.1.6')]
-            val_ant = float(ant_df['debe'].sum() - ant_df['haber'].sum())
-            anticipo_proveedores = -abs(val_ant) if val_ant != 0 else -830866.01
+            anticipo_proveedores = -abs(float(ant_df['debe'].sum() - ant_df['haber'].sum()))
 
             prov_df = df[df['plan_cuentas'].str.startswith('2.1.1') | df['cuenta_lower'].str.contains('proveedor')]
             proveedores_nacionales = float(prov_df['haber'].sum() - prov_df['debe'].sum())
-            if proveedores_nacionales == 0.0 and mes_num == 7:
-                proveedores_nacionales = 524938.14
 
             islr_df = df[df['plan_cuentas'].str.startswith('2.1.2.01.005') | df['cuenta_lower'].str.contains('islr')]
             retencion_islr = float(islr_df['haber'].sum() - islr_df['debe'].sum())
-            if retencion_islr == 0.0 and mes_num == 7:
-                retencion_islr = 5906.80
 
             cashea_df = df[df['plan_cuentas'].str.startswith('2.1.3') | df['cuenta_lower'].str.contains('cashea')]
-            val_cashea = float(cashea_df['haber'].sum() - cashea_df['debe'].sum())
-            credito_cashea = val_cashea if val_cashea != 0 else -72263.44
+            credito_cashea = float(cashea_df['haber'].sum() - cashea_df['debe'].sum())
 
             # --- ACTIVIDADES DE INVERSIÓN ---
             inv_df = df[df['cuenta_lower'].str.contains('binance') | df['cuenta_lower'].str.contains('divisa')]
-            val_inv = float(inv_df['debe'].sum() - inv_df['haber'].sum())
-            compra_divisas_binance = -abs(val_inv) if val_inv != 0 else -1901506.00
+            compra_divisas_binance = -abs(float(inv_df['debe'].sum() - inv_df['haber'].sum()))
 
             # --- ACTIVIDADES DE FINANCIAMIENTO ---
             cxc_acc_df = df[df['plan_cuentas'].str.startswith('1.1.5') | (df['cuenta_lower'].str.contains('accionista') & df['cuenta_lower'].str.contains('cobrar'))]
-            val_cxc_acc = float(cxc_acc_df['debe'].sum() - cxc_acc_df['haber'].sum())
-            cxc_accionistas = -abs(val_cxc_acc) if val_cxc_acc != 0 else -294531.44
+            cxc_accionistas = -abs(float(cxc_acc_df['debe'].sum() - cxc_acc_df['haber'].sum()))
 
             cxp_acc_df = df[
                 (df['plan_cuentas'].str.startswith('2.2.1') | df['plan_cuentas'].str.startswith('2.2.01') | 
                  (df['cuenta_lower'].str.contains('accionista') & ~df['cuenta_lower'].str.contains('cobrar')))
             ]
             cxp_accionistas = abs(float(cxp_acc_df['haber'].sum() - cxp_acc_df['debe'].sum()))
-            if cxp_accionistas == 0.0 and mes_num == 7:
-                cxp_accionistas = 234226.65
 
         # =========================================================================
         # SUBTOTALES Y FLUJOS
@@ -9840,11 +9834,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         )
 
         flujo_inversion = compra_divisas_binance
-
-        flujo_financiamiento = (
-            cxc_accionistas + 
-            cxp_accionistas
-        )
+        flujo_financiamiento = cxc_accionistas + cxp_accionistas
 
         variacion_efectivo = flujo_operacion + flujo_inversion + flujo_financiamiento
         saldo_final_calculado = saldo_inicial_bancos + variacion_efectivo
@@ -9853,22 +9843,22 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         # AUDITORÍA EN PANTALLA (ST.DATAFRAME)
         # =========================================================================
         st.markdown("---")
-        st.subheader("🔍 Estado de Flujo de Efectivo - IFRS (MySQL)")
+        st.subheader("🔍 Auditoría Pura de MySQL (Depreciación Ajustada)")
         df_audit = pd.DataFrame({
-            "Sección / Concepto": [
+            "Sección / Concepto MySQL": [
                 "Utilidad Neta del Ejercicio",
-                "(+) Gasto de Depreciación",
+                "(+) Gasto de Depreciación (1.2.1.02 / Deprec)",
                 "(-) Aumento en Anticipo a Proveedores",
                 "(+) Aumento en Proveedores Nacionales",
                 "(+) Aumento en Retención ISLR",
-                "(-) Disminución en Crédito Cashea",
+                "Disminución / Crédito Cashea",
                 "Efectivo Neto por Operación",
                 "(-) Compra de Divisas (Binance - Inversión)",
                 "(-) Aumento en CxC Accionistas (Financiamiento)",
                 "(+) Aumento en CxP Accionistas (Financiamiento)",
                 "Efectivo Neto por Financiamiento"
             ],
-            "Monto (Bs.)": [
+            "Monto Extraído de MySQL (Bs.)": [
                 utilidad_neta,
                 gasto_depreciacion,
                 anticipo_proveedores,
@@ -9892,7 +9882,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     return {
         'utilidad_neta': utilidad_neta,
         'gasto_depreciacion': gasto_depreciacion,
-        'depreciaciones': gasto_depreciacion,  # <-- Llave de compatibilidad añadida para evitar errores
+        'depreciaciones': gasto_depreciacion,
         'cxp_accionistas': cxp_accionistas,
         'credito_cashea': credito_cashea,
         'retencion_islr': retencion_islr,
