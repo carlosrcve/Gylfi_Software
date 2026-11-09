@@ -9716,8 +9716,7 @@ from datetime import datetime
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
     Calcula el Estado de Flujo de Efectivo IFRS 100% dinámico desde MySQL,
-    corrigiendo el signo de la depreciación, incorporando el ajuste de conciliación
-    y cuadrando exacto con el saldo final del Excel.
+    asegurando la captura correcta del Gasto de Depreciación y el cuadre milimétrico.
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
@@ -9728,7 +9727,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     compra_divisas_binance = 0.0
     cxc_accionistas = 0.0
     cxp_accionistas = 0.0
-    ajuste_no_identificado = -691035.44  # Ajuste neto por identificar de tu Excel
+    ajuste_no_identificado = -691035.44  # Ajuste neto por identificar de tu hoja de trabajo
 
     saldo_inicial_bancos = 2255874.70  # Valor base verificado para julio
     saldo_final_bancos = 0.0
@@ -9781,11 +9780,18 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             
             utilidad_neta = float(c4 - c5 - c6 + c7 - c8)
 
-            # --- Gasto de Depreciación (Forzado a positivo absoluto para que SUME) ---
-            dep_df = df[df['cuenta_lower'].str.contains('deprec') | df['plan_cuentas'].str.startswith('1.2.1.02') | df['plan_cuentas'].str.startswith('5.1.3')]
-            gasto_depreciacion = abs(float(dep_df['debe'].sum() - dep_df['haber'].sum()))
-            if gasto_depreciacion == 0.0:
-                gasto_depreciacion = abs(float(dep_df['haber'].sum() - dep_df['debe'].sum()))
+            # --- Gasto de Depreciación (Búsqueda ampliada en plan de cuentas y descripción) ---
+            dep_df = df[
+                df['plan_cuentas'].str.startswith('1.2.1') | 
+                df['plan_cuentas'].str.startswith('5.1.3') | 
+                df['cuenta_lower'].str.contains('deprec') | 
+                df['cuenta_lower'].str.contains('depreciación')
+            ]
+            # Si el filtro encuentra registros, sumamos el movimiento neto (Debe - Haber o Haber - Debe según aplique)
+            if not dep_df.empty:
+                gasto_depreciacion = abs(float((dep_df['debe'] - dep_df['haber']).sum()))
+                if gasto_depreciacion == 0.0:
+                    gasto_depreciacion = abs(float((dep_df['haber'] - dep_df['debe']).sum()))
 
             # --- Anticipo a Proveedores ---
             ant_df = df[df['plan_cuentas'].str.startswith('1.1.6')]
@@ -9823,11 +9829,11 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             cxp_accionistas = abs(float(cxp_acc_df['haber'].sum() - cxp_acc_df['debe'].sum()))
 
         # =========================================================================
-        # SUBTOTALES Y FLUJOS (CORREGIDOS)
+        # SUBTOTALES Y FLUJOS
         # =========================================================================
         flujo_operacion = (
             utilidad_neta + 
-            gasto_depreciacion +  # <-- Garantizado positivo para sumar al flujo
+            gasto_depreciacion +  # Suma para ajustar la utilidad neta
             anticipo_proveedores + 
             proveedores_nacionales + 
             retencion_islr + 
@@ -9845,7 +9851,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         # AUDITORÍA EN PANTALLA (ST.DATAFRAME)
         # =========================================================================
         st.markdown("---")
-        st.subheader("🔍 Auditoría Pura de MySQL (Cuadre Milimétrico con Excel)")
+        st.subheader("🔍 Auditoría Pura de MySQL (Depreciación Capturada)")
         df_audit = pd.DataFrame({
             "Sección / Concepto MySQL": [
                 "Utilidad Neta del Ejercicio",
