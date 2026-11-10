@@ -3122,7 +3122,6 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
 
 @st.cache_data(ttl=300)
-@st.cache_data(ttl=300)
 def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
     """
     Función cacheada y blindada para calcular los saldos usando pd.read_sql directamente.
