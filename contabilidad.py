@@ -9715,15 +9715,25 @@ from datetime import datetime
 
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Motor IFRS 100% Dinámico, Autónomo y Cero Parches Manuales.
-    Agrupa dinámicamente los pasivos operativos corrientes por el tronco 2.1 
-    (cubriendo 2.1.1, 2.1.2, 2.1.3 y cualquier cuenta nueva futura) y 
-    el financiamiento por el tronco 2.2 y 3 (cubriendo 2.2.1.01).
+    Motor IFRS 100% Dinámico y Autónomo.
+    Extrae de forma dinámica por prefijos contables:
+    - 1.1.5: Cuentas por Cobrar Accionistas
+    - 1.1.6: Anticipo a Proveedores
+    - 2.1.1: Proveedores Nacionales
+    - 2.1.2.01: Retenciones ISLR
+    - 2.1.3.01: Crédito Cashea
+    - 2.2.1.01: Cuentas por Pagar Accionistas
+    Adaptándose automáticamente a cualquier cuenta nueva creada bajo estos troncos en periodos futuros.
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
-    variacion_activos_operativos = 0.0
-    variacion_pasivos_operativos = 0.0
+    cxc_accionistas = 0.0
+    anticipo_proveedores = 0.0
+    proveedores_nacionales = 0.0
+    retencion_islr = 0.0
+    credito_cashea = 0.0
+    cxp_accionistas = 0.0
+    
     flujo_operacion = 0.0
     flujo_inversion = 0.0
     flujo_financiamiento = 0.0
@@ -9780,7 +9790,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             
             utilidad_neta = float(c4 - c5 - c6 + c7 - c8)
 
-            # --- A. Depreciación: Captura dinámica de cualquier cuenta de gasto de depreciación ---
+            # --- A. Depreciación Dinámica ---
             dep_df = df[
                 df['plan_cuentas'].str.startswith('6.1.1.04') | 
                 df['cuenta_lower'].str.contains('deprec')
@@ -9788,43 +9798,58 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             if not dep_df.empty:
                 gasto_depreciacion = abs(float((dep_df['debe'] - dep_df['haber']).sum()))
 
-            # --- B. Activos Operativos (Clase 1 excluyendo caja/bancos) ---
-            act_op_df = df[
-                df['plan_cuentas'].str.startswith('1.1') & 
-                ~df['plan_cuentas'].str.startswith('1.1.1')
-            ]
-            if not act_op_df.empty:
-                movimiento_activos = float((act_op_df['debe'] - act_op_df['haber']).sum())
-                variacion_activos_operativos = -movimiento_activos
+            # --- B. Cuentas por Cobrar Accionistas (Ramo 1.1.5 - Dinámico) ---
+            cxc_acc_df = df[df['plan_cuentas'].str.startswith('1.1.5')]
+            if not cxc_acc_df.empty:
+                cxc_accionistas = -abs(float((cxc_acc_df['debe'] - cxc_acc_df['haber']).sum()))
 
-            # --- C. Pasivos Operativos Corrientes (Tronco 2.1: atrapa automáticamente 2.1.1, 2.1.2, 2.1.3 y futuros) ---
-            pas_op_df = df[
-                df['plan_cuentas'].str.startswith('2.1')
-            ]
-            if not pas_op_df.empty:
-                movimiento_pasivos = float((pas_op_df['haber'] - pas_op_df['debe']).sum())
-                variacion_pasivos_operativos = movimiento_pasivos
+            # --- C. Anticipo a Proveedores (Ramo 1.1.6 - Dinámico) ---
+            ant_df = df[df['plan_cuentas'].str.startswith('1.1.6')]
+            if not ant_df.empty:
+                anticipo_proveedores = -abs(float((ant_df['debe'] - ant_df['haber']).sum()))
 
-            # --- D. Actividades de Inversión (Clase 1.2 activos no corrientes) ---
+            # --- D. Proveedores Nacionales (Ramo 2.1.1 - Dinámico) ---
+            prov_df = df[df['plan_cuentas'].str.startswith('2.1.1')]
+            if not prov_df.empty:
+                proveedores_nacionales = float((prov_df['haber'] - prov_df['debe']).sum())
+
+            # --- E. Retención ISLR Proveedores (Ramo 2.1.2.01 - Dinámico) ---
+            islr_df = df[df['plan_cuentas'].str.startswith('2.1.2.01')]
+            if not islr_df.empty:
+                retencion_islr = float((islr_df['haber'] - islr_df['debe']).sum())
+
+            # --- F. Crédito Cashea (Ramo 2.1.3.01 - Dinámico) ---
+            cashea_df = df[df['plan_cuentas'].str.startswith('2.1.3.01')]
+            if not cashea_df.empty:
+                credito_cashea = float((cashea_df['haber'] - cashea_df['debe']).sum())
+
+            # --- G. Cuentas por Pagar Accionistas (Ramo 2.2.1.01 - Dinámico) ---
+            cxp_acc_df = df[df['plan_cuentas'].str.startswith('2.2.1.01')]
+            if not cxp_acc_df.empty:
+                cxp_accionistas = float((cxp_acc_df['haber'] - cxp_acc_df['debe']).sum())
+
+            # --- H. Actividades de Inversión (Clase 1.2 activos no corrientes) ---
             inv_df = df[df['plan_cuentas'].str.startswith('1.2') & ~df['plan_cuentas'].str.startswith('1.2.1.02')]
-            flujo_inversion = -abs(float((inv_df['debe'] - inv_df['haber']).sum()))
+            if not inv_df.empty:
+                flujo_inversion = -abs(float((inv_df['debe'] - inv_df['haber']).sum()))
 
-            # --- E. Actividades de Financiamiento (Pasivos No Corrientes 2.2 -atrapando 2.2.1.01- y Patrimonio 3) ---
-            fin_df = df[
-                df['plan_cuentas'].str.startswith('2.2') | 
-                df['plan_cuentas'].str.startswith('3')
-            ]
+            # --- I. Financiamiento Adicional (Patrimonio / Clase 3) ---
+            fin_df = df[df['plan_cuentas'].str.startswith('3')]
             if not fin_df.empty:
                 flujo_financiamiento = float((fin_df['haber'] - fin_df['debe']).sum())
 
         # =========================================================================
-        # CONSOLIDACIÓN DEL FLUJO INDIRECTO (PURO Y AUTOMÁTICO)
+        # CONSOLIDACIÓN DEL FLUJO INDIRECTO
         # =========================================================================
         flujo_operacion = (
             utilidad_neta + 
             gasto_depreciacion + 
-            variacion_activos_operativos + 
-            variacion_pasivos_operativos
+            cxc_accionistas + 
+            anticipo_proveedores + 
+            proveedores_nacionales + 
+            retencion_islr + 
+            credito_cashea + 
+            cxp_accionistas
         )
 
         variacion_efectivo = flujo_operacion + flujo_inversion + flujo_financiamiento
@@ -9842,14 +9867,18 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                 "1. ACTIVIDADES DE OPERACIÓN",
                 "Utilidad (Ganancia) Neta del Ejercicio",
                 "(+) Depreciación de Propiedades, Planta y Equipo",
-                "(-) Variación en Activos Operativos (Capital de Trabajo)",
-                "(+) Variación en Pasivos Operativos Corrientes (Trunk 2.1)",
+                "(-) Variación en Cuenta por Cobrar Accionistas (1.1.5)",
+                "(-) Aumento en Anticipo Proveedores (1.1.6)",
+                "(+) Aumento en Proveedores Nacionales (2.1.1)",
+                "(+) Aumento en Retención ISLR Proveedores (2.1.2.01)",
+                "(-) Disminución en Crédito Cashea (2.1.3.01)",
+                "(+) Aumento en Cuentas por Pagar Accionistas (2.2.1.01)",
                 "Flujo Neto de Efectivo por Actividades de Operación",
                 "2. ACTIVIDADES DE INVERSIÓN",
                 "(-) Adquisición en Activos No Corrientes / Inversión",
                 "Flujo Neto de Efectivo por Actividades de Inversión",
                 "3. ACTIVIDADES DE FINANCIAMIENTO",
-                "(+) Financiamiento / Pasivo No Corriente & Patrimonio (2.2 / 3)",
+                "(+) Financiamiento / Patrimonio (Clase 3)",
                 "Flujo Neto de Efectivo por Actividades de Financiamiento",
                 "4. RESUMEN Y CONCILIACIÓN",
                 "Incremento / Disminución Neta del Efectivo",
@@ -9860,8 +9889,12 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                 "",
                 f"{utilidad_neta:,.2f}",
                 f"{gasto_depreciacion:,.2f}",
-                f"{variacion_activos_operativos:,.2f}",
-                f"{variacion_pasivos_operativos:,.2f}",
+                f"{cxc_accionistas:,.2f}",
+                f"{anticipo_proveedores:,.2f}",
+                f"{proveedores_nacionales:,.2f}",
+                f"{retencion_islr:,.2f}",
+                f"{credito_cashea:,.2f}",
+                f"{cxp_accionistas:,.2f}",
                 f"{flujo_operacion:,.2f}",
                 "",
                 f"{flujo_inversion:,.2f}",
@@ -9876,6 +9909,10 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             ],
             "Tipo de Actividad": [
                 "Sección",
+                "Operación",
+                "Operación",
+                "Operación",
+                "Operación",
                 "Operación",
                 "Operación",
                 "Operación",
@@ -9904,14 +9941,14 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         'utilidad_neta': utilidad_neta,
         'gasto_depreciacion': gasto_depreciacion,
         'depreciaciones': gasto_depreciacion,
-        'cxp_accionistas': 0.0,
-        'credito_cashea': 0.0,
-        'retencion_islr': 0.0,
-        'anticipo_proveedores': variacion_activos_operativos,
-        'cxc_jean': 0.0,
+        'cxp_accionistas': cxp_accionistas,
+        'credito_cashea': credito_cashea,
+        'retencion_islr': retencion_islr,
+        'anticipo_proveedores': anticipo_proveedores,
+        'cxc_jean': cxc_accionistas,
         'cxc_sandra': 0.0,
-        'variacion_cxc': 0.0,
-        'variacion_cxp': variacion_pasivos_operativos,
+        'variacion_cxc': abs(cxc_accionistas),
+        'variacion_cxp': abs(proveedores_nacionales) + abs(retencion_islr) + abs(credito_cashea) + abs(cxp_accionistas),
         'flujo_operacion': flujo_operacion,
         'flujo_inversion': flujo_inversion,
         'flujo_financiamiento': flujo_financiamiento,
