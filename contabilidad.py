@@ -11960,7 +11960,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                         conn_del.commit()
                                     
                                     st.success(f"✅ Éxito: Se eliminaron {filas_afectadas} registros del periodo contable.")
-                                    st.rerun()
                             except Exception as e:
                                 st.error(f"Error al ejecutar la limpieza: {e}")
                             finally:
