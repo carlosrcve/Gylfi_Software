@@ -3205,7 +3205,6 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
 
 
 @st.cache_data(ttl=300)
-@st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
     """
     Genera el balance profesional consolidando la jerarquía contable sin duplicar saldos en padres.
@@ -3269,7 +3268,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df_plan['llave_padre'] = df_plan['padre_calculado'].fillna('').str.replace(r'[^0-9]', '', regex=True)
         df_saldos['llave_join'] = df_saldos['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
 
-        # 3. Hacer el merge (traemos únicamente los movimientos de las cuentas de último nivel/detalle)
+        # 3. Hacer el merge
         df = pd.merge(
             df_plan, 
             df_saldos[['llave_join', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']], 
@@ -3281,31 +3280,23 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df[cols_num] = df[cols_num].fillna(0.0).astype(float)
 
         # 4. IDENTIFICAR CUENTAS DE MOVIMIENTO VS GRUPOS/PADRES
-        # Una cuenta es padre si su llave_join aparece dentro de la columna llave_padre de otras cuentas
         padres_set = set(df['llave_padre'].dropna().astype(str))
         is_padre = df['llave_join'].isin(padres_set)
         is_grupo = df['tipo'].astype(str).str.lower() == 'grupo'
 
-        # BLANQUEAMOS los saldos iniciales, debe y haber en los padres y grupos 
-        # para que no dupliquen lo que traigan los asientos y acumulen únicamente por jerarquía
+        # Blanqueamos los grupos y padres para que no dupliquen lo de sus hijas
         df.loc[is_grupo | is_padre, cols_num] = 0.0
 
-        # Si el balance de comprobación trajo saldos directos a cuentas que resultaron ser padres, 
-        # se los asignamos temporalmente o dejamos que la jerarquía los suba desde las auxiliares.
-        # Lo seguro para evitar duplicidad es volcar los saldos de saldos solo a las cuentas que NO son padres:
-        df_hojas = pd.merge(df_plan, df_saldos[['llave_join', 'Saldo Inicial', 'Debe', 'Haber']], on='llave_join', how='inner')
-        # Filtramos solo las que no son padres ni grupos
-        hojas_puro_movimiento = ~df['llave_join'].isin(padres_set) & (df['tipo'].astype(str).str.lower() != 'grupo')
+        # Mapeo limpio utilizando un diccionario directo para evitar errores de índices y objetos flotantes
+        saldos_dict = df_saldos.set_index('llave_join')[['Saldo Inicial', 'Debe', 'Haber']].to_dict('index')
         
-        # Volvemos a mapear los saldos limpios exclusivamente a las cuentas de movimiento real
-        df_saldos_hojas = df_saldos.set_index('llave_join')
         for idx, row_df in df.iterrows():
             k = row_df['llave_join']
-            if not is_padre.iloc[idx] and not (df.loc[idx, 'tipo'].lower() == 'grupo'):
-                if k in df_saldos_hojas.index:
-                    df.loc[idx, 'Saldo Inicial'] = float(df_saldos_hojas.loc[k, 'Saldo Inicial'])
-                    df.loc[idx, 'Debe'] = float(df_saldos_hojas.loc[k, 'Debe'])
-                    df.loc[idx, 'Haber'] = float(df_saldos_hojas.loc[k, 'Haber'])
+            if not is_padre.iloc[idx] and str(df.loc[idx, 'tipo']).lower() != 'grupo':
+                if k in saldos_dict:
+                    df.loc[idx, 'Saldo Inicial'] = float(saldos_dict[k].get('Saldo Inicial', 0.0))
+                    df.loc[idx, 'Debe'] = float(saldos_dict[k].get('Debe', 0.0))
+                    df.loc[idx, 'Haber'] = float(saldos_dict[k].get('Haber', 0.0))
 
         # 5. SUMATORIA JERÁRQUICA RIGUROSA DE ABAJO HACIA ARRIBA
         niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
@@ -3317,9 +3308,9 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                 if pd.notna(p_cod) and p_cod != '' and p_cod != 'none' and p_cod != 'nan':
                     mask_padre = df['llave_join'] == str(p_cod)
                     if mask_padre.any():
-                        df.loc[mask_padre, 'Saldo Inicial'] = df.loc[mask_padre, 'Saldo Inicial'].values + fila['Saldo Inicial'].values
-                        df.loc[mask_padre, 'Debe'] = df.loc[mask_padre, 'Debe'].values + fila['Debe'].values
-                        df.loc[mask_padre, 'Haber'] = df.loc[mask_padre, 'Haber'].values + fila['Haber'].values
+                        df.loc[mask_padre, 'Saldo Inicial'] = df.loc[mask_padre, 'Saldo Inicial'].values + float(fila['Saldo Inicial'])
+                        df.loc[mask_padre, 'Debe'] = df.loc[mask_padre, 'Debe'].values + float(fila['Debe'])
+                        df.loc[mask_padre, 'Haber'] = df.loc[mask_padre, 'Haber'].values + float(fila['Haber'])
 
         # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL ---
         df['Tipo_1'] = df['codigo'].astype(str).str[0]
