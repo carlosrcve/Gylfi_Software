@@ -3335,7 +3335,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         val_egresos = totales_n1.get('8', 0.0)
 
         # Replicando al milímetro la fórmula exacta de tu celda de Excel:
-        neto_excel = val_activo - val_pasivo - val_patrimonio - (((val_ingresos - val_costos - val_gastos) - val_otros_ing) - val_egresos)
+        neto_excel = val_activo - val_pasivo + val_patrimonio - (((val_ingresos - val_costos - val_gastos) - val_otros_ing) - val_egresos)
 
         fila_total = pd.DataFrame([{
             'codigo': 'Σ', 
