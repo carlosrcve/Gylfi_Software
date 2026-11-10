@@ -3197,11 +3197,93 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
 
 
 @st.cache_data(ttl=300)
+@st.cache_data(ttl=300)
+def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
+    if not db_name:
+        return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+    
+    conn = conectar_db(db_name)
+    if not conn:
+        return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+    
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        
+        # Detector automático del nombre real de la columna de cuenta en las tablas
+        cursor.execute(f"SHOW COLUMNS FROM `{db_name}`.saldos_iniciales")
+        cols_si = [row[0].lower() for row in cursor.fetchall()]
+        col_c_si = next((c for c in cols_si if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_si[0])
+        
+        cursor.execute(f"SHOW COLUMNS FROM `{db_name}`.asientos_contables")
+        cols_ac = [row[0].lower() for row in cursor.fetchall()]
+        col_c_ac = next((c for c in cols_ac if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_ac[0])
+        
+        sql_si = f"SELECT `{col_c_si}` as plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY `{col_c_si}`"
+        sql_mo_d = f"SELECT `{col_c_ac}` as plan_cuentas, SUM(debe) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
+        sql_mo_h = f"SELECT `{col_c_ac}` as plan_cuentas, SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
+
+        df_si = ejecutar_consulta(sql_si, conn)
+        df_debe = ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f))
+        df_haber = ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
+
+        dfs = {'si': df_si, 'debe': df_debe, 'haber': df_haber}
+        lista_frames = []
+        
+        for nombre, df in dfs.items():
+            if df is not None and not df.empty:
+                df.columns = [str(c).lower().strip() for c in df.columns]
+                col_pc = next((c for c in df.columns if 'plan' in c or 'cuenta' in c or 'codigo' in c), df.columns[0])
+                col_val = next((c for c in df.columns if 'val' in c or 'sum' in c or 'debe' in c or 'haber' in c), df.columns[1] if len(df.columns) > 1 else df.columns[0])
+                
+                df = df.rename(columns={col_pc: 'Código', col_val: nombre})
+                df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
+                df['Código'] = df['Código'].astype(str).str.strip()
+                df = df.groupby('Código')[nombre].sum().reset_index()
+                df = df.set_index('Código')
+                lista_frames.append(df)
+
+        if not lista_frames:
+            return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+
+        balance = pd.concat(lista_frames, axis=1).fillna(0.0)
+        balance.reset_index(inplace=True)
+        
+        for c in ['si', 'debe', 'haber']:
+            if c not in balance.columns: 
+                balance[c] = 0.0
+            balance[c] = balance[c].astype(float)
+            
+        balance['Tipo'] = balance['Código'].astype(str).str[0]
+        
+        es_cuenta_resultado = balance['Tipo'].isin(['5', '6', '7', '8'])
+        balance['Saldo Inicial'] = balance['si']
+        balance.loc[es_cuenta_resultado, 'Saldo Inicial'] = 0.0
+        
+        es_contra_activo = balance['Código'].astype(str).str.startswith('1.2')
+        es_activo_gasto = (balance['Tipo'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
+
+        balance['Saldo Final'] = 0.0
+        balance.loc[es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] + balance['debe'] - balance['haber']
+        balance.loc[~es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] - balance['debe'] + balance['haber']
+        
+        return balance[['Código', 'Saldo Inicial', 'debe', 'haber', 'Saldo Final']].rename(columns={
+            'debe': 'Debe', 'haber': 'Haber'
+        })
+
+    except Exception as e:
+        return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
+
+
+@st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
-    """
-    Genera el balance profesional inyectando saldos en cuentas hoja
-    y acumulando por jerarquía exacta de puntos de abajo hacia arriba.
-    """
     if not db_name or db_name == 'none':
         st.error("No se ha especificado el nombre de la base de datos.")
         return pd.DataFrame()
@@ -3216,7 +3298,6 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         cursor = conn.cursor()
         cursor.execute(f"USE `{db_name}`")
         
-        # 1. Consultar plan de cuentas original
         query_plan = f"SELECT codigo, nombre, nivel, tipo, padre FROM `{db_name}`.plan_cuentas ORDER BY codigo"
         df_plan = ejecutar_consulta(query_plan, conn)
         
@@ -3235,7 +3316,6 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
 
         df_plan['padre_real'] = df_plan['codigo_limpio'].apply(calcular_padre)
 
-        # 2. Obtener los saldos base de comprobación
         df_saldos = generar_balance_comprobacion(db_name, f_i, f_f, sucursal)
         
         saldos_dict = {}
@@ -3254,17 +3334,14 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                     'Haber': float(r.get(c_hab, 0.0) or 0.0)
                 }
 
-        # 3. Inicializar el DataFrame maestro con ceros absolutos
         df = df_plan.copy()
         df['Saldo Inicial'] = 0.0
         df['Debe'] = 0.0
         df['Haber'] = 0.0
         df['Saldo Final'] = 0.0
 
-        # Identificar qué códigos son padres (tienen cuentas hijas apuntando a ellos)
         padres_codes = set(df['padre_real'].dropna().astype(str))
 
-        # 4. INYECTAR SALDOS ÚNICAMENTE EN LAS CUENTAS HOJA (QUE NO TIENEN HIJAS)
         for idx, row_df in df.iterrows():
             c_cod = row_df['codigo_limpio']
             es_padre = c_cod in padres_codes
@@ -3276,7 +3353,6 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                     df.loc[idx, 'Debe'] = saldos_dict[c_cod]['Debe']
                     df.loc[idx, 'Haber'] = saldos_dict[c_cod]['Haber']
 
-        # 5. SUMATORIA JERÁRQUICA RIGUROSA DE ABAJO HACIA ARRIBA
         niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
         
         for n in niveles_disponibles:
@@ -3290,7 +3366,6 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                         df.loc[mask_padre, 'Debe'] = df.loc[mask_padre, 'Debe'].values + float(fila['Debe'])
                         df.loc[mask_padre, 'Haber'] = df.loc[mask_padre, 'Haber'].values + float(fila['Haber'])
 
-        # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL ---
         df['Tipo_1'] = df['codigo_limpio'].str[0]
         es_contra_activo = df['codigo_limpio'].str.startswith('1.2')
         
@@ -3301,7 +3376,6 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
         df.loc[es_acreedor, 'Saldo Final'] = df['Saldo Inicial'] - df['Debe'] + df['Haber']
 
-        # 6. Fila Total Global (Fórmula exacta del Excel)
         df_nivel_1 = df[df['nivel'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
@@ -3351,9 +3425,6 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
     finally:
         if cursor:
             try: cursor.close()
-            except: pass
-        if conn:
-            try: conn.close()
             except: pass
         if conn:
             try: conn.close()
