@@ -3108,25 +3108,74 @@ def generar_balance_comprobacion(_db, f_i, f_f, sucursal):
     Función cacheada para calcular los saldos del balance de comprobación.
     Usa '_db' con guion bajo para que Streamlit ignore la conexión en el hash.
     """
+    if not _db:
+        return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+    
     conn_saldos = conectar_db(_db)
     if not conn_saldos:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
     cursor_saldos = None
     try:
         cursor_saldos = conn_saldos.cursor()
         cursor_saldos.execute(f"USE `{_db}`")
         
-        # --- AQUÍ VA TU LÓGICA INTERNA PARA EXTRAER LOS SALDOS DESDE LA BD ---
-        # (Ejecuta tu consulta SQL de saldos usando conn_saldos o cursor_saldos y retorna el DataFrame de saldos)
-        # Ejemplo por defecto si requieres estructura:
-        # query_saldos = "..."
-        # df_saldos = ejecutar_consulta(query_saldos, conn_saldos)
-        # return df_saldos
+        # 1. Traer los Saldos Iniciales fijos de la tabla 'saldos_iniciales'
+        sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{_db}`.saldos_iniciales GROUP BY plan_cuentas"
         
-        # (Placeholder de seguridad si tu función original ya estaba definida en otro lado,
-        # asegúrate de que esa otra definición tenga el _db en la firma).
+        # 2. Movimientos del rango seleccionado en 'asientos_contables'
+        sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{_db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+        sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{_db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+
+        dfs = {
+            'si': ejecutar_consulta(sql_si, conn_saldos),
+            'debe': ejecutar_consulta(sql_mo_d, conn_saldos, params=(f_i, f_f)),
+            'haber': ejecutar_consulta(sql_mo_h, conn_saldos, params=(f_i, f_f))
+        }
+
+        lista_frames = []
+        for nombre, df in dfs.items():
+            if df is not None and not df.empty:
+                if 'plan_cuentas' in df.columns:
+                    df = df.rename(columns={'plan_cuentas': 'Código', 'val': nombre})
+                    df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
+                    
+                    df['Código'] = df['Código'].astype(str).str.strip()
+                    
+                    df = df.groupby('Código')[nombre].sum().reset_index()
+                    df = df.set_index('Código')
+                    lista_frames.append(df)
+
+        if not lista_frames:
+            return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+
+        balance = pd.concat(lista_frames, axis=1).fillna(0.0)
+        balance.reset_index(inplace=True)
         
+        for c in ['si', 'debe', 'haber']:
+            if c not in balance.columns: 
+                balance[c] = 0.0
+            balance[c] = balance[c].astype(float)
+            
+        balance['Tipo'] = balance['Código'].astype(str).str[0]
+        
+        # Las cuentas de resultado (5, 6, 7, 8) no arrastran saldo inicial en reportes por período
+        es_cuenta_resultado = balance['Tipo'].isin(['5', '6', '7', '8'])
+        
+        balance['Saldo Inicial'] = balance['si']
+        balance.loc[es_cuenta_resultado, 'Saldo Inicial'] = 0.0
+        
+        es_contra_activo = balance['Código'].astype(str).str.startswith('1.2')
+        es_activo_gasto = (balance['Tipo'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
+
+        balance['Saldo Final'] = 0.0
+        balance.loc[es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] + balance['debe'] - balance['haber']
+        balance.loc[~es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] - balance['debe'] + balance['haber']
+        
+        return balance[['Código', 'Saldo Inicial', 'debe', 'haber', 'Saldo Final']].rename(columns={
+            'debe': 'Debe', 'haber': 'Haber'
+        })
+
     except Exception as e:
         st.error(f"Error calculando saldos de comprobación: {e}")
         return pd.DataFrame()
@@ -3137,7 +3186,6 @@ def generar_balance_comprobacion(_db, f_i, f_f, sucursal):
         if conn_saldos:
             try: conn_saldos.close()
             except: pass
-
 
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db, f_i, f_f, sucursal):
@@ -3270,6 +3318,7 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
                 conn.close()
             except Exception:
                 pass
+
 
 @st.cache_data(ttl=300)
 def obtener_utilidad_acumulada_historica(db, fecha_corte):
