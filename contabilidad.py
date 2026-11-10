@@ -3554,7 +3554,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
 @st.cache_data(ttl=300)
 def generar_balance_comprobacion(db, f_i, f_f, sucursal):
     """
-    Genera el balance de comprobación cacheado y con limpieza de códigos eficiente.
+    Genera el balance de comprobación cacheado con manejo correcto de jerarquía y códigos.
     """
     if not db:
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
@@ -3584,8 +3584,11 @@ def generar_balance_comprobacion(db, f_i, f_f, sucursal):
                     df = df.rename(columns={'plan_cuentas': 'Código', 'val': nombre})
                     df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
                     
-                    # Sanitización limpia en Python
-                    df['Código'] = df['Código'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+                    # Conservamos los puntos del código contable (ej: 6.1.1.04.006) en lugar de borrarlos todos, 
+                    # o limpiamos espacios para evitar desajustes de agrupación.
+                    df['Código'] = df['Código'].astype(str).str.strip()
+                    df = df.groupby('Código')[nombre].sum().reset_index()
+                    
                     df = df.set_index('Código')
                     lista_frames.append(df)
 
@@ -3603,7 +3606,7 @@ def generar_balance_comprobacion(db, f_i, f_f, sucursal):
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         balance['Saldo Inicial'] = balance['si']
         
-        es_activo_gasto = balance['Tipo'].isin(['1', '5'])
+        es_activo_gasto = balance['Tipo'].isin(['1', '5', '6', '8'])
         
         balance['Saldo Final'] = 0.0
         balance.loc[es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] + balance['debe'] - balance['haber']
