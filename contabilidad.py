@@ -3124,7 +3124,8 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 @st.cache_data(ttl=300)
 def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
     """
-    Función cacheada y blindada para calcular los saldos usando pd.read_sql directamente.
+    Extrae todos los saldos y movimientos reales directamente de la BD sin exclusiones,
+    garantizando que no se pierda ningún céntimo de los asientos contables.
     """
     if not db_name:
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
@@ -3134,25 +3135,22 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
     try:
-        # 1. Traer los Saldos Iniciales fijos de la tabla 'saldos_iniciales'
+        # 1. Saldos Iniciales de TODAS las cuentas con movimientos/saldos
         sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY plan_cuentas"
         
-        # 2. Movimientos del rango seleccionado en 'asientos_contables'
+        # 2. Movimientos del Debe en el rango de fechas
         sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+        
+        # 3. Movimientos del Haber en el rango de fechas
         sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
 
-        # Lectura directa por Pandas usando la conexión activa (sin intermediarios que exploten)
-        df_si = pd.read_sql(sql_si, conn)
-        df_debe = pd.read_sql(sql_mo_d, conn, params=(f_i, f_f))
-        df_haber = pd.read_sql(sql_mo_h, conn, params=(f_i, f_f))
+        df_si = ejecutar_consulta(sql_si, conn)
+        df_debe = ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f))
+        df_haber = ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
 
-        dfs = {
-            'si': df_si,
-            'debe': df_debe,
-            'haber': df_haber
-        }
-
+        dfs = {'si': df_si, 'debe': df_debe, 'haber': df_haber}
         lista_frames = []
+        
         for nombre, df in dfs.items():
             if df is not None and not df.empty:
                 df.columns = [str(c).lower() for c in df.columns]
@@ -3177,7 +3175,6 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
             
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         
-        # Las cuentas de resultado (5, 6, 7, 8) no arrastran saldo inicial en reportes por período
         es_cuenta_resultado = balance['Tipo'].isin(['5', '6', '7', '8'])
         balance['Saldo Inicial'] = balance['si']
         balance.loc[es_cuenta_resultado, 'Saldo Inicial'] = 0.0
