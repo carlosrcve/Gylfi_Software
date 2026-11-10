@@ -9796,7 +9796,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                 movimiento_activos = float((act_op_df['debe'] - act_op_df['haber']).sum())
                 variacion_activos_operativos = -movimiento_activos
 
-            # --- C. Pasivos Operativos Corrientes (Clase 2.1 de corto plazo) ---
+            # --- C. Pasivos Operativos Corrientes (Clase 2.1.1.01) ---
             pas_op_df = df[
                 df['plan_cuentas'].str.startswith('2.1.1.01')
             ]
@@ -9830,34 +9830,71 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         saldo_final_calculado = saldo_inicial_bancos + variacion_efectivo
 
         # =========================================================================
-        # AUDITORÍA EN PANTALLA (ST.DATAFRAME)
+        # AUDITORÍA EN PANTALLA (ST.DATAFRAME FORMATO ESTILO EXCEL)
         # =========================================================================
         str_lit.markdown("---")
-        str_lit.subheader(f"🔍 Auditoría Dinámica MySQL (Cero Parches) — {nombre_mes} {ano}")
+        str_lit.subheader(f"📊 ESTADO DE FLUJOS DE EFECTIVO — {nombre_mes} {ano}")
+        str_lit.markdown("*(Método Indirecto - Período Actual)*")
+
+        # Construcción de la tabla de auditoría con formato numérico formateado idéntico al Excel
         df_audit = pd.DataFrame({
-            "Concepto / Ramo Contable": [
-                "Utilidad Neta (Clases 4 a 8)",
-                "(+) Gasto de Depreciación",
-                "(-) Activos Operativos (Clase 1.1)",
-                "(+) Pasivos Operativos Corrientes (Clase 2.1)",
-                "Efectivo Neto por Operación",
-                "(-) Inversión (Clase 1.2)",
-                "(+) Financiamiento / Pasivo No Corriente & Patrimonio (2.2 / 3)",
-                "Efectivo Neto por Financiamiento"
+            "Concepto / Cuenta": [
+                "1. ACTIVIDADES DE OPERACIÓN",
+                "Utilidad (Ganancia) Neta del Ejercicio",
+                "(+) Depreciación de Propiedades, Planta y Equipo",
+                "(-) Variación en Activos Operativos (Capital de Trabajo)",
+                "(+) Variación en Pasivos Operativos Corrientes",
+                "Flujo Netto de Efectivo por Actividades de Operación",
+                "2. ACTIVIDADES DE INVERSIÓN",
+                "(-) Adquisición en Activos No Corrientes / Inversión",
+                "Flujo Neto de Efectivo por Actividades de Inversión",
+                "3. ACTIVIDADES DE FINANCIAMIENTO",
+                "(+) Financiamiento / Pasivo No Corriente & Patrimonio",
+                "Flujo Neto de Efectivo por Actividades de Financiamiento",
+                "4. RESUMEN Y CONCILIACIÓN",
+                "Incremento / Disminución Neta del Efectivo",
+                "(+) Efectivo y Equivalentes al Inicio del Ejercicio",
+                "(=) Efectivo y Equivalentes al Final del Ejercicio"
             ],
-            "Monto Extraído (Bs.)": [
-                utilidad_neta,
-                gasto_depreciacion,
-                variacion_activos_operativos,
-                variacion_pasivos_operativos,
-                flujo_operacion,
-                flujo_inversion,
-                flujo_financiamiento,
-                flujo_financiamiento
+            "Monto (Bs.)": [
+                "",
+                f"{utilidad_neta:,.2f}",
+                f"{gasto_depreciacion:,.2f}",
+                f"{variacion_activos_operativos:,.2f}",
+                f"{variacion_pasivos_operativos:,.2f}",
+                f"{flujo_operacion:,.2f}",
+                "",
+                f"{flujo_inversion:,.2f}",
+                f"{flujo_inversion:,.2f}",
+                "",
+                f"{flujo_financiamiento:,.2f}",
+                f"{flujo_financiamiento:,.2f}",
+                "",
+                f"{variacion_efectivo:,.2f}",
+                f"{saldo_inicial_bancos:,.2f}",
+                f"{saldo_final_calculado:,.2f}"
+            ],
+            "Tipo de Actividad": [
+                "Sección",
+                "Operación",
+                "Operación",
+                "Operación",
+                "Operación",
+                "Total Sección",
+                "Sección",
+                "Inversión",
+                "Total Sección",
+                "Sección",
+                "Financiación",
+                "Total Sección",
+                "Sección",
+                "Resumen",
+                "Resumen",
+                "Total Final"
             ]
         })
+
         str_lit.dataframe(df_audit, use_container_width=True)
-        str_lit.markdown(f"**Variación Neta del Efectivo:** Bs. {variacion_efectivo:,.2f} | **Saldo Final Banco:** Bs. {saldo_final_calculado:,.2f}")
         str_lit.markdown("---")
 
     except Exception as e:
