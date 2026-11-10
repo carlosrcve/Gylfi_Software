@@ -9713,7 +9713,7 @@ import pandas as pd
 import streamlit as str_lit
 from datetime import datetime
 
-def calcular_flujo_efectivo_indirecto_dinamico(conn, db_name, fecha_inicio, fecha_fin):
+def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
     Motor IFRS 100% Dinámico y Autónomo.
     Calcula el flujo indirecto mediante variaciones de balance y clases contables,
