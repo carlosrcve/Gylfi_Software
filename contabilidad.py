@@ -9781,7 +9781,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
             # --- A. Depreciación: Captura dinámica de cualquier cuenta de gasto de depreciación ---
             dep_df = df[
-                df['plan_cuentas'].str.startswith('6.1.1.03') | 
+                df['plan_cuentas'].str.startswith('6.1.1.04') | 
                 df['cuenta_lower'].str.contains('deprec')
             ]
             if not dep_df.empty:
