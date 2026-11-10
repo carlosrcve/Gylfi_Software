@@ -3202,11 +3202,10 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
 
 
 @st.cache_data(ttl=300)
-@st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
     """
     Genera el balance profesional inyectando saldos exclusivamente en cuentas hoja
-    y acumulando estrictamente por jerarquía de abajo hacia arriba.
+    y acumulando por jerarquía exacta de puntos de abajo hacia arriba.
     """
     if not db_name or db_name == 'none':
         st.error("No se ha especificado el nombre de la base de datos.")
@@ -3252,7 +3251,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
             if c not in df_saldos.columns: 
                 df_saldos[c] = 0.0
 
-        # --- DERIVACIÓN AUTOMÁTICA DEL PADRE POR ESTRUCTURA ---
+        # --- DERIVACIÓN EXACTA DEL PADRE POR PUNTOS ---
         df_plan['codigo_limpio'] = df_plan['codigo'].astype(str).str.strip()
         
         def calcular_padre(cod):
@@ -3262,54 +3261,50 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
             return None
 
         df_plan['padre_calculado'] = df_plan['codigo_limpio'].apply(calcular_padre)
-        
-        df_plan['llave_join'] = df_plan['codigo_limpio'].str.replace(r'[^0-9]', '', regex=True)
-        df_plan['llave_padre'] = df_plan['padre_calculado'].fillna('').str.replace(r'[^0-9]', '', regex=True)
-        df_saldos['llave_join'] = df_saldos['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+        df_saldos['codigo_limpio'] = df_saldos['codigo'].astype(str).str.strip()
 
-        # 3. Inicializar todas las cuentas con ceros absolutos
+        # 3. Inicializar el DataFrame maestro del plan con ceros absolutos
         df = df_plan.copy()
         df['Saldo Inicial'] = 0.0
         df['Debe'] = 0.0
         df['Haber'] = 0.0
         df['Saldo Final'] = 0.0
 
-        # Identificar qué llaves son padres (tienen cuentas hijas apuntando a ellas)
-        padres_set = set(df['llave_padre'].dropna().astype(str))
+        # Identificar qué códigos son padres (tienen cuentas hijas apuntando a ellos)
+        padres_set = set(df['padre_calculado'].dropna().astype(str))
 
         # 4. INYECTAR SALDOS ÚNICAMENTE EN LAS CUENTAS HOJA (QUE NO SON PADRES NI GRUPOS)
-        saldos_dict = df_saldos.set_index('llave_join')[['Saldo Inicial', 'Debe', 'Haber']].to_dict('index')
+        saldos_dict = df_saldos.set_index('codigo_limpio')[['Saldo Inicial', 'Debe', 'Haber']].to_dict('index')
         
         for idx, row_df in df.iterrows():
-            k = row_df['llave_join']
-            es_padre_node = k in padres_set
+            c_cod = row_df['codigo_limpio']
+            es_padre_node = c_cod in padres_set
             es_grupo_node = str(row_df['tipo']).lower() == 'grupo'
             
-            # Si es una cuenta de último nivel (hoja de movimiento)
+            # Si es cuenta hoja de movimiento
             if not es_padre_node and not es_grupo_node:
-                if k in saldos_dict:
-                    df.loc[idx, 'Saldo Inicial'] = float(saldos_dict[k].get('Saldo Inicial', 0.0))
-                    df.loc[idx, 'Debe'] = float(saldos_dict[k].get('Debe', 0.0))
-                    df.loc[idx, 'Haber'] = float(saldos_dict[k].get('Haber', 0.0))
+                if c_cod in saldos_dict:
+                    df.loc[idx, 'Saldo Inicial'] = float(saldos_dict[c_cod].get('Saldo Inicial', 0.0))
+                    df.loc[idx, 'Debe'] = float(saldos_dict[c_cod].get('Debe', 0.0))
+                    df.loc[idx, 'Haber'] = float(saldos_dict[c_cod].get('Haber', 0.0))
 
-        # 5. SUMATORIA JERÁRQUICA RIGUROSA DE ABAJO HACIA ARRIBA
+        # 5. SUMATORIA JERÁRQUICA RIGUROSA DE ABAJO HACIA ARRIBA (USANDO EL CÓDIGO PADRE REAL)
         niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
         
         for n in niveles_disponibles:
             filas_nivel = df[df['nivel'] == n]
             for _, fila in filas_nivel.iterrows():
-                p_cod = fila['llave_padre']
+                p_cod = fila['padre_calculado']
                 if pd.notna(p_cod) and p_cod != '' and p_cod != 'none' and p_cod != 'nan':
-                    mask_padre = df['llave_join'] == str(p_cod)
+                    mask_padre = df['codigo_limpio'] == str(p_cod)
                     if mask_padre.any():
                         df.loc[mask_padre, 'Saldo Inicial'] = df.loc[mask_padre, 'Saldo Inicial'].values + float(fila['Saldo Inicial'])
                         df.loc[mask_padre, 'Debe'] = df.loc[mask_padre, 'Debe'].values + float(fila['Debe'])
                         df.loc[mask_padre, 'Haber'] = df.loc[mask_padre, 'Haber'].values + float(fila['Haber'])
 
         # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL DE CADA CUENTA ---
-        df['codigo_str'] = df['codigo'].astype(str).str.strip()
-        df['Tipo_1'] = df['codigo_str'].str[0]
-        es_contra_activo = df['codigo_str'].str.startswith('1.2')
+        df['Tipo_1'] = df['codigo_limpio'].str[0]
+        es_contra_activo = df['codigo_limpio'].str.startswith('1.2')
         
         es_deudor = (df['Tipo_1'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
         es_acreedor = df['Tipo_1'].isin(['2', '3', '4', '7']) | es_contra_activo
@@ -3327,7 +3322,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         
         totales_n1 = {}
         for _, r_n1 in df_nivel_1.iterrows():
-            t_1 = str(r_n1['codigo']).strip()[0]
+            t_1 = str(r_n1['codigo_limpio']).strip()[0]
             totales_n1[t_1] = float(r_n1['Saldo Final'])
 
         val_activo = totales_n1.get('1', 0.0)
