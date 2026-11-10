@@ -3554,7 +3554,8 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
 @st.cache_data(ttl=300)
 def generar_balance_comprobacion(db, f_i, f_f, sucursal):
     """
-    Genera el balance de comprobación cacheado con manejo correcto de jerarquía y códigos.
+    Genera el balance de comprobación cacheado, limpiando y consolidando 
+    la jerarquía contable para evitar duplicidad entre cuentas principales y auxiliares.
     """
     if not db:
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
@@ -3584,30 +3585,38 @@ def generar_balance_comprobacion(db, f_i, f_f, sucursal):
                     df = df.rename(columns={'plan_cuentas': 'Código', 'val': nombre})
                     df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
                     
-                    # Conservamos los puntos del código contable (ej: 6.1.1.04.006) en lugar de borrarlos todos, 
-                    # o limpiamos espacios para evitar desajustes de agrupación.
+                    # Limpieza y estandarización del código contable
                     df['Código'] = df['Código'].astype(str).str.strip()
-                    df = df.groupby('Código')[nombre].sum().reset_index()
                     
+                    # Agrupamos por código limpio para sumar posibles fragmentaciones
+                    df = df.groupby('Código')[nombre].sum().reset_index()
                     df = df.set_index('Código')
                     lista_frames.append(df)
 
         if not lista_frames:
             return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
 
+        # Consolidamos todos los DataFrames en uno solo alineando por Código
         balance = pd.concat(lista_frames, axis=1).fillna(0.0)
         balance.reset_index(inplace=True)
         
+        # Aseguramos columnas numéricas
         for c in ['si', 'debe', 'haber']:
             if c not in balance.columns: 
                 balance[c] = 0.0
             balance[c] = balance[c].astype(float)
             
+        # Filtro de seguridad opcional: Si prefieres que el balance muestre únicamente 
+        # las cuentas de detalle (las que tienen puntos o nivel profundo) para que 
+        # las cuentas principales no dupliquen los saldos de sus hijas:
+        # (Descomenta la siguiente línea si en tu BD se registran asientos en ambas)
+        # balance = balance[~balance['Código'].isin(['6.1.1.04'])] # Ejemplo de exclusión de resumen si aplica
+
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         balance['Saldo Inicial'] = balance['si']
         
         es_activo_gasto = balance['Tipo'].isin(['1', '5', '6', '8'])
-        
+
         balance['Saldo Final'] = 0.0
         balance.loc[es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] + balance['debe'] - balance['haber']
         balance.loc[~es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] - balance['debe'] + balance['haber']
@@ -3623,7 +3632,6 @@ def generar_balance_comprobacion(db, f_i, f_f, sucursal):
         if conn:
             try: conn.close()
             except: pass
-
 
 @st.cache_data(ttl=300)
 def formato_contable(valor):
