@@ -3200,12 +3200,11 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
         df[cols_num] = df[cols_num].fillna(0.0).astype(float)
 
         # 4. Limpiar saldos en cuentas de tipo "Grupo" O CUENTAS QUE SEAN PADRES
-        # Identificamos qué códigos actúan como padres en el plan para evitar duplicidad
         padres_set = set(df['llave_padre'].dropna().astype(str))
         is_padre = df['llave_join'].isin(padres_set)
         is_grupo = df['tipo'].astype(str).str.lower() == 'grupo'
 
-        # Blanqueamos los grupos y los padres para que sus saldos nazcan en 0 y acumulen limpio de abajo hacia arriba
+        # Blanqueamos los grupos y los padres para que sus saldos nazcan en 0 y acumulen limpio
         df.loc[is_grupo | is_padre, cols_num] = 0.0
 
         # 5. SUMATORIA JERÁRQUICA OPTIMIZADA
@@ -3249,14 +3248,7 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
     except Exception as e:
         st.error(f"❌ Error crítico en balance profesional: {e}")
         return pd.DataFrame()
-    finally:
-        if conn:
-            try: conn.close()
-            except: pass
-
-    except Exception as e:
-        st.error(f"Error en balance de comprobación: {e}")
-        return pd.DataFrame()
+        
     finally:
         if cursor:
             try:
