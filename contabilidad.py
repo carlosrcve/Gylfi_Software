@@ -9715,8 +9715,8 @@ from datetime import datetime
 
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Motor IFRS 100% Dinámico y Autónomo.
-    Calcula el flujo indirecto mediante variaciones de balance y clases contables,
+    Motor IFRS 100% Dinámico, Autónomo y Cero Parches Manuales.
+    Calcula el flujo indirecto mediante variaciones puras de balance y clases contables,
     adaptándose automáticamente a cualquier cuenta nueva creada en períodos futuros.
     """
     utilidad_neta = 0.0
@@ -9796,7 +9796,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                 movimiento_activos = float((act_op_df['debe'] - act_op_df['haber']).sum())
                 variacion_activos_operativos = -movimiento_activos
 
-            # --- C. Pasivos Operativos (Clase 2.1 de corto plazo) ---
+            # --- C. Pasivos Operativos Corrientes (Clase 2.1 de corto plazo) ---
             pas_op_df = df[
                 df['plan_cuentas'].str.startswith('2.1')
             ]
@@ -9804,19 +9804,20 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                 movimiento_pasivos = float((pas_op_df['haber'] - pas_op_df['debe']).sum())
                 variacion_pasivos_operativos = movimiento_pasivos
 
-            # --- D. Actividades de Inversión y Financiamiento ---
+            # --- D. Actividades de Inversión (Clase 1.2 activos no corrientes) ---
             inv_df = df[df['plan_cuentas'].str.startswith('1.2') & ~df['plan_cuentas'].str.startswith('1.2.1.02')]
             flujo_inversion = -abs(float((inv_df['debe'] - inv_df['haber']).sum()))
 
-            # CORRECCIÓN: Uso de operador '|' en lugar de 'or' para evitar error de Serie en Pandas
+            # --- E. Actividades de Financiamiento (Pasivos No Corrientes 2.2 y Patrimonio 3) ---
             fin_df = df[
                 df['plan_cuentas'].str.startswith('2.2') | 
                 df['plan_cuentas'].str.startswith('3')
             ]
-            flujo_financiamiento = float((fin_df['haber'] - fin_df['debe']).sum())
+            if not fin_df.empty:
+                flujo_financiamiento = float((fin_df['haber'] - fin_df['debe']).sum())
 
         # =========================================================================
-        # CONSOLIDACIÓN DEL FLUJO INDIRECTO
+        # CONSOLIDACIÓN DEL FLUJO INDIRECTO (PURO Y AUTOMÁTICO)
         # =========================================================================
         flujo_operacion = (
             utilidad_neta + 
@@ -9825,28 +9826,24 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             variacion_pasivos_operativos
         )
 
-        # Ajuste específico de conciliación histórica si aplica al mes evaluado (Julio)
-        ajuste_no_identificado = -691035.44 if mes_num == 7 else 0.0
-
-        variacion_efectivo = flujo_operacion + flujo_inversion + flujo_financiamiento + ajuste_no_identificado
+        variacion_efectivo = flujo_operacion + flujo_inversion + flujo_financiamiento
         saldo_final_calculado = saldo_inicial_bancos + variacion_efectivo
 
         # =========================================================================
         # AUDITORÍA EN PANTALLA (ST.DATAFRAME)
         # =========================================================================
         str_lit.markdown("---")
-        str_lit.subheader(f"🔍 Auditoría Dinámica MySQL — {nombre_mes} {ano}")
+        str_lit.subheader(f"🔍 Auditoría Dinámica MySQL (Cero Parches) — {nombre_mes} {ano}")
         df_audit = pd.DataFrame({
             "Concepto / Ramo Contable": [
                 "Utilidad Neta (Clases 4 a 8)",
                 "(+) Gasto de Depreciación",
                 "(-) Activos Operativos (Clase 1.1)",
-                "(+) Pasivos Operativos (Clase 2.1)",
+                "(+) Pasivos Operativos Corrientes (Clase 2.1)",
                 "Efectivo Neto por Operación",
                 "(-) Inversión (Clase 1.2)",
-                "(+) Financiamiento / Patrimonio (2.2 / 3)",
-                "Efectivo Neto por Financiamiento",
-                "Ajuste de Conciliación (si aplica)"
+                "(+) Financiamiento / Pasivo No Corriente & Patrimonio (2.2 / 3)",
+                "Efectivo Neto por Financiamiento"
             ],
             "Monto Extraído (Bs.)": [
                 utilidad_neta,
@@ -9856,8 +9853,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                 flujo_operacion,
                 flujo_inversion,
                 flujo_financiamiento,
-                flujo_financiamiento,
-                ajuste_no_identificado
+                flujo_financiamiento
             ]
         })
         str_lit.dataframe(df_audit, use_container_width=True)
@@ -9891,7 +9887,6 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         'fecha_inicio': fecha_inicio,
         'fecha_fin': fecha_fin
     }
-
 
 import io
 import uuid
