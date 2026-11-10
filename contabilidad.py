@@ -8241,17 +8241,93 @@ def extraer_datos_factura_ocr(imagen_pil):
     return datos_extraidos
 
 
+import re
+from io import BytesIO
+from PIL import Image
+from datetime import datetime
+import streamlit as st
+import qrcode
+
+# Motor OCR (Requiere pytesseract instalado en el servidor)
+try:
+    import pytesseract
+    OCR_DISPONIBLE = True
+except ImportError:
+    OCR_DISPONIBLE = False
+
+def extraer_datos_factura_inteligente(imagen_pil):
+    """
+    Extrae los datos fiscales DIRECTAMENTE de la imagen mediante OCR y expresiones regulares.
+    Cero datos manuales o quemados.
+    """
+    datos = {
+        "factura": "",
+        "control": "",
+        "rif": "",
+        "nombre": "",
+        "domicilio": "",
+        "fecha": "",
+        "base": 0.0,
+        "iva": 0.0,
+        "total": 0.0
+    }
+    
+    texto_ocr = ""
+    if OCR_DISPONIBLE:
+        try:
+            # Extracción óptica de caracteres en español
+            texto_ocr = pytesseract.image_to_string(imagen_pil, lang='spa')
+        except Exception as e:
+            st.warning(f"Aviso del motor OCR: {e}")
+    else:
+        st.error("⚠️ La librería 'pytesseract' no está instalada en el entorno. No se puede realizar el escaneo automático.")
+
+    if texto_ocr.strip():
+        # 1. Extracción de RIF (Ej: J-30746972-0, V-16412018-6)
+        match_rif = re.search(r'([JGVEP]-\d{8}-\d)', texto_ocr, re.IGNORECASE)
+        if match_rif:
+            datos["rif"] = match_rif.group(1).upper()
+
+        # 2. Extracción de Número de Factura
+        match_fac = re.search(r'(?:factura|n[°º])\D*(\d{4,10})', texto_ocr, re.IGNORECASE)
+        if match_fac:
+            datos["factura"] = match_fac.group(1)
+
+        # 3. Extracción de Número de Control
+        match_ctrl = re.search(r'control\D*([\d\-]{5,})', texto_ocr, re.IGNORECASE)
+        if match_ctrl:
+            datos["control"] = match_ctrl.group(1).strip()
+
+        # 4. Extracción de Fecha (Formato DD/MM/AAAA)
+        match_fecha = re.search(r'(\d{2}/\d{2}/\d{4})', texto_ocr)
+        if match_fecha:
+            datos["fecha"] = match_fecha.group(1)
+
+        # 5. Extracción de Montos numéricos mediante búsqueda de patrones monetarios
+        # Busca números con decimales típicos (ej: 204.955,31 o 596,070.85)
+        patrones_montos = re.findall(r'\b\d{1,3}(?:\.\d{3})*,\d{2}\b', texto_ocr)
+        if len(patrones_montos) >= 1:
+            try:
+                # El último o penúltimo monto suele corresponder al total o subtotal
+                monto_limpio = patrones_montos[-1].replace('.', '').replace(',', '.')
+                datos["base"] = float(monto_limpio)
+                datos["iva"] = round(datos["base"] * 0.16, 2)
+            except:
+                pass
+
+    return datos, texto_ocr
+
+
 def modulo_escaneo_facturas_manuales(conn, db_actual):
-    st.subheader("📸 Registro Automático de Facturas (Motor OCR Inteligente)")
-    st.markdown("Sube la foto del talonario. El sistema **extraerá los datos automáticamente** sin intervención manual.")
+    st.subheader("📸 Escáner OCR de Facturas (Extracción 100% Automática)")
+    st.markdown("Sube la foto del talonario diario. El sistema leerá el documento y llenará los campos de forma autónoma.")
 
     archivo_subido = st.file_uploader(
-        "Seleccionar o arrastrar imagen de factura manual",
+        "Seleccionar o arrastrar imagen de factura",
         type=["png", "jpg", "jpeg"],
-        help="Sube una foto clara del talonario."
+        help="Sube una foto clara de la factura."
     )
 
-    # Inicializar estados de sesión para evitar sobreescritura manual
     if "ocr_procesado" not in st.session_state:
         st.session_state.ocr_procesado = False
     if "datos_ocr" not in st.session_state:
@@ -8260,24 +8336,27 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
     if archivo_subido is not None:
         img = Image.open(archivo_subido)
 
-        # Si se sube una nueva imagen y no se ha procesado con OCR
         if not st.session_state.ocr_procesado:
-            with st.spinner("🤖 Analizando factura mediante OCR y Visión Artificial..."):
-                st.session_state.datos_ocr = extraer_datos_factura_ocr(img)
+            with st.spinner("🤖 Leyendo imagen con motor OCR..."):
+                datos_extraidos, texto_bruto = extraer_datos_factura_inteligente(img)
+                st.session_state.datos_ocr = datos_extraidos
                 st.session_state.ocr_procesado = True
+                st.session_state.texto_bruto_ocr = texto_bruto
 
         col_izq, col_der = st.columns([1, 1.2])
 
         with col_izq:
-            st.image(img, caption="Factura Original Escaneada", use_container_width=True)
-            if st.button("🔄 Volver a escanear / Limpiar"):
+            st.image(img, caption="Factura Original", use_container_width=True)
+            if st.button("🔄 Escanear otra factura"):
                 st.session_state.ocr_procesado = False
                 st.rerun()
+            
+            # Opcional: Mostrar texto crudo leído por si quieres verificar qué leyó el OCR
+            with st.expander("🔍 Ver texto crudo detectado por OCR"):
+                st.text(st.session_state.get("texto_bruto_ocr", "Sin texto"))
 
         with col_der:
-            st.markdown("### 📝 Datos Extraídos por el Sistema")
-            st.info("💡 **Cero manual:** Los campos se autocompletaron con el reconocimiento óptico. Solo valida y guarda.")
-            
+            st.markdown("### 📝 Datos Extraídos por el OCR")
             d = st.session_state.datos_ocr
 
             if "qr_generado_bytes" not in st.session_state:
@@ -8307,17 +8386,17 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                 )
 
                 try:
-                    val_b = float(base_imp_str.replace(',', '.')) if base_imp_str else 0.00
+                    val_b = float(str(base_imp_str).replace(',', '.')) if base_imp_str else 0.00
                 except:
                     val_b = 0.00
                     
                 try:
-                    val_i = float(monto_iva_str.replace(',', '.')) if monto_iva_str else round(val_b * 0.16, 2)
+                    val_i = float(str(monto_iva_str).replace(',', '.')) if monto_iva_str else round(val_b * 0.16, 2)
                 except:
                     val_i = round(val_b * 0.16, 2)
 
                 try:
-                    val_e = float(monto_ex_str.replace(',', '.')) if monto_ex_str else 0.00
+                    val_e = float(str(monto_ex_str).replace(',', '.')) if monto_ex_str else 0.00
                 except:
                     val_e = 0.00
 
@@ -8328,9 +8407,9 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
 
                 if submitted:
                     if not nro_factura or not nombre_prov or not rif_prov or not fecha_str:
-                        st.error("⚠️ Faltan campos obligatorios por extraer o validar.")
+                        st.error("⚠️ Faltan campos obligatorios por extraer.")
                     elif not conn:
-                        st.error("⚠️ Sin conexión a la base de datos.")
+                        st.error("⚠️ Sin conexión a la base de datos MySQL.")
                     else:
                         try:
                             fecha_fac_final = datetime.strptime(fecha_str.strip(), '%d/%m/%Y').date()
@@ -8347,7 +8426,7 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                                 ))
                                 conn.commit()
 
-                            st.success("¡Factura escaneada y registrada en MySQL con éxito!")
+                            st.success("¡Factura procesada por OCR y registrada en MySQL con éxito!")
 
                             if "QR" in modo_emision:
                                 info_qr = (
@@ -8378,9 +8457,8 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                                 }
 
                         except Exception as e:
-                            st.error(f"❌ Error al procesar: {e}")
+                            st.error(f"❌ Error al registrar en MySQL: {e}")
 
-            # Salidas fuera del formulario
             if st.session_state.get("modo_resultado") == "QR" and st.session_state.get("qr_generado_bytes"):
                 st.markdown("---")
                 st.markdown("### 📱 Código QR de Auditoría Interna")
