@@ -3307,40 +3307,50 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                         df.loc[mask_padre, 'Haber'] = df.loc[mask_padre, 'Haber'].values + float(fila['Haber'])
 
         # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL DE CADA CUENTA ---
+        # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL DE CADA CUENTA ---
         df['Tipo_1'] = df['codigo'].astype(str).str[0]
+        
+        # 1. Definimos con precisión quirúrgica qué cuentas son deudoras y cuáles acreedoras
         es_contra_activo = df['codigo'].astype(str).str.startswith('1.2')
+        
+        # Deudoras: Activos (1, excepto contra-activos), Costos (5), Gastos (6), Otros Egresos (8)
         es_deudor = (df['Tipo_1'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
+        
+        # Acreedoras: Pasivos (2), Patrimonio (3), Ingresos (4, 7) y Contra-Activos (1.2)
+        es_acreedor = df['Tipo_1'].isin(['2', '3', '4', '7']) | es_contra_activo
 
         df['Saldo Final'] = 0.0
+        
+        # Las deudoras aumentan por el Debe y disminuyen por el Haber
         df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
-        df.loc[~es_deudor, 'Saldo Final'] = df['Saldo Inicial'] - df['Debe'] + df['Haber']
+        
+        # Las acreedoras (Aquí entran 2, 3, 4, 7 y 1.2) aumentan por el Haber y disminuyen por el Debe
+        df.loc[es_acreedor, 'Saldo Final'] = df['Saldo Inicial'] - df['Debe'] + df['Haber']
 
-        # 6. Fila Total Global (Replicando exactamente la fórmula del Excel: Activo - Pasivo - Patrimonio - Ingresos - Costos - Gastos - Otros Ingresos - Otros Egresos)
+        # 6. Fila Total Global (Replicando exactamente la fórmula del Excel)
         df_nivel_1 = df[df['nivel'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
         total_haber = float(df_nivel_1['Haber'].sum())
         total_saldo_inicial_neto = float(df_nivel_1['Saldo Inicial'].sum())
         
-        # Diccionario para capturar el saldo final por tipo de cuenta (Nivel 1)
+        # Diccionario para capturar el saldo final por cada tipo de cuenta (Nivel 1: del 1 al 8)
         totales_n1 = {}
         for _, r_n1 in df_nivel_1.iterrows():
             t_1 = str(r_n1['codigo']).strip()[0]
             totales_n1[t_1] = float(r_n1['Saldo Final'])
 
-        # Extracción exacta siguiendo el orden de la estructura visualizada en tu Excel:
-        # Activo (1), Pasivo (2), Patrimonio (3), Ingresos (4), Costos (5), Gastos (6), Otros Ingresos (7), Otros Egresos (8)
+        # Extracción de cada grupo exacto tal cual como los tienes en tu Excel
         val_activo = totales_n1.get('1', 0.0)
-        val_pasivo = totales_n1.get('2', 0.0)
-        val_patrimonio = totales_n1.get('3', 0.0)
-        val_ingresos = totales_n1.get('4', 0.0)
+        val_pasivo = totales_n1.get('2', 0.0)      # <-- Aquí se suma el tipo 2 (Pasivo)
+        val_patrimonio = totales_n1.get('3', 0.0)  # <-- Aquí se suma el tipo 3 (Patrimonio)
+        val_ingresos = totales_n1.get('4', 0.0)    # <-- Aquí se suma el tipo 4 (Ingresos)
         val_costos = totales_n1.get('5', 0.0)
         val_gastos = totales_n1.get('6', 0.0)
-        val_otros_ing = totales_n1.get('7', 0.0)
+        val_otros_ing = totales_n1.get('7', 0.0)   # <-- Aquí se suma el tipo 7 (Otros Ingresos)
         val_egresos = totales_n1.get('8', 0.0)
 
-        # Aplicación estricta de la fórmula vista en tu imagen de Excel:
-        # Activo - Pasivo - Patrimonio - (Ingresos - Costos - Gastos - Otros Ingresos - Otros Egresos) o equivalente exacto
+        # Aplicación estricta de la fórmula de tu Excel:
         neto_excel = val_activo - val_pasivo - val_patrimonio - (((val_ingresos - val_costos - val_gastos) - val_otros_ing) - val_egresos)
 
         fila_total = pd.DataFrame([{
@@ -3352,7 +3362,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
             'Saldo Inicial': round(total_saldo_inicial_neto, 2),
             'Debe': total_debe,
             'Haber': total_haber,
-            'Saldo Final': round(neto_excel, 2)  # Refleja exactamente el cálculo del Excel
+            'Saldo Final': round(neto_excel, 2)
         }])
         
         cols_salida = ['codigo', 'nombre', 'nivel', 'tipo', 'padre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
