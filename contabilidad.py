@@ -8317,17 +8317,43 @@ def extraer_datos_factura_inteligente(imagen_pil):
 
     return datos, texto_ocr
 
-
 import re
 from io import BytesIO
 from PIL import Image
 from datetime import datetime
 import streamlit as st
 import qrcode
+import cv2
+import numpy as np
+
+def limpiar_imagen_factura(imagen_pil):
+    """
+    Aplica pre-procesamiento OpenCV a la foto del talonario:
+    Convierte a escala de grises y aplica umbralización para resaltar
+    el texto a bolígrafo y eliminar sombras del papel.
+    """
+    img_cv = np.array(imagen_pil)
+    
+    # Si es color, pasar a grises
+    if len(img_cv.shape) == 3:
+        gray = cv2.cvtColor(img_cv, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = img_cv
+
+    # Aplicar filtro bilateral para suavizar ruido manteniendo bordes
+    denoised = cv2.bilateralFilter(gray, 9, 75, 75)
+    
+    # Umbralización adaptativa para destacar la tinta sobre el fondo arrugado
+    thresh = cv2.adaptiveThreshold(
+        denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+        cv2.THRESH_BINARY, 11, 2
+    )
+    
+    return thresh
 
 def modulo_escaneo_facturas_manuales(conn, db_actual):
     st.subheader("📸 Registro Rápido de Facturas (Flujo Productivo Cero Costos)")
-    st.markdown("Sube la foto del talonario. Selecciona tu proveedor frecuente y completa los montos en segundos.")
+    st.markdown("Sube la foto del talonario. El sistema optimizará la imagen para lectura visual y podrás registrar en segundos.")
 
     archivo_subido = st.file_uploader(
         "Seleccionar o arrastrar imagen de factura",
@@ -8352,7 +8378,12 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
     with col_izq:
         if archivo_subido is not None:
             img = Image.open(archivo_subido)
-            st.image(img, caption="Factura Física de Referencia", use_container_width=True)
+            st.image(img, caption="Factura Física Original", use_container_width=True)
+            
+            # Aplicar y mostrar pre-procesamiento OpenCV para destacar el bolígrafo
+            with st.expander("🛠️ Vista Optimizada (Filtro OpenCV para Tinta)"):
+                img_procesada = limpiar_imagen_factura(img)
+                st.image(img_procesada, caption="Imagen procesada (Realce de trazo)", use_container_width=True)
         else:
             st.info("💡 Sube una foto del talonario para visualizarla mientras registras.")
 
@@ -8477,7 +8508,6 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                 file_name=f"QR_{st.session_state.nro_factura_cache}.png",
                 mime="image/png"
             )
-
 
 import io
 from datetime import date
