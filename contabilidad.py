@@ -3619,10 +3619,19 @@ def generar_balance_comprobacion(db, f_i, f_f, sucursal):
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         balance['Saldo Inicial'] = balance['si']
         
-        es_activo_gasto = balance['Tipo'].isin(['1', '5', '6', '8'])
+        # Identificamos las cuentas de contra-activo (ej. Depreciación Acumulada que empiezan por 1.2)
+        # Tienen naturaleza acreedora a pesar de estar dentro del rubro 1.
+        es_contra_activo = balance['Código'].astype(str).str.startswith('1.2')
+        
+        # Activos reales y Gastos/Costos (Naturaleza Deudora)
+        es_activo_gasto = balance['Tipo'].isin(['1', '5', '6', '8']) & (~es_contra_activo)
 
         balance['Saldo Final'] = 0.0
+        
+        # 1. Para Activos reales, Costos y Gastos: Deudor (Suma Debe, Resta Haber)
         balance.loc[es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] + balance['debe'] - balance['haber']
+        
+        # 2. Para Contra-activos, Pasivos, Capital e Ingresos: Acreedor (Resta Debe, Suma Haber)
         balance.loc[~es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] - balance['debe'] + balance['haber']
         
         return balance[['Código', 'Saldo Inicial', 'debe', 'haber', 'Saldo Final']].rename(columns={
