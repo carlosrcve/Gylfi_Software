@@ -3311,10 +3311,10 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         es_contra_activo = df['codigo'].astype(str).str.startswith('1.2')
         
         # Deudoras: Activos (1, excepto contra-activos), Costos (5), Gastos (6), Otros Egresos (8)
-        es_deudor = (df['Tipo_1'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
+        es_deudor = (df['Tipo_1'].isin(['1'])) & (~es_contra_activo)
         
         # Acreedoras: Pasivos (2), Patrimonio (3), Ingresos (4, 7) y Contra-Activos (1.2)
-        es_acreedor = df['Tipo_1'].isin(['2', '3', '4', '7']) | es_contra_activo
+        es_acreedor = df['Tipo_1'].isin(['2']) | es_contra_activo
 
         df['Saldo Final'] = 0.0
         
