@@ -8322,18 +8322,31 @@ from io import BytesIO
 from PIL import Image
 from datetime import datetime
 import streamlit as st
+import re
+from io import BytesIO
+from PIL import Image
+from datetime import datetime
+import streamlit as st
 import qrcode
 import cv2
 import numpy as np
 
+# Intentamos importar easyocr (motor de IA local para texto y manuscritos)
+try:
+    import easyocr
+    # Inicializamos el lector en español e inglés (se ejecuta una sola vez en caché)
+    @st.cache_resource
+    def cargar_lector_ocr():
+        return easyocr.Reader(['es'], gpu=False)
+    
+    reader = cargar_lector_ocr()
+    EASYOCR_DISPONIBLE = True
+except ImportError:
+    EASYOCR_DISPONIBLE = False
 
-import cv2
-import numpy as np
-
-def limpiar_imagen_factura(imagen_pil):
+def limpiar_y_extraer_factura(imagen_pil):
     """
-    Aplica pre-procesamiento OpenCV optimizado: limpia el fondo,
-    suaviza el ruido periférico y resalta la tinta del bolígrafo.
+    Limpia la imagen con OpenCV y extrae el texto usando EasyOCR (soporta bolígrafo/manuscrito).
     """
     img_cv = np.array(imagen_pil)
     
@@ -8343,92 +8356,115 @@ def limpiar_imagen_factura(imagen_pil):
     else:
         gray = img_cv
 
-    # Reducir el ruido de fondo y sombras de los bordes de la cámara
+    # Reducir ruido
     denoised = cv2.fastNlMeansDenoising(gray, h=10, templateWindowSize=7, searchWindowSize=21)
     
-    # Umbralización adaptativa con parámetros calibrados para papel arrugado y bolígrafo
+    # Umbralización para resaltar tinta
     thresh = cv2.adaptiveThreshold(
         denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
         cv2.THRESH_BINARY, 21, 15
     )
+
+    texto_detectado = ""
+    datos = {
+        "factura": "",
+        "control": "",
+        "rif": "",
+        "nombre": "",
+        "base": 0.0,
+        "iva": 0.0,
+        "total": 0.0
+    }
+
+    if EASYOCR_DISPONIBLE:
+        # EasyOCR lee la imagen procesada y devuelve una lista de tuplas: (coordenadas, texto, confianza)
+        resultados = reader.readtext(thresh)
+        textos_encontrados = [res[1] for res in resultados]
+        texto_detectado = " ".join(textos_encontrados)
+
+        # 1. Buscar Número de Factura
+        match_fac = re.search(r'(?:00\d{4}|\b\d{6}\b)', texto_detectado)
+        if match_fac:
+            datos["factura"] = match_fac.group(0)
+
+        # 2. Buscar RIF (Ej: J-30746972-0)
+        match_rif = re.search(r'([JGVEP]-\d{8}-\d)', texto_detectado, re.IGNORECASE)
+        if match_rif:
+            datos["rif"] = match_rif.group(1).upper()
+
+        # 3. Buscar Montos (Patrones con comas y puntos decimales)
+        patrones_montos = re.findall(r'\b\d{1,3}(?:\.\d{3})*,\d{2}\b', texto_detectado)
+        if len(patrones_montos) >= 1:
+            try:
+                monto_limpio = patrones_montos[-1].replace('.', '').replace(',', '.')
+                datos["base"] = float(monto_limpio)
+                datos["iva"] = round(datos["base"] * 0.16, 2)
+            except:
+                pass
     
-    return thresh
+    return datos, thresh
+
 
 def modulo_escaneo_facturas_manuales(conn, db_actual):
-    st.subheader("📸 Registro Rápido de Facturas (Flujo Productivo Cero Costos)")
-    st.markdown("Sube la foto del talonario. El sistema optimizará la imagen para lectura visual y podrás registrar en segundos.")
+    st.subheader("📸 Escáner Inteligente de Facturas a Bolígrafo (EasyOCR + OpenCV)")
+    st.markdown("Sube la foto del talonario. El sistema leerá la escritura a mano y llenará los campos automáticamente.")
 
     archivo_subido = st.file_uploader(
         "Seleccionar o arrastrar imagen de factura",
         type=["png", "jpg", "jpeg"],
-        help="Sube la foto de la factura física para tu auditoría visual."
+        help="Sube la foto de la factura física."
     )
 
-    # 1. Consultar proveedores ya guardados en MySQL
-    proveedores_db = []
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT DISTINCT rif_proveedor, nombre_proveedor, domicilio_fiscal FROM facturas_escaneadas")
-            proveedores_db = cursor.fetchall()
-    except:
-        pass
-
-    # Diccionario rápido de proveedores guardados
-    dict_provs = {p[1]: {"rif": p[0], "domicilio": p[2]} for p in proveedores_db} if proveedores_db else {}
+    if "ocr_procesado" not in st.session_state:
+        st.session_state.ocr_procesado = False
+    if "datos_ocr" not in st.session_state:
+        st.session_state.datos_ocr = {}
 
     col_izq, col_der = st.columns([1, 1.2])
 
-    with col_izq:
-        if archivo_subido is not None:
-            img = Image.open(archivo_subido)
-            st.image(img, caption="Factura Física Original", use_container_width=True)
+    if archivo_subido is not None:
+        img = Image.open(archivo_subido)
+
+        if not st.session_state.ocr_procesado:
+            with st.spinner("🤖 Leyendo escritura a bolígrafo con EasyOCR..."):
+                datos_extraidos, img_procesada = limpiar_y_extraer_factura(img)
+                st.session_state.datos_ocr = datos_extraidos
+                st.session_state.img_proc = img_procesada
+                st.session_state.ocr_procesado = True
+
+        with col_izq:
+            st.image(img, caption="Factura Original", use_container_width=True)
+            if "img_proc" in st.session_state:
+                with st.expander("🛠️ Vista Optimizada OpenCV"):
+                    st.image(st.session_state.img_proc, caption="Procesada para lectura", use_container_width=True)
             
-            # Aplicar y mostrar pre-procesamiento OpenCV para destacar el bolígrafo
-            with st.expander("🛠️ Vista Optimizada (Filtro OpenCV para Tinta)"):
-                img_procesada = limpiar_imagen_factura(img)
-                st.image(img_procesada, caption="Imagen procesada (Realce de trazo)", use_container_width=True)
-        else:
-            st.info("💡 Sube una foto del talonario para visualizarla mientras registras.")
+            if st.button("🔄 Escanear otra factura"):
+                st.session_state.ocr_procesado = False
+                st.rerun()
 
     with col_der:
-        st.markdown("### 📝 Datos Fiscales y Control Interno")
-        
+        st.markdown("### 📝 Campos Autocompletados por IA")
+        d = st.session_state.get("datos_ocr", {})
+
         if "qr_generado_bytes" not in st.session_state:
             st.session_state.qr_generado_bytes = None
 
-        # Usamos st.form para agrupar el registro limpio
-        with st.form("form_factura_manual_produccion"):
+        with st.form("form_factura_manual_ia"):
+            rif_prov = st.text_input("RIF del Proveedor", value=d.get("rif", ""))
+            nombre_prov = st.text_input("Nombre del Proveedor", value=d.get("nombre", ""))
             
-            # Selector de Proveedor Frecuente
-            lista_nombres = ["➕ Registrar Nuevo Proveedor..."] + list(dict_provs.keys())
-            sel_proveedor = st.selectbox("Seleccionar Proveedor Frecuente", lista_nombres)
-
-            # Asignación dinámica según la selección del usuario
-            if sel_proveedor != "➕ Registrar Nuevo Proveedor...":
-                rif_def = dict_provs[sel_proveedor]["rif"]
-                nombre_def = sel_proveedor
-                dom_def = dict_provs[sel_proveedor]["domicilio"]
-            else:
-                rif_def = ""
-                nombre_def = ""
-                dom_def = ""
-
-            rif_prov = st.text_input("RIF del Proveedor", value=rif_def)
-            nombre_prov = st.text_input("Nombre del Proveedor", value=nombre_def)
-            
-            # Campos directos para los datos escritos a mano o impresos
-            nro_factura = st.text_input("Número de Factura", placeholder="Ej: 001178")
-            nro_control = st.text_input("Número de Control", placeholder="Ej: 00-001178")
+            nro_factura = st.text_input("Número de Factura", value=d.get("factura", ""))
+            nro_control = st.text_input("Número de Control", value=d.get("control", ""))
             
             fecha_str = st.text_input("Fecha de la Factura (DD/MM/AAAA)", value=datetime.now().strftime('%d/%m/%Y'))
             
             col_b, col_i = st.columns(2)
             with col_b:
-                base_imp_str = st.text_input("Base Imponible Bs.", value="0.00")
+                base_imp_str = st.text_input("Base Imponible Bs.", value=str(d.get("base", "0.00")))
             with col_i:
-                monto_iva_str = st.text_input("IVA (16%) Bs.", value="0.00")
+                monto_iva_str = st.text_input("IVA (16%) Bs.", value=str(d.get("iva", "0.00")))
 
-            domicilio = st.text_area("Dirección Fiscal", value=dom_def)
+            domicilio = st.text_area("Dirección Fiscal", value="")
 
             modo_emision = st.radio(
                 "Comprobante posterior:",
@@ -8439,12 +8475,12 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
             )
 
             try:
-                val_b = float(base_imp_str.replace(',', '.')) if base_imp_str else 0.00
+                val_b = float(str(base_imp_str).replace(',', '.')) if base_imp_str else 0.00
             except:
                 val_b = 0.00
                 
             try:
-                val_i = float(monto_iva_str.replace(',', '.')) if monto_iva_str else round(val_b * 0.16, 2)
+                val_i = float(str(monto_iva_str).replace(',', '.')) if monto_iva_str else round(val_b * 0.16, 2)
             except:
                 val_i = round(val_b * 0.16, 2)
 
@@ -8454,8 +8490,8 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
             submitted = st.form_submit_button("💾 Guardar y Registrar en MySQL", type="primary")
 
             if submitted:
-                if not nro_factura or not nombre_prov or not rif_prov:
-                    st.error("⚠️ Complete los campos obligatorios principales.")
+                if not nro_factura or not rif_prov:
+                    st.error("⚠️ Faltan campos obligatorios.")
                 elif not conn:
                     st.error("⚠️ Sin conexión a la base de datos.")
                 else:
@@ -8474,7 +8510,7 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                             ))
                             conn.commit()
 
-                        st.success("¡Factura registrada exitosamente en MySQL!")
+                        st.success("¡Factura leída y registrada en MySQL con éxito!")
 
                         if "QR" in modo_emision:
                             info_qr = (
@@ -8500,7 +8536,6 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                     except Exception as e:
                         st.error(f"❌ Error al guardar en MySQL: {e}")
 
-        # Salidas fuera del formulario para códigos QR
         if st.session_state.get("modo_resultado") == "QR" and st.session_state.get("qr_generado_bytes"):
             st.markdown("---")
             st.markdown("### 📱 Código QR de Control Interno")
