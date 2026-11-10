@@ -3103,23 +3103,19 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
 
 @st.cache_data(ttl=300)
+@st.cache_data(ttl=300)
 def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
     """
-    Función cacheada para calcular los saldos del balance de comprobación.
+    Función cacheada y blindada para calcular los saldos usando pd.read_sql directamente.
     """
     if not db_name:
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
-    # Abrimos la conexión activa
     conn = conectar_db(db_name)
     if not conn:
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
-    cursor = None
     try:
-        cursor = conn.cursor()
-        cursor.execute(f"USE `{db_name}`")
-        
         # 1. Traer los Saldos Iniciales fijos de la tabla 'saldos_iniciales'
         sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY plan_cuentas"
         
@@ -3127,11 +3123,15 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
         sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
 
-        # LE PASAMOS EL OBJETO `conn` (no el string `db_name`) A LA FUNCIÓN ejecutar_consulta
+        # Lectura directa por Pandas usando la conexión activa (sin intermediarios que exploten)
+        df_si = pd.read_sql(sql_si, conn)
+        df_debe = pd.read_sql(sql_mo_d, conn, params=(f_i, f_f))
+        df_haber = pd.read_sql(sql_mo_h, conn, params=(f_i, f_f))
+
         dfs = {
-            'si': ejecutar_consulta(sql_si, conn),
-            'debe': ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f)),
-            'haber': ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
+            'si': df_si,
+            'debe': df_debe,
+            'haber': df_haber
         }
 
         lista_frames = []
@@ -3141,9 +3141,7 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
                 if 'plan_cuentas' in df.columns:
                     df = df.rename(columns={'plan_cuentas': 'Código', 'val': nombre})
                     df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
-                    
                     df['Código'] = df['Código'].astype(str).str.strip()
-                    
                     df = df.groupby('Código')[nombre].sum().reset_index()
                     df = df.set_index('Código')
                     lista_frames.append(df)
@@ -3163,7 +3161,6 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         
         # Las cuentas de resultado (5, 6, 7, 8) no arrastran saldo inicial en reportes por período
         es_cuenta_resultado = balance['Tipo'].isin(['5', '6', '7', '8'])
-        
         balance['Saldo Inicial'] = balance['si']
         balance.loc[es_cuenta_resultado, 'Saldo Inicial'] = 0.0
         
@@ -3182,12 +3179,11 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         st.error(f"Error calculando saldos de comprobación: {e}")
         return pd.DataFrame()
     finally:
-        if cursor:
-            try: cursor.close()
-            except: pass
-        if conn:
-            try: conn.close()
-            except: pass
+        try:
+            if conn and hasattr(conn, 'close'):
+                conn.close()
+        except:
+            pass
 
 
 @st.cache_data(ttl=300)
