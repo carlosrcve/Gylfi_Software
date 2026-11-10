@@ -3187,11 +3187,22 @@ def generar_balance_comprobacion(_db, f_i, f_f, sucursal):
             try: conn_saldos.close()
             except: pass
 
+
 @st.cache_data(ttl=300)
-def generar_balance_profesional(conn, f_i, f_f, sucursal):
-    db = st.session_state.get('DB_ACTUAL')
+def generar_balance_profesional(_db, f_i, f_f, sucursal):
+    if not _db:
+        db = st.session_state.get('DB_ACTUAL')
+    else:
+        db = _db
+
     if not db:
         st.error("Papi, no has seleccionado ninguna base de datos.")
+        return None
+
+    # Abrimos la conexión correctamente usando el string de la base de datos
+    conn = conectar_db(db)
+    if not conn:
+        st.error(f"Papi, no se pudo establecer conexión a la base de datos: {db}")
         return None
 
     cursor = None
@@ -3207,15 +3218,14 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             st.error("⚠️ El plan de cuentas está vacío.")
             return None
 
-        # 2. Obtener los saldos del balance de comprobación
-        df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
+        # 2. Obtener los saldos del balance de comprobación pasando el nombre de la BD
+        df_saldos = generar_balance_comprobacion(db, f_i, f_f, sucursal)
         
         cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         
         if df_saldos is None or df_saldos.empty:
             df_saldos = pd.DataFrame(columns=cols_finales)
         else:
-            # Estandarizar nombres de columnas de saldos
             renombres = {}
             for col in df_saldos.columns:
                 c_low = str(col).lower()
@@ -3230,13 +3240,22 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             if c not in df_saldos.columns: 
                 df_saldos[c] = 0.0
 
-        # --- LIMPIEZA Y NORMALIZACIÓN DE CÓDIGOS PARA EL MERGE ---
-        df_plan['llave_join'] = df_plan['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
-        df_plan['llave_padre'] = df_plan['padre'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+        # --- LIMPIEZA Y DERIVACIÓN AUTOMÁTICA DEL PADRE POR ESTRUCTURA ---
+        df_plan['codigo_limpio'] = df_plan['codigo'].astype(str).str.strip()
         
+        def calcular_padre(cod):
+            partes = str(cod).strip().split('.')
+            if len(partes) > 1:
+                return '.'.join(partes[:-1])
+            return None
+
+        df_plan['padre_calculado'] = df_plan['codigo_limpio'].apply(calcular_padre)
+        
+        df_plan['llave_join'] = df_plan['codigo_limpio'].str.replace(r'[^0-9]', '', regex=True)
+        df_plan['llave_padre'] = df_plan['padre_calculado'].fillna('').str.replace(r'[^0-9]', '', regex=True)
         df_saldos['llave_join'] = df_saldos['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
 
-        # 3. Hacer el merge utilizando la llave numérica limpia
+        # 3. Hacer el merge
         df = pd.merge(
             df_plan, 
             df_saldos[['llave_join', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']], 
@@ -3247,12 +3266,14 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         cols_num = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         df[cols_num] = df[cols_num].fillna(0.0).astype(float)
 
-        # 4. Limpiar los saldos en las cuentas de tipo "Grupo" para que no dupliquen valores propios
-        if 'tipo' in df.columns:
-            is_grupo = df['tipo'].astype(str).str.lower() == 'grupo'
-            df.loc[is_grupo, cols_num] = 0.0
+        # 4. Limpiar saldos en cuentas de tipo "Grupo" O CUENTAS QUE SEAN PADRES
+        padres_set = set(df['llave_padre'].dropna().astype(str))
+        is_padre = df['llave_join'].isin(padres_set)
+        is_grupo = df['tipo'].astype(str).str.lower() == 'grupo'
 
-        # 5. SUMATORIA JERÁRQUICA DE ABAJO HACIA ARRIBA (Usando la llave limpia del padre)
+        df.loc[is_grupo | is_padre, cols_num] = 0.0
+
+        # 5. SUMATORIA JERÁRQUICA OPTIMIZADA
         niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
         
         for n in niveles_disponibles:
@@ -3264,16 +3285,20 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
                     if mask_padre.any():
                         df.loc[mask_padre, cols_num] = df.loc[mask_padre, cols_num].values + fila[cols_num].values
 
-        # Recalcular saldo final global de cada fila por seguridad
-        df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
+        # --- APLICACIÓN CORRECTA DE NATURALEZA CONTABLE PARA EL SALDO FINAL ---
+        df['Tipo_1'] = df['codigo'].astype(str).str[0]
+        es_contra_activo = df['codigo'].astype(str).str.startswith('1.2')
+        es_deudor = (df['Tipo_1'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
 
-        # 6. Fila Total Global replicando exactamente la suma de las cuentas de Nivel 1 del Excel
+        df['Saldo Final'] = 0.0
+        df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
+        df.loc[~es_deudor, 'Saldo Final'] = df['Saldo Inicial'] - df['Debe'] + df['Haber']
+
+        # 6. Fila Total Global (Suma estricta del Nivel 1)
         df_nivel_1 = df[df['nivel'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
         total_haber = float(df_nivel_1['Haber'].sum())
-
-        # Suma directa de las filas principales de nivel 1 tal cual como en el Excel
         total_saldo_inicial_neto = float(df_nivel_1['Saldo Inicial'].sum())
         total_saldo_final_neto = float(df_nivel_1['Saldo Final'].sum())
 
@@ -3283,10 +3308,10 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
             'nivel': 0, 
             'tipo': 'Total', 
             'padre': None,
-            'Saldo Inicial': round(total_saldo_inicial_neto, 2), # Cierra en 0.00 exacto
-            'Debe': total_debe,                                 # Suma total de movimientos del Debe
-            'Haber': total_haber,                               # Suma total de movimientos del Haber
-            'Saldo Final': round(total_saldo_final_neto, 2)     # Cierra en 0.00 exacto
+            'Saldo Inicial': round(total_saldo_inicial_neto, 2),
+            'Debe': total_debe,
+            'Haber': total_haber,
+            'Saldo Final': round(total_saldo_final_neto, 2)
         }])
         
         cols_salida = ['codigo', 'nombre', 'nivel', 'tipo', 'padre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
@@ -3294,10 +3319,15 @@ def generar_balance_profesional(conn, f_i, f_f, sucursal):
         return df_final
 
     except Exception as e:
-        st.error(f"Error procesando balance profesional: {e}")
+        st.error(f"❌ Error procesando balance profesional: {e}")
         return None
     finally:
-        if cursor: cursor.close()
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
 
 
 @st.cache_data(ttl=300)
