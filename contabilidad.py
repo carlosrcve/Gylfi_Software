@@ -3103,39 +3103,35 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
 
 @st.cache_data(ttl=300)
-def generar_balance_comprobacion(_db, f_i, f_f, sucursal):
+def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
     """
-    Función cacheada para calcular los saldos del balance de comprobación.
-    Usa '_db' con guion bajo para que Streamlit ignore la conexión en el hash.
+    Recibe el NOMBRE de la BD (str), abre la conexión internamente 
+    y consulta los saldos sin romper el caché de Streamlit.
     """
-    if not _db:
+    if not db_name:
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
-    conn = conectar_db(_db)
+    conn = conectar_db(db_name)
     if not conn:
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
-    actual_conn = None
+    cursor = None
     try:
-        actual_conn = conectar_db(_db) if isinstance(conn, str) else conn
-        if not actual_conn:
-            return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
-
+        cursor = conn.cursor()
+        cursor.execute(f"USE `{db_name}`")
+        
         # 1. Traer los Saldos Iniciales fijos de la tabla 'saldos_iniciales'
-        sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{_db}`.saldos_iniciales GROUP BY plan_cuentas"
+        sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY plan_cuentas"
         
         # 2. Movimientos del rango seleccionado en 'asientos_contables'
-        sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{_db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
-        sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{_db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+        sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+        sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
 
-        df_si = pd.read_sql(sql_si, actual_conn)
-        df_debe = pd.read_sql(sql_mo_d, actual_conn, params=(f_i, f_f))
-        df_haber = pd.read_sql(sql_mo_h, actual_conn, params=(f_i, f_f))
-
+        # Ejecución usando la conexión abierta 'conn'
         dfs = {
-            'si': df_si,
-            'debe': df_debe,
-            'haber': df_haber
+            'si': ejecutar_consulta(sql_si, conn),
+            'debe': ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f)),
+            'haber': ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
         }
 
         lista_frames = []
@@ -3145,9 +3141,7 @@ def generar_balance_comprobacion(_db, f_i, f_f, sucursal):
                 if 'plan_cuentas' in df.columns:
                     df = df.rename(columns={'plan_cuentas': 'Código', 'val': nombre})
                     df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
-                    
                     df['Código'] = df['Código'].astype(str).str.strip()
-                    
                     df = df.groupby('Código')[nombre].sum().reset_index()
                     df = df.set_index('Código')
                     lista_frames.append(df)
@@ -3165,9 +3159,8 @@ def generar_balance_comprobacion(_db, f_i, f_f, sucursal):
             
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         
-        # Las cuentas de resultado (5, 6, 7, 8) no arrastran saldo inicial en reportes por período
+        # Cuentas de resultado (5, 6, 7, 8) no arrastran saldo inicial en reportes mensuales
         es_cuenta_resultado = balance['Tipo'].isin(['5', '6', '7', '8'])
-        
         balance['Saldo Inicial'] = balance['si']
         balance.loc[es_cuenta_resultado, 'Saldo Inicial'] = 0.0
         
@@ -3186,46 +3179,43 @@ def generar_balance_comprobacion(_db, f_i, f_f, sucursal):
         st.error(f"Error calculando saldos de comprobación: {e}")
         return pd.DataFrame()
     finally:
-        try:
-            if actual_conn and hasattr(actual_conn, 'close'):
-                actual_conn.close()
-        except:
-            pass
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
 
 
 @st.cache_data(ttl=300)
-def generar_balance_profesional(_db, f_i, f_f, sucursal):
-    if not _db:
-        db = st.session_state.get('DB_ACTUAL')
-    else:
-        db = _db
+def generar_balance_profesional(db_name, f_i, f_f, sucursal):
+    """
+    Recibe el NOMBRE de la BD (str) enviado desde la vista de Streamlit.
+    """
+    if not db_name or db_name == 'none':
+        st.error("No se ha especificado el nombre de la base de datos.")
+        return pd.DataFrame()
 
-    if not db:
-        st.error("Papi, no has seleccionado ninguna base de datos.")
-        return None
-
-    conn = conectar_db(db)
+    conn = conectar_db(db_name)
     if not conn:
-        st.error(f"Papi, no se pudo establecer conexión a la base de datos: {db}")
-        return None
+        st.error(f"No se pudo conectar a la base de datos: {db_name}")
+        return pd.DataFrame()
 
-    actual_conn = None
+    cursor = None
     try:
-        actual_conn = conectar_db(db) if isinstance(conn, str) else conn
-        if not actual_conn:
-            st.error(f"Papi, no se pudo establecer conexión a la base de datos: {db}")
-            return None
-
-        # 1. Consultar el plan de cuentas original
-        query_plan = f"SELECT codigo, nombre, nivel, tipo, padre FROM `{db}`.plan_cuentas ORDER BY codigo"
-        df_plan = pd.read_sql(query_plan, actual_conn)
+        cursor = conn.cursor()
+        cursor.execute(f"USE `{db_name}`")
+        
+        # 1. Consultar plan de cuentas
+        query_plan = f"SELECT codigo, nombre, nivel, tipo, padre FROM `{db_name}`.plan_cuentas ORDER BY codigo"
+        df_plan = ejecutar_consulta(query_plan, conn)
         
         if df_plan is None or df_plan.empty:
-            st.error("⚠️ El plan de cuentas está vacío.")
-            return None
+            st.warning("⚠️ El plan de cuentas está vacío.")
+            return pd.DataFrame()
 
-        # 2. Obtener los saldos del balance de comprobación pasando el nombre de la BD
-        df_saldos = generar_balance_comprobacion(db, f_i, f_f, sucursal)
+        # 2. Obtener los saldos pasando el NOMBRE de la BD (no el objeto conn)
+        df_saldos = generar_balance_comprobacion(db_name, f_i, f_f, sucursal)
         
         cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         
@@ -3246,7 +3236,7 @@ def generar_balance_profesional(_db, f_i, f_f, sucursal):
             if c not in df_saldos.columns: 
                 df_saldos[c] = 0.0
 
-        # --- LIMPIEZA Y DERIVACIÓN AUTOMÁTICA DEL PADRE POR ESTRUCTURA ---
+        # --- DERIVACIÓN AUTOMÁTICA DEL PADRE POR ESTRUCTURA DE CÓDIGO ---
         df_plan['codigo_limpio'] = df_plan['codigo'].astype(str).str.strip()
         
         def calcular_padre(cod):
@@ -3261,7 +3251,7 @@ def generar_balance_profesional(_db, f_i, f_f, sucursal):
         df_plan['llave_padre'] = df_plan['padre_calculado'].fillna('').str.replace(r'[^0-9]', '', regex=True)
         df_saldos['llave_join'] = df_saldos['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
 
-        # 3. Hacer el merge
+        # 3. Merge
         df = pd.merge(
             df_plan, 
             df_saldos[['llave_join', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']], 
@@ -3272,14 +3262,14 @@ def generar_balance_profesional(_db, f_i, f_f, sucursal):
         cols_num = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         df[cols_num] = df[cols_num].fillna(0.0).astype(float)
 
-        # 4. Limpiar saldos en cuentas de tipo "Grupo" O CUENTAS QUE SEAN PADRES
+        # 4. Limpiar saldos en grupos o padres
         padres_set = set(df['llave_padre'].dropna().astype(str))
         is_padre = df['llave_join'].isin(padres_set)
         is_grupo = df['tipo'].astype(str).str.lower() == 'grupo'
 
         df.loc[is_grupo | is_padre, cols_num] = 0.0
 
-        # 5. SUMATORIA JERÁRQUICA OPTIMIZADA
+        # 5. Sumatoria jerárquica de abajo hacia arriba
         niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
         
         for n in niveles_disponibles:
@@ -3291,7 +3281,7 @@ def generar_balance_profesional(_db, f_i, f_f, sucursal):
                     if mask_padre.any():
                         df.loc[mask_padre, cols_num] = df.loc[mask_padre, cols_num].values + fila[cols_num].values
 
-        # --- APLICACIÓN CORRECTA DE NATURALEZA CONTABLE PARA EL SALDO FINAL ---
+        # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL ---
         df['Tipo_1'] = df['codigo'].astype(str).str[0]
         es_contra_activo = df['codigo'].astype(str).str.startswith('1.2')
         es_deudor = (df['Tipo_1'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
@@ -3300,7 +3290,7 @@ def generar_balance_profesional(_db, f_i, f_f, sucursal):
         df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
         df.loc[~es_deudor, 'Saldo Final'] = df['Saldo Inicial'] - df['Debe'] + df['Haber']
 
-        # 6. Fila Total Global (Suma estricta del Nivel 1)
+        # 6. Fila Total Global (Nivel 1)
         df_nivel_1 = df[df['nivel'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
@@ -3325,14 +3315,16 @@ def generar_balance_profesional(_db, f_i, f_f, sucursal):
         return df_final
 
     except Exception as e:
-        st.error(f"❌ Error procesando balance profesional: {e}")
-        return None
+        st.error(f"❌ Error crítico en balance profesional: {e}")
+        return pd.DataFrame()
+        
     finally:
-        try:
-            if actual_conn and hasattr(actual_conn, 'close'):
-                actual_conn.close()
-        except:
-            pass
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
+            try: conn.close()
+            except: pass
 
 
 @st.cache_data(ttl=300)
