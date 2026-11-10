@@ -3205,7 +3205,7 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
     """
     Genera el balance profesional inyectando saldos exclusivamente en cuentas hoja
-    y acumulando por jerarquía exacta de puntos de abajo hacia arriba.
+    y acumulando por jerarquía exacta de puntos de abajo hacia arriba de forma robusta.
     """
     if not db_name or db_name == 'none':
         st.error("No se ha especificado el nombre de la base de datos.")
@@ -3229,29 +3229,8 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
             st.warning("⚠️ El plan de cuentas está vacío.")
             return pd.DataFrame()
 
-        # 2. Obtener los saldos base de comprobación
-        df_saldos = generar_balance_comprobacion(db_name, f_i, f_f, sucursal)
-        
-        cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
-        
-        if df_saldos is None or df_saldos.empty:
-            df_saldos = pd.DataFrame(columns=cols_finales)
-        else:
-            renombres = {}
-            for col in df_saldos.columns:
-                c_low = str(col).lower()
-                if 'codigo' in c_low or 'código' in c_low or 'cuenta' in c_low: renombres[col] = 'codigo'
-                elif 'inicial' in c_low: renombres[col] = 'Saldo Inicial'
-                elif 'debe' in c_low: renombres[col] = 'Debe'
-                elif 'haber' in c_low: renombres[col] = 'Haber'
-                elif 'final' in c_low: renombres[col] = 'Saldo Final'
-            df_saldos = df_saldos.rename(columns=renombres)
-
-        for c in cols_finales:
-            if c not in df_saldos.columns: 
-                df_saldos[c] = 0.0
-
-        # --- DERIVACIÓN EXACTA DEL PADRE POR PUNTOS ---
+        # Normalizar columnas del plan de cuentas
+        df_plan.columns = [str(c).strip().lower() for c in df_plan.columns]
         df_plan['codigo_limpio'] = df_plan['codigo'].astype(str).str.strip()
         
         def calcular_padre(cod):
@@ -3261,34 +3240,48 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
             return None
 
         df_plan['padre_calculado'] = df_plan['codigo_limpio'].apply(calcular_padre)
-        df_saldos['codigo_limpio'] = df_saldos['codigo'].astype(str).str.strip()
 
-        # 3. Inicializar el DataFrame maestro del plan con ceros absolutos
+        # 2. Obtener los saldos base de comprobación
+        df_saldos = generar_balance_comprobacion(db_name, f_i, f_f, sucursal)
+        
+        saldos_dict = {}
+        if df_saldos is not None and not df_saldos.empty:
+            df_saldos.columns = [str(c).strip().lower() for c in df_saldos.columns]
+            col_cod = next((c for c in df_saldos.columns if 'codigo' in c or 'cuenta' in c), df_saldos.columns[0])
+            col_si = next((c for c in df_saldos.columns if 'inicial' in c or 'si' in c), 'saldo inicial')
+            col_debe = next((c for c in df_saldos.columns if 'debe' in c), 'debe')
+            col_haber = next((c for c in df_saldos.columns if 'haber' in c), 'haber')
+            
+            df_saldos['codigo_limpio'] = df_saldos[col_cod].astype(str).str.strip()
+            for _, r in df_saldos.iterrows():
+                saldos_dict[r['codigo_limpio']] = {
+                    'Saldo Inicial': float(r.get(col_si, 0.0) or 0.0),
+                    'Debe': float(r.get(col_debe, 0.0) or 0.0),
+                    'Haber': float(r.get(col_haber, 0.0) or 0.0)
+                }
+
+        # 3. Inicializar el DataFrame maestro
         df = df_plan.copy()
         df['Saldo Inicial'] = 0.0
         df['Debe'] = 0.0
         df['Haber'] = 0.0
         df['Saldo Final'] = 0.0
 
-        # Identificar qué códigos son padres (tienen cuentas hijas apuntando a ellos)
         padres_set = set(df['padre_calculado'].dropna().astype(str))
 
-        # 4. INYECTAR SALDOS ÚNICAMENTE EN LAS CUENTAS HOJA (QUE NO SON PADRES NI GRUPOS)
-        saldos_dict = df_saldos.set_index('codigo_limpio')[['Saldo Inicial', 'Debe', 'Haber']].to_dict('index')
-        
+        # 4. INYECTAR SALDOS ÚNICAMENTE EN LAS CUENTAS HOJA
         for idx, row_df in df.iterrows():
             c_cod = row_df['codigo_limpio']
             es_padre_node = c_cod in padres_set
-            es_grupo_node = str(row_df['tipo']).lower() == 'grupo'
+            es_grupo_node = str(row_df.get('tipo', '')).lower() == 'grupo'
             
-            # Si es cuenta hoja de movimiento
             if not es_padre_node and not es_grupo_node:
                 if c_cod in saldos_dict:
-                    df.loc[idx, 'Saldo Inicial'] = float(saldos_dict[c_cod].get('Saldo Inicial', 0.0))
-                    df.loc[idx, 'Debe'] = float(saldos_dict[c_cod].get('Debe', 0.0))
-                    df.loc[idx, 'Haber'] = float(saldos_dict[c_cod].get('Haber', 0.0))
+                    df.loc[idx, 'Saldo Inicial'] = saldos_dict[c_cod]['Saldo Inicial']
+                    df.loc[idx, 'Debe'] = saldos_dict[c_cod]['Debe']
+                    df.loc[idx, 'Haber'] = saldos_dict[c_cod]['Haber']
 
-        # 5. SUMATORIA JERÁRQUICA RIGUROSA DE ABAJO HACIA ARRIBA (USANDO EL CÓDIGO PADRE REAL)
+        # 5. SUMATORIA JERÁRQUICA RIGUROSA DE ABAJO HACIA ARRIBA
         niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
         
         for n in niveles_disponibles:
@@ -3302,7 +3295,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                         df.loc[mask_padre, 'Debe'] = df.loc[mask_padre, 'Debe'].values + float(fila['Debe'])
                         df.loc[mask_padre, 'Haber'] = df.loc[mask_padre, 'Haber'].values + float(fila['Haber'])
 
-        # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL DE CADA CUENTA ---
+        # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL ---
         df['Tipo_1'] = df['codigo_limpio'].str[0]
         es_contra_activo = df['codigo_limpio'].str.startswith('1.2')
         
@@ -3313,7 +3306,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
         df.loc[es_acreedor, 'Saldo Final'] = df['Saldo Inicial'] - df['Debe'] + df['Haber']
 
-        # 6. Fila Total Global (Replicando la fórmula exacta del Excel)
+        # 6. Fila Total Global (Fórmula exacta del Excel)
         df_nivel_1 = df[df['nivel'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
@@ -3349,6 +3342,10 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         }])
         
         cols_salida = ['codigo', 'nombre', 'nivel', 'tipo', 'padre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
+        for c in cols_salida:
+            if c not in df.columns:
+                df[c] = None
+
         df_final = pd.concat([df[cols_salida], fila_total[cols_salida]], ignore_index=True)
         return df_final
 
