@@ -8327,6 +8327,9 @@ import cv2
 import numpy as np
 
 
+import cv2
+import numpy as np
+
 def limpiar_imagen_factura(imagen_pil):
     """
     Aplica pre-procesamiento OpenCV optimizado: limpia el fondo,
@@ -8349,7 +8352,7 @@ def limpiar_imagen_factura(imagen_pil):
         cv2.THRESH_BINARY, 21, 15
     )
     
-    return threshsh
+    return thresh
 
 def modulo_escaneo_facturas_manuales(conn, db_actual):
     st.subheader("📸 Registro Rápido de Facturas (Flujo Productivo Cero Costos)")
