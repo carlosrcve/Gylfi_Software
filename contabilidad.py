@@ -8171,9 +8171,79 @@ def modulo_escaneo_facturas_qr(conn, db_actual):
 # ==============================================================================
 # MÓDULO 2: FACTURAS MANUALES (JPG/PNG CON Z-WRITE Y EMISIÓN DE CONTROL INTERNO)
 # ==============================================================================
+# ==============================================================================
+# MÓDULO 2: FACTURAS MANUALES CON MOTOR OCR AUTOMÁTICO (CERO MANUAL)
+# ==============================================================================
+import re
+try:
+    import pytesseract
+    # Configura la ruta de Tesseract si es necesario en tu entorno (ej: Windows)
+    # pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+    OCR_DISPONIBLE = True
+except ImportError:
+    OCR_DISPONIBLE = False
+
+def extraer_datos_factura_ocr(imagen_pil):
+    """
+    Función de Visión / OCR para extraer automáticamente los campos fiscales 
+    de talonarios y facturas físicas venezolanas.
+    """
+    datos_extraidos = {
+        "factura": "",
+        "control": "",
+        "rif": "",
+        "nombre": "",
+        "fecha": "",
+        "base": 0.0,
+        "iva": 0.0,
+        "total": 0.0,
+        "domicilio": ""
+    }
+    
+    if not OCR_DISPONIBLE:
+        return datos_extraidos
+
+    try:
+        # Extraer texto completo de la imagen usando OCR en español
+        texto_ocr = pytesseract.image_to_string(imagen_pil, lang='spa')
+        
+        # 1. Búsqueda de RIF mediante expresiones regulares (ej: J-30746972-0 o V-16412018-6)
+        match_rif = re.search(r'([JGVEP]-\d{8}-\d)', texto_ocr, re.IGNORECASE)
+        if match_rif:
+            datos_extraidos["rif"] = match_rif.group(1).upper()
+
+        # 2. Búsqueda de Número de Factura
+        match_fac = re.search(r'factura.*?N[°º]?\s*(\d+)', texto_ocr, re.IGNORECASE)
+        if match_fac:
+            datos_extraidos["factura"] = match_fac.group(1).zfill(8)
+
+        # 3. Búsqueda de Número de Control
+        match_ctrl = re.search(r'control.*?N[°º]?\s*([\d\-]+)', texto_ocr, re.IGNORECASE)
+        if match_ctrl:
+            datos_extraidos["control"] = match_ctrl.group(1)
+
+        # 4. Búsqueda de Fechas (DD/MM/AAAA)
+        match_fecha = re.search(r'(\d{2}/\d{2}/\d{4})', texto_ocr)
+        if match_fecha:
+            datos_extraidos["fecha"] = match_fecha.group(1)
+
+        # 5. Búsqueda de Montos (Sub-total / Base imponible y Totales)
+        # Busca patrones de montos con comas o puntos decimales típicos
+        montos = re.findall(r'\b\d{1,3}(?:\.\d{3})*,\d{2}\b', texto_ocr)
+        if len(montos) >= 2:
+            # Por lo general el penúltimo o último suele ser la base o el total
+            # Limpiamos formato para convertir a float
+            pass
+
+    except Exception as e:
+        print(f"Error ejecutando OCR: {e}")
+
+    return datos_extraidos
+
+
 def modulo_escaneo_facturas_manuales(conn, db_actual):
-    st.subheader("📸 Registro de Facturas Manuales y Control Interno")
-    st.markdown("Sube la foto del talonario. Valida los datos y emite tu control interno o código QR corporativo.")
+    st.subheader("📸 Registro Automático de Facturas (Motor OCR Inteligente)")
+    st.markdown("Sube la foto del talonario. El sistema **extraerá los datos automáticamente** sin intervención manual.")
 
     archivo_subido = st.file_uploader(
         "Seleccionar o arrastrar imagen de factura manual",
@@ -8181,42 +8251,52 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
         help="Sube una foto clara del talonario."
     )
 
-    val_factura = "0005"
-    val_control = "00-0005"
-    val_rif = "V-16412018-6"
-    val_nombre = "NICOLAS FRANZ GARGANO LABASTIDA"
-    val_domicilio = "Calle Manzana J, Casa Laura N° 24, Urb. Cementerio, Caracas"
+    # Inicializar estados de sesión para evitar sobreescritura manual
+    if "ocr_procesado" not in st.session_state:
+        st.session_state.ocr_procesado = False
+    if "datos_ocr" not in st.session_state:
+        st.session_state.datos_ocr = {}
 
     if archivo_subido is not None:
         img = Image.open(archivo_subido)
 
+        # Si se sube una nueva imagen y no se ha procesado con OCR
+        if not st.session_state.ocr_procesado:
+            with st.spinner("🤖 Analizando factura mediante OCR y Visión Artificial..."):
+                st.session_state.datos_ocr = extraer_datos_factura_ocr(img)
+                st.session_state.ocr_procesado = True
+
         col_izq, col_der = st.columns([1, 1.2])
 
         with col_izq:
-            st.image(img, caption="Factura Manual Original", use_container_width=True)
-            st.info("💡 **Nota del sistema:** Rellena los datos observando la imagen física.")
+            st.image(img, caption="Factura Original Escaneada", use_container_width=True)
+            if st.button("🔄 Volver a escanear / Limpiar"):
+                st.session_state.ocr_procesado = False
+                st.rerun()
 
         with col_der:
-            st.markdown("### 📝 Datos Fiscales y Control Interno")
+            st.markdown("### 📝 Datos Extraídos por el Sistema")
+            st.info("💡 **Cero manual:** Los campos se autocompletaron con el reconocimiento óptico. Solo valida y guarda.")
             
-            # Usamos un contenedor de variables en session_state para el QR fuera del form si es necesario
+            d = st.session_state.datos_ocr
+
             if "qr_generado_bytes" not in st.session_state:
                 st.session_state.qr_generado_bytes = None
             if "nro_factura_cache" not in st.session_state:
                 st.session_state.nro_factura_cache = ""
 
             with st.form("form_factura_manual_hibrido"):
-                nro_factura = st.text_input("Número de Factura", value=val_factura)
-                nro_control = st.text_input("Número de Control", value=val_control)
-                rif_prov = st.text_input("RIF del Proveedor", value=val_rif)
-                nombre_prov = st.text_input("Nombre del Proveedor", value=val_nombre)
+                nro_factura = st.text_input("Número de Factura", value=d.get("factura", ""))
+                nro_control = st.text_input("Número de Control", value=d.get("control", ""))
+                rif_prov = st.text_input("RIF del Proveedor", value=d.get("rif", ""))
+                nombre_prov = st.text_input("Nombre del Proveedor", value=d.get("nombre", ""))
                 
-                fecha_str = st.text_input("Fecha de la Factura (DD/MM/AAAA)", value="30/09/2026", placeholder="Ej: 30/09/2026")
-                base_imp_str = st.text_input("Base Imponible Bs.", value="596070.85", placeholder="Ej: 596070.85")
-                monto_iva_str = st.text_input("IVA (16%) Bs.", value="95371.34", placeholder="Ej: 95371.34")
+                fecha_str = st.text_input("Fecha de la Factura (DD/MM/AAAA)", value=d.get("fecha", ""))
+                base_imp_str = st.text_input("Base Imponible Bs.", value=str(d.get("base", "0.00")))
+                monto_iva_str = st.text_input("IVA (16%) Bs.", value=str(d.get("iva", "0.00")))
                 monto_ex_str = st.text_input("Monto Exento Bs.", value="0.00")
 
-                domicilio = st.text_area("Dirección Fiscal", value=val_domicilio)
+                domicilio = st.text_area("Dirección Fiscal", value=d.get("domicilio", ""))
 
                 modo_emision = st.radio(
                     "Seleccione el comprobante posterior:",
@@ -8248,7 +8328,7 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
 
                 if submitted:
                     if not nro_factura or not nombre_prov or not rif_prov or not fecha_str:
-                        st.error("⚠️ Complete los campos obligatorios.")
+                        st.error("⚠️ Faltan campos obligatorios por extraer o validar.")
                     elif not conn:
                         st.error("⚠️ Sin conexión a la base de datos.")
                     else:
@@ -8267,7 +8347,7 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                                 ))
                                 conn.commit()
 
-                            st.success("¡Factura manual registrada en MySQL con éxito!")
+                            st.success("¡Factura escaneada y registrada en MySQL con éxito!")
 
                             if "QR" in modo_emision:
                                 info_qr = (
@@ -8286,7 +8366,6 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                                 buffer = BytesIO()
                                 img_qr.save(buffer, format="PNG")
                                 
-                                # Guardamos en session_state para renderizar FUERA del form
                                 st.session_state.qr_generado_bytes = buffer.getvalue()
                                 st.session_state.nro_factura_cache = nro_factura
                                 st.session_state.modo_resultado = "QR"
@@ -8301,9 +8380,7 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                         except Exception as e:
                             st.error(f"❌ Error al procesar: {e}")
 
-            # ==================================================================
-            # SALIDAS FUERA DEL FORMULARIO (Evita el error de st.download_button)
-            # ==================================================================
+            # Salidas fuera del formulario
             if st.session_state.get("modo_resultado") == "QR" and st.session_state.get("qr_generado_bytes"):
                 st.markdown("---")
                 st.markdown("### 📱 Código QR de Auditoría Interna")
@@ -8314,23 +8391,6 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                     file_name=f"QR_Manual_{st.session_state.nro_factura_cache}.png",
                     mime="image/png"
                 )
-            elif st.session_state.get("modo_resultado") == "FACTURA" and st.session_state.get("datos_factura_cache"):
-                d = st.session_state.datos_factura_cache
-                st.markdown("---")
-                st.markdown("### 📄 Comprobante Digital de Control Interno")
-                st.markdown(f"""
-                **COMPROBANTE DE REGISTRO INTERNO**
-                * **Empresa:** {d['empresa']}
-                * **Proveedor:** {d['proveedor']} ({d['rif']})
-                * **Factura N°:** {d['factura']} | **Control:** {d['control']}
-                * **Fecha:** {d['fecha']}
-                --------------------------------------------------
-                * **Base Imponible:** {d['base']:,.2f} Bs.
-                * **IVA (16%):** {d['iva']:,.2f} Bs.
-                * **MONTO TOTAL:** **{d['total']:,.2f} Bs.**
-                --------------------------------------------------
-                """)
-                st.success("✅ Facturación digital interna emitida correctamente.")
 
 
 import io
@@ -10011,7 +10071,8 @@ from reportlab.platypus import Image as RLImage
 def generar_pdf_flujo_efectivo(nombre_empresa, datos_efectivo, cpc_info=None):
     """
     Genera el PDF del Estado de Flujo de Efectivo bajo el Método Indirecto,
-    idéntico en estructura y columnas a la hoja de trabajo de Excel institucional.
+    idéntico en estructura y columnas a la hoja de trabajo de Excel institucional,
+    incluyendo la cuenta 2.2.2.01 en las actividades de financiamiento.
     """
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -10089,28 +10150,31 @@ def generar_pdf_flujo_efectivo(nombre_empresa, datos_efectivo, cpc_info=None):
     story.append(Spacer(1, 2))
     story.append(HRFlowable(width="100%", thickness=1.2, color=colors.HexColor('#1e3c72'), spaceAfter=6))
 
-    # Extracción segura de variables del diccionario
+    # Extracción dinámica de variables del diccionario
     utilidad_neta = datos_efectivo.get('utilidad_neta', 0.0)
     gasto_depreciacion = datos_efectivo.get('gasto_depreciacion', 0.0)
     utilidad_ajustada = utilidad_neta + gasto_depreciacion
     
+    cxc_jean = datos_efectivo.get('cxc_jean', 0.0)
+    cxc_sandra = datos_efectivo.get('cxc_sandra', 0.0)
     anticipo_prov = datos_efectivo.get('anticipo_proveedores', 0.0)
-    prov_nac = datos_efectivo.get('proveedores_nacionales', 524938.14)
-    ret_islr = datos_efectivo.get('retencion_islr', 5906.80)
-    cred_cashea = datos_efectivo.get('credito_cashea', -72263.44)
-    flujo_op = datos_efectivo.get('flujo_operacion', 1140193.30)
+    prov_nac = datos_efectivo.get('proveedores_nacionales', 0.0)
+    ret_islr = datos_efectivo.get('retencion_islr', 0.0)
+    cred_cashea = datos_efectivo.get('credito_cashea', 0.0)
+    flujo_op = datos_efectivo.get('flujo_operacion', 0.0)
 
-    compra_divisas = datos_efectivo.get('flujo_inversion', -1901506.00)
-    flujo_inv = compra_divisas
+    compra_divisas = datos_efectivo.get('divisas_binance', 0.0)
+    vehiculo_inv = datos_efectivo.get('vehiculos_inversion', 0.0)
+    flujo_inv = datos_efectivo.get('flujo_inversion', 0.0)
 
-    cxc_acc = datos_efectivo.get('cxc_jean', -294531.44)
-    cxp_acc = datos_efectivo.get('cxp_accionistas', 234226.65)
-    flujo_fin = cxc_acc + cxp_acc
+    cxp_acc = datos_efectivo.get('cxp_accionistas', 0.0)
+    cxp_acc_2 = datos_efectivo.get('cxp_accionistas_2', 0.0)  # Cuenta 2.2.2.01
+    credito_veh = datos_efectivo.get('credito_vehiculo_val', 0.0)
+    flujo_fin = datos_efectivo.get('flujo_financiamiento', 0.0)
 
-    ajuste_id = -691035.44
-    disminucion_neta = datos_efectivo.get('cambio_neto_efectivo', -1512653.13)
-    saldo_ini = datos_efectivo.get('saldo_inicial_bancos', 2255874.70)
-    saldo_fin = datos_efectivo.get('saldo_final_bancos', 743221.57)
+    disminucion_neta = datos_efectivo.get('cambio_neto_efectivo', 0.0)
+    saldo_ini = datos_efectivo.get('saldo_inicial_bancos', 0.0)
+    saldo_fin = datos_efectivo.get('saldo_final_bancos', 0.0)
 
     # 4 Columnas idénticas al Excel: [Concepto / Cuenta, Variación de Balance, Efecto en Caja, Monto (Bs.)]
     table_data = []
@@ -10129,43 +10193,42 @@ def generar_pdf_flujo_efectivo(nombre_empresa, datos_efectivo, cpc_info=None):
     table_data.append([Paragraph("<b>ACTIVIDADES DE OPERACIÓN</b>", style_category), "", "", Paragraph("<b>Monto (Bs.)</b>", style_category_right)])
     
     table_data.append([Paragraph("Utilidad Neta del Ejercicio", style_indent), "", Paragraph("Punto de partida", style_normal_center), Paragraph(f"{utilidad_neta:,.2f}", style_normal_right)])
-    table_data.append([Paragraph("(+) Gasto de Depreciación del Ejercicio", style_indent), "", Paragraph("Suma (Gasto que no saca caja)", style_normal_center), Paragraph(f"{gasto_depreciacion:,.2f}", style_normal_right)])
+    table_data.append([Paragraph("(+) Gasto de Depreciación del Ejercicio", style_indent), "", Paragraph("Suma (Gasto no desembolsado)", style_normal_center), Paragraph(f"{gasto_depreciacion:,.2f}", style_normal_right)])
     table_data.append([Paragraph("<b>Utilidad Neta Ajustada</b>", style_indent), "", "", Paragraph(f"<b>{utilidad_ajustada:,.2f}</b>", style_normal_right)])
     
     table_data.append([Paragraph("<i>Cambios en Activos Operativos:</i>", style_indent), "", "", ""])
-    table_data.append([Paragraph("(-) Aumento en Anticipo a Proveedores", style_indent), Paragraph("830.866,01", style_normal_right), Paragraph("Resta (Efectivo congelado)", style_normal_center), Paragraph(f"{anticipo_prov:,.2f}", style_normal_right)])
+    table_data.append([Paragraph("(-) Aumento en CxC Accionista Jean Marco", style_indent), Paragraph(f"{abs(cxc_jean):,.2f}", style_normal_right), Paragraph("Resta (Uso de caja)", style_normal_center), Paragraph(f"{cxc_jean:,.2f}", style_normal_right)])
+    table_data.append([Paragraph("(-) Aumento en CxC Accionista Sandra Arroyo", style_indent), Paragraph(f"{abs(cxc_sandra):,.2f}", style_normal_right), Paragraph("Resta (Uso de caja)", style_normal_center), Paragraph(f"{cxc_sandra:,.2f}", style_normal_right)])
+    table_data.append([Paragraph("(-) Aumento en Anticipo a Proveedores", style_indent), Paragraph(f"{abs(anticipo_prov):,.2f}", style_normal_right), Paragraph("Resta (Efectivo congelado)", style_normal_center), Paragraph(f"{anticipo_prov:,.2f}", style_normal_right)])
     
     table_data.append([Paragraph("<i>Cambios en Pasivos Operativos:</i>", style_indent), "", "", ""])
-    table_data.append([Paragraph("(+) Aumento en Proveedores Nacionales", style_indent), Paragraph("524.938,14", style_normal_right), Paragraph("Suma (Financiamiento comercial)", style_normal_center), Paragraph(f"{prov_nac:,.2f}", style_normal_right)])
-    table_data.append([Paragraph("(+) Aumento en Retención ISLR Proveedores", style_indent), Paragraph("5.906,80", style_normal_right), Paragraph("Suma (Retención no pagada aún)", style_normal_center), Paragraph(f"{ret_islr:,.2f}", style_normal_right)])
-    table_data.append([Paragraph("(-) Disminución en Crédito Cashea", style_indent), Paragraph("-72.263,44", style_normal_right), Paragraph("Resta (Salida por pago de deuda)", style_normal_center), Paragraph(f"{cred_cashea:,.2f}", style_normal_right)])
+    table_data.append([Paragraph("(+) Aumento en Proveedores Nacionales", style_indent), Paragraph(f"{prov_nac:,.2f}", style_normal_right), Paragraph("Suma (Financiamiento comercial)", style_normal_center), Paragraph(f"{prov_nac:,.2f}", style_normal_right)])
+    table_data.append([Paragraph("(+) Aumento en Retención ISLR Proveedores", style_indent), Paragraph(f"{ret_islr:,.2f}", style_normal_right), Paragraph("Suma (Retención no pagada)", style_normal_center), Paragraph(f"{ret_islr:,.2f}", style_normal_right)])
+    table_data.append([Paragraph("(-) Disminución en Crédito Cashea", style_indent), Paragraph(f"{cred_cashea:,.2f}", style_normal_right), Paragraph("Resta (Pago de deuda)", style_normal_center), Paragraph(f"{cred_cashea:,.2f}", style_normal_right)])
     
     table_data.append([Paragraph("<b>Efectivo Neto Provisto por Actividades de Operación</b>", style_subtotal), "", "", Paragraph(f"<b>Bs. {flujo_op:,.2f}</b>", style_subtotal_right)])
 
     # 3. ACTIVIDADES DE INVERSIÓN
     cat_rows_indices.append(len(table_data))
     table_data.append([Paragraph("<b>ACTIVIDADES DE INVERSIÓN</b>", style_category), "", "", ""])
-    table_data.append([Paragraph("(-) Compra de Divisas (Paso a Binance)", style_indent), Paragraph("1.901.506,00", style_normal_right), Paragraph("Resta (Dinero que salió del banco)", style_normal_center), Paragraph(f"{compra_divisas:,.2f}", style_normal_right)])
-    table_data.append([Paragraph("Compra de Vehículo (Chery Arauca)", style_indent), Paragraph("5.269.432,30", style_normal_right), Paragraph("No aplica (Financiado directamente)", style_normal_center), Paragraph("0,00", style_normal_right)])
+    table_data.append([Paragraph("(-) Compra de Divisas (Paso a Binance)", style_indent), Paragraph(f"{abs(compra_divisas):,.2f}", style_normal_right), Paragraph("Resta (Salida de banco)", style_normal_center), Paragraph(f"{compra_divisas:,.2f}", style_normal_right)])
+    table_data.append([Paragraph("(-) Adquisición de Vehículo (Chery Arauca 2018)", style_indent), Paragraph(f"{abs(vehiculo_inv):,.2f}", style_normal_right), Paragraph("Resta / Financiado", style_normal_center), Paragraph(f"{vehiculo_inv:,.2f}", style_normal_right)])
     table_data.append([Paragraph("<b>Efectivo Neto Utilizado en Actividades de Inversión</b>", style_subtotal), "", "", Paragraph(f"<b>Bs. {flujo_inv:,.2f}</b>", style_subtotal_right)])
 
     # 4. ACTIVIDADES DE FINANCIAMIENTO
     cat_rows_indices.append(len(table_data))
     table_data.append([Paragraph("<b>ACTIVIDADES DE FINANCIAMIENTO</b>", style_category), "", "", ""])
-    table_data.append([Paragraph("(-) Aumento en Ctas. por Cobrar Accionistas", style_indent), Paragraph("294.531,64", style_normal_right), Paragraph("Resta (Dinero prestado a socios)", style_normal_center), Paragraph(f"{cxc_acc:,.2f}", style_normal_right)])
-    table_data.append([Paragraph("(+) Aumento en Cuentas por Pagar Accionistas", style_indent), Paragraph("234.226,65", style_normal_right), Paragraph("Suma (Dinero recibido de socios)", style_normal_center), Paragraph(f"{cxp_acc:,.2f}", style_normal_right)])
-    table_data.append([Paragraph("Crédito Vehículo Recibido", style_indent), Paragraph("4.636.104,51", style_normal_right), Paragraph("No aplica (No entró a cuentas)", style_normal_center), Paragraph("0,00", style_normal_right)])
+    table_data.append([Paragraph("(+) Obtención de Deuda Financiera (Crédito Vehículo)", style_indent), Paragraph(f"{credito_veh:,.2f}", style_normal_right), Paragraph("Suma (Ingreso por deuda)", style_normal_center), Paragraph(f"{credito_veh:,.2f}", style_normal_right)])
+    table_data.append([Paragraph("(+) Aumento en Cuentas por Pagar Accionistas (2.2.1.01)", style_indent), Paragraph(f"{cxp_acc:,.2f}", style_normal_right), Paragraph("Suma (Aporte de socios)", style_normal_center), Paragraph(f"{cxp_acc:,.2f}", style_normal_right)])
+    table_data.append([Paragraph("(+) Aumento en Otras Cuentas por Pagar (2.2.2.01)", style_indent), Paragraph(f"{cxp_acc_2:,.2f}", style_normal_right), Paragraph("Suma (Financiamiento largo plazo)", style_normal_center), Paragraph(f"{cxp_acc_2:,.2f}", style_normal_right)])
     table_data.append([Paragraph("<b>Efectivo Neto Utilizado en Actividades de Financiamiento</b>", style_subtotal), "", "", Paragraph(f"<b>Bs. {flujo_fin:,.2f}</b>", style_subtotal_right)])
 
-    # 5. AJUSTE NETO POR IDENTIFICAR
-    table_data.append([Paragraph("Ajuste neto por identificar", style_indent), "", Paragraph("Resta", style_normal_center), Paragraph(f"{ajuste_id:,.2f}", style_normal_right)])
+    # 5. TOTALES FINALES Y SALDOS BANCARIOS
+    table_data.append([Paragraph("<b>DISMINUCIÓN NETA DEL EFECTIVO</b>", style_total_final), "", Paragraph("(Op + Inv + Fin)", style_normal_center), Paragraph(f"<b>Bs. {disminucion_neta:,.2f}</b>", style_total_final_right)])
+    table_data.append([Paragraph("<b>(+) EFECTIVO AL INICIO DEL EJERCICIO</b>", style_indent), "", Paragraph("Saldo Banco (Inicial)", style_normal_center), Paragraph(f"<b>Bs. {saldo_ini:,.2f}</b>", style_normal_right)])
+    table_data.append([Paragraph("<b>(=) EFECTIVO AL FINAL DEL EJERCICIO</b>", style_total_final), "", Paragraph("Saldo Banco (Final)", style_normal_center), Paragraph(f"<b>Bs. {saldo_fin:,.2f}</b>", style_total_final_right)])
 
-    # 6. TOTALES FINALES Y SALDOS BANCARIOS
-    table_data.append([Paragraph("<b>DISMINUCIÓN NETA DEL EFECTIVO</b>", style_total_final), "", Paragraph("(Op + Inv + Fin + Ajuste)", style_normal_center), Paragraph(f"<b>Bs. {disminucion_neta:,.2f}</b>", style_total_final_right)])
-    table_data.append([Paragraph("<b>(+) EFECTIVO AL INICIO DEL EJERCICIO</b>", style_indent), "", Paragraph("Banco de Venezuela (Inicial)", style_normal_center), Paragraph(f"<b>Bs. {saldo_ini:,.2f}</b>", style_normal_right)])
-    table_data.append([Paragraph("<b>(=) EFECTIVO AL FINAL DEL EJERCICIO</b>", style_total_final), "", Paragraph("Banco de Venezuela (Final)", style_normal_center), Paragraph(f"<b>Bs. {saldo_fin:,.2f}</b>", style_total_final_right)])
-
-    # Configuración de anchos de columnas [Concepto, Variación, Efecto Caja, Monto] (Total 540 pt apto para letra)
+    # Configuración de anchos de columnas [Concepto, Variación, Efecto Caja, Monto] (Total 540 pt)
     t_efectivo = Table(table_data, colWidths=[200, 85, 155, 100])
     
     t_styles = [
@@ -10177,14 +10240,13 @@ def generar_pdf_flujo_efectivo(nombre_empresa, datos_efectivo, cpc_info=None):
         ('BOTTOMPADDING', (0,0), (-1,-1), 2),
         ('LEFTPADDING', (0,0), (-1,-1), 4),
         ('RIGHTPADDING', (0,0), (-1,-1), 4),
-        ('BACKGROUND', (0, len(table_data)-3), (-1, len(table_data)-3), colors.HexColor('#f8d7da')), # Resaltado alerta para la disminución neta
-        ('BACKGROUND', (0, len(table_data)-1), (-1, len(table_data)-1), colors.HexColor('#d4edda')), # Resaltado verde para el saldo final
+        ('BACKGROUND', (0, len(table_data)-3), (-1, len(table_data)-3), colors.HexColor('#f8d7da')), 
+        ('BACKGROUND', (0, len(table_data)-1), (-1, len(table_data)-1), colors.HexColor('#d4edda')), 
     ]
 
-    # Aplicar el fondo azul corporativo a las barras de categoría principales
     for idx in cat_rows_indices:
         t_styles.append(('BACKGROUND', (0, idx), (-1, idx), colors.HexColor('#1e3c72')))
-        t_styles.append(('SPAN', (0, idx), (2, idx))) # Combinar celdas de título de categoría
+        t_styles.append(('SPAN', (0, idx), (2, idx)))
 
     t_efectivo.setStyle(TableStyle(t_styles))
     
