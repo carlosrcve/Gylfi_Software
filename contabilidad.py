@@ -9344,15 +9344,6 @@ import io
 import hashlib
 import uuid
 import qrcode
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image as RLImage
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib import colors
-
-import io
-import hashlib
-import uuid
-import qrcode
 from datetime import datetime
 import streamlit as st
 from reportlab.lib.pagesizes import letter
@@ -9565,10 +9556,21 @@ def generar_pdf_certificado_solvencia(nombre_empresa=None, ano=2026, mes_str="Ma
     story.append(Paragraph(sub_2, sub_bullet_style))
     story.append(Spacer(1, 6))
 
-    # Cierre institucional
+    # --- OBTENCIÓN DE LA FECHA DE DESCARGA ACTUAL ---
+    meses_es = {
+        1: 'enero', 2: 'febrero', 3: 'marzo', 4: 'abril',
+        5: 'mayo', 6: 'junio', 7: 'julio', 8: 'agosto',
+        9: 'septiembre', 10: 'octubre', 11: 'noviembre', 12: 'diciembre'
+    }
+    ahora = datetime.now()
+    dia_actual = ahora.day
+    mes_actual = meses_es.get(ahora.month, '')
+    ano_actual = ahora.year
+
+    # Cierre institucional con fecha actual de descarga
     texto_cierre = (
         f"Se expide la presente certificación a solicitud de la parte interesada en Caracas, "
-        f"a los {datetime.now().day} días del mes de {mes_str} de {ano}. Cualquier entidad financiera puede verificar la autenticidad "
+        f"a los {dia_actual} días del mes de {mes_actual} de {ano_actual}. Cualquier entidad financiera puede verificar la autenticidad "
         f"de este reporte escaneando el código QR superior o ingresando el token único en la plataforma oficial de Gylfi Software."
     )
     story.append(Paragraph(texto_cierre, body_style))
