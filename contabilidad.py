@@ -3366,10 +3366,10 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
     try:
-        # Consultas limpias y directas sobre las tablas principales
-        sql_si = f"SELECT plan_cuentas, debe - haber as val FROM `{db_name}`.saldos_iniciales"
-        sql_mo_d = f"SELECT plan_cuentas, debe as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s"
-        sql_mo_h = f"SELECT plan_cuentas, haber as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s"
+        # Consultas con su respectivo GROUP BY para consolidar los saldos y movimientos correctamente
+        sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY plan_cuentas"
+        sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
+        sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
 
         df_si = ejecutar_consulta(sql_si, conn)
         df_debe = ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f))
@@ -3381,7 +3381,6 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         for nombre, df in dfs.items():
             if df is not None and not df.empty:
                 df.columns = [str(c).lower().strip() for c in df.columns]
-                # Asegurar que localizamos la columna de cuentas sin importar si se llama plan_cuentas o cuenta
                 col_pc = next((c for c in df.columns if 'cuenta' in c or 'plan' in c or 'codigo' in c), df.columns[0])
                 col_val = next((c for c in df.columns if c != col_pc), df.columns[-1])
                 
@@ -3421,9 +3420,159 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         })
 
     except Exception as e:
+        st.error(f"❌ Error en comprobación: {e}")
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     finally:
         if conn and hasattr(conn, 'close'):
+            try: conn.close()
+            except: pass
+
+
+@st.cache_data(ttl=300)
+def generar_balance_profesional(db_name, f_i, f_f, sucursal):
+    if not db_name or db_name == 'none':
+        st.error("No se ha especificado el nombre de la base de datos.")
+        return pd.DataFrame()
+
+    conn = conectar_db(db_name)
+    if not conn:
+        st.error(f"No se pudo conectar a la base de datos: {db_name}")
+        return pd.DataFrame()
+
+    cursor = None
+    try:
+        cursor = conn.cursor()
+        cursor.execute(f"USE `{db_name}`")
+        
+        query_plan = f"SELECT codigo, nombre, nivel, tipo, padre FROM `{db_name}`.plan_cuentas ORDER BY codigo"
+        df_plan = ejecutar_consulta(query_plan, conn)
+        
+        if df_plan is None or df_plan.empty:
+            st.warning("⚠️ El plan de cuentas está vacío.")
+            return pd.DataFrame()
+
+        df_plan.columns = [str(c).strip().lower() for c in df_plan.columns]
+        df_plan['codigo_limpio'] = df_plan['codigo'].astype(str).str.strip()
+        
+        def calcular_padre(cod):
+            partes = str(cod).strip().split('.')
+            if len(partes) > 1:
+                return '.'.join(partes[:-1])
+            return None
+
+        df_plan['padre_real'] = df_plan['codigo_limpio'].apply(calcular_padre)
+
+        df_saldos = generar_balance_comprobacion(db_name, f_i, f_f, sucursal)
+        
+        saldos_dict = {}
+        if df_saldos is not None and not df_saldos.empty:
+            df_saldos.columns = [str(c).strip().lower() for c in df_saldos.columns]
+            c_cod = next((c for c in df_saldos.columns if 'codigo' in c or 'código' in c or 'cuenta' in c), df_saldos.columns[0])
+            c_si = next((c for c in df_saldos.columns if 'inicial' in c or 'si' in c), 'saldo inicial')
+            c_deb = next((c for c in df_saldos.columns if 'debe' in c), 'debe')
+            c_hab = next((c for c in df_saldos.columns if 'haber' in c), 'haber')
+            
+            for _, r in df_saldos.iterrows():
+                cod_key = str(r[c_cod]).strip()
+                saldos_dict[cod_key] = {
+                    'Saldo Inicial': float(r.get(c_si, 0.0) or 0.0),
+                    'Debe': float(r.get(c_deb, 0.0) or 0.0),
+                    'Haber': float(r.get(c_hab, 0.0) or 0.0)
+                }
+
+        df = df_plan.copy()
+        df['Saldo Inicial'] = 0.0
+        df['Debe'] = 0.0
+        df['Haber'] = 0.0
+        df['Saldo Final'] = 0.0
+
+        padres_codes = set(df['padre_real'].dropna().astype(str))
+
+        for idx, row_df in df.iterrows():
+            c_cod = row_df['codigo_limpio']
+            es_padre = c_cod in padres_codes
+            es_grupo = str(row_df.get('tipo', '')).lower() == 'grupo'
+            
+            if not es_padre and not es_grupo:
+                if c_cod in saldos_dict:
+                    df.loc[idx, 'Saldo Inicial'] = saldos_dict[c_cod]['Saldo Inicial']
+                    df.loc[idx, 'Debe'] = saldos_dict[c_cod]['Debe']
+                    df.loc[idx, 'Haber'] = saldos_dict[c_cod]['Haber']
+
+        niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
+        
+        for n in niveles_disponibles:
+            filas_nivel = df[df['nivel'] == n]
+            for _, fila in filas_nivel.iterrows():
+                p_cod = fila['padre_real']
+                if pd.notna(p_cod) and p_cod != '' and p_cod != 'none' and p_cod != 'nan':
+                    mask_padre = df['codigo_limpio'] == str(p_cod).strip()
+                    if mask_padre.any():
+                        df.loc[mask_padre, 'Saldo Inicial'] = df.loc[mask_padre, 'Saldo Inicial'].values + float(fila['Saldo Inicial'])
+                        df.loc[mask_padre, 'Debe'] = df.loc[mask_padre, 'Debe'].values + float(fila['Debe'])
+                        df.loc[mask_padre, 'Haber'] = df.loc[mask_padre, 'Haber'].values + float(fila['Haber'])
+
+        df['Tipo_1'] = df['codigo_limpio'].str[0]
+        es_contra_activo = df['codigo_limpio'].str.startswith('1.2')
+        
+        es_deudor = (df['Tipo_1'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
+        es_acreedor = df['Tipo_1'].isin(['2', '3', '4', '7']) | es_contra_activo
+
+        df['Saldo Final'] = 0.0
+        df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
+        df.loc[es_acreedor, 'Saldo Final'] = df['Saldo Inicial'] - df['Debe'] + df['Haber']
+
+        df_nivel_1 = df[df['nivel'] == 1]
+        
+        total_debe = float(df_nivel_1['Debe'].sum())
+        total_haber = float(df_nivel_1['Haber'].sum())
+        total_saldo_inicial_neto = float(df_nivel_1['Saldo Inicial'].sum())
+        
+        totales_n1 = {}
+        for _, r_n1 in df_nivel_1.iterrows():
+            t_1 = str(r_n1['codigo_limpio']).strip()[0]
+            totales_n1[t_1] = float(r_n1['Saldo Final'])
+
+        val_activo = totales_n1.get('1', 0.0)
+        val_pasivo = totales_n1.get('2', 0.0)
+        val_patrimonio = totales_n1.get('3', 0.0)
+        val_ingresos = totales_n1.get('4', 0.0)
+        val_costos = totales_n1.get('5', 0.0)
+        val_gastos = totales_n1.get('6', 0.0)
+        val_otros_ing = totales_n1.get('7', 0.0)
+        val_egresos = totales_n1.get('8', 0.0)
+
+        neto_excel = val_activo - val_pasivo - val_patrimonio - (((val_ingresos - val_costos - val_gastos) - val_otros_ing) - val_egresos)
+
+        fila_total = pd.DataFrame([{
+            'codigo': 'Σ', 
+            'nombre': 'TOTAL GENERAL', 
+            'nivel': 0, 
+            'tipo': 'Total', 
+            'padre': None,
+            'Saldo Inicial': round(total_saldo_inicial_neto, 2),
+            'Debe': total_debe,
+            'Haber': total_haber,
+            'Saldo Final': round(neto_excel, 2)
+        }])
+        
+        cols_salida = ['codigo', 'nombre', 'nivel', 'tipo', 'padre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
+        for c in cols_salida:
+            if c not in df.columns:
+                df[c] = None
+
+        df_final = pd.concat([df[cols_salida], fila_total[cols_salida]], ignore_index=True)
+        return df_final
+
+    except Exception as e:
+        st.error(f"❌ Error crítico en profesional: {e}")
+        return pd.DataFrame()
+        
+    finally:
+        if cursor:
+            try: cursor.close()
+            except: pass
+        if conn:
             try: conn.close()
             except: pass
 
