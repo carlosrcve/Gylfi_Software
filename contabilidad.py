@@ -3183,9 +3183,19 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
             if c not in df_saldos.columns: 
                 df_saldos[c] = 0.0
 
-        # --- LIMPIEZA Y NORMALIZACIÓN DE CÓDIGOS PARA EL MERGE ---
-        df_plan['llave_join'] = df_plan['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
-        df_plan['llave_padre'] = df_plan['padre'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+        # --- LIMPIEZA Y DERIVACIÓN AUTOMÁTICA DEL PADRE POR ESTRUCTURA ---
+        df_plan['codigo_limpio'] = df_plan['codigo'].astype(str).str.strip()
+        
+        def calcular_padre(cod):
+            partes = str(cod).strip().split('.')
+            if len(partes) > 1:
+                return '.'.join(partes[:-1])
+            return None
+
+        df_plan['padre_calculado'] = df_plan['codigo_limpio'].apply(calcular_padre)
+        
+        df_plan['llave_join'] = df_plan['codigo_limpio'].str.replace(r'[^0-9]', '', regex=True)
+        df_plan['llave_padre'] = df_plan['padre_calculado'].fillna('').str.replace(r'[^0-9]', '', regex=True)
         df_saldos['llave_join'] = df_saldos['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
 
         # 3. Hacer el merge
