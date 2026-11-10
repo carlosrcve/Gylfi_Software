@@ -3111,15 +3111,16 @@ def generar_balance_comprobacion(_db, f_i, f_f, sucursal):
     if not _db:
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
-    conn_saldos = conectar_db(_db)
-    if not conn_saldos:
+    conn = conectar_db(_db)
+    if not conn:
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
-    cursor_saldos = None
+    actual_conn = None
     try:
-        cursor_saldos = conn_saldos.cursor()
-        cursor_saldos.execute(f"USE `{_db}`")
-        
+        actual_conn = conectar_db(_db) if isinstance(conn, str) else conn
+        if not actual_conn:
+            return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+
         # 1. Traer los Saldos Iniciales fijos de la tabla 'saldos_iniciales'
         sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{_db}`.saldos_iniciales GROUP BY plan_cuentas"
         
@@ -3127,15 +3128,20 @@ def generar_balance_comprobacion(_db, f_i, f_f, sucursal):
         sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{_db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
         sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{_db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
 
+        df_si = pd.read_sql(sql_si, actual_conn)
+        df_debe = pd.read_sql(sql_mo_d, actual_conn, params=(f_i, f_f))
+        df_haber = pd.read_sql(sql_mo_h, actual_conn, params=(f_i, f_f))
+
         dfs = {
-            'si': ejecutar_consulta(sql_si, conn_saldos),
-            'debe': ejecutar_consulta(sql_mo_d, conn_saldos, params=(f_i, f_f)),
-            'haber': ejecutar_consulta(sql_mo_h, conn_saldos, params=(f_i, f_f))
+            'si': df_si,
+            'debe': df_debe,
+            'haber': df_haber
         }
 
         lista_frames = []
         for nombre, df in dfs.items():
             if df is not None and not df.empty:
+                df.columns = [str(c).lower() for c in df.columns]
                 if 'plan_cuentas' in df.columns:
                     df = df.rename(columns={'plan_cuentas': 'Código', 'val': nombre})
                     df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
@@ -3180,12 +3186,11 @@ def generar_balance_comprobacion(_db, f_i, f_f, sucursal):
         st.error(f"Error calculando saldos de comprobación: {e}")
         return pd.DataFrame()
     finally:
-        if cursor_saldos:
-            try: cursor_saldos.close()
-            except: pass
-        if conn_saldos:
-            try: conn_saldos.close()
-            except: pass
+        try:
+            if actual_conn and hasattr(actual_conn, 'close'):
+                actual_conn.close()
+        except:
+            pass
 
 
 @st.cache_data(ttl=300)
@@ -3199,20 +3204,21 @@ def generar_balance_profesional(_db, f_i, f_f, sucursal):
         st.error("Papi, no has seleccionado ninguna base de datos.")
         return None
 
-    # Abrimos la conexión correctamente usando el string de la base de datos
     conn = conectar_db(db)
     if not conn:
         st.error(f"Papi, no se pudo establecer conexión a la base de datos: {db}")
         return None
 
-    cursor = None
+    actual_conn = None
     try:
-        cursor = conn.cursor()
-        cursor.execute(f"USE `{db}`")
-        
+        actual_conn = conectar_db(db) if isinstance(conn, str) else conn
+        if not actual_conn:
+            st.error(f"Papi, no se pudo establecer conexión a la base de datos: {db}")
+            return None
+
         # 1. Consultar el plan de cuentas original
         query_plan = f"SELECT codigo, nombre, nivel, tipo, padre FROM `{db}`.plan_cuentas ORDER BY codigo"
-        df_plan = ejecutar_consulta(query_plan, conn)
+        df_plan = pd.read_sql(query_plan, actual_conn)
         
         if df_plan is None or df_plan.empty:
             st.error("⚠️ El plan de cuentas está vacío.")
@@ -3322,12 +3328,11 @@ def generar_balance_profesional(_db, f_i, f_f, sucursal):
         st.error(f"❌ Error procesando balance profesional: {e}")
         return None
     finally:
-        if cursor:
-            try: cursor.close()
-            except: pass
-        if conn:
-            try: conn.close()
-            except: pass
+        try:
+            if actual_conn and hasattr(actual_conn, 'close'):
+                actual_conn.close()
+        except:
+            pass
 
 
 @st.cache_data(ttl=300)
