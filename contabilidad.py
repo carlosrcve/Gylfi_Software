@@ -3361,8 +3361,8 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
     """
-    Genera el balance profesional inyectando saldos en cuentas hoja
-    y acumulando por jerarquía exacta de puntos de abajo hacia arriba.
+    Genera el balance profesional inyectando saldos y acumulando 
+    de abajo hacia arriba mediante una jerarquía de puntos exacta.
     """
     if not db_name or db_name == 'none':
         st.error("No se ha especificado el nombre de la base de datos.")
@@ -3420,19 +3420,15 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df['Haber'] = 0.0
         df['Saldo Final'] = 0.0
 
-        padres_codes = set(df['padre_real'].dropna().astype(str))
-
+        # 1. Inyectar saldos iniciales y movimientos en todas las cuentas que posean datos directos
         for idx, row_df in df.iterrows():
             c_cod = row_df['codigo_limpio']
-            es_padre = c_cod in padres_codes
-            es_grupo = str(row_df.get('tipo', '')).lower() == 'grupo'
-            
-            if not es_padre and not es_grupo:
-                if c_cod in saldos_dict:
-                    df.loc[idx, 'Saldo Inicial'] = saldos_dict[c_cod]['Saldo Inicial']
-                    df.loc[idx, 'Debe'] = saldos_dict[c_cod]['Debe']
-                    df.loc[idx, 'Haber'] = saldos_dict[c_cod]['Haber']
+            if c_cod in saldos_dict:
+                df.loc[idx, 'Saldo Inicial'] = saldos_dict[c_cod]['Saldo Inicial']
+                df.loc[idx, 'Debe'] = saldos_dict[c_cod]['Debe']
+                df.loc[idx, 'Haber'] = saldos_dict[c_cod]['Haber']
 
+        # 2. ACUMULACIÓN JERÁRQUICA RIGUROSA DE ABAJO HACIA ARRIBA POR NIVELES
         niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
         
         for n in niveles_disponibles:
@@ -3440,12 +3436,14 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
             for _, fila in filas_nivel.iterrows():
                 p_cod = fila['padre_real']
                 if pd.notna(p_cod) and p_cod != '' and p_cod != 'none' and p_cod != 'nan':
-                    mask_padre = df['codigo_limpio'] == str(p_cod).strip()
+                    p_str = str(p_cod).strip()
+                    mask_padre = df['codigo_limpio'] == p_str
                     if mask_padre.any():
                         df.loc[mask_padre, 'Saldo Inicial'] = df.loc[mask_padre, 'Saldo Inicial'].values + float(fila['Saldo Inicial'])
                         df.loc[mask_padre, 'Debe'] = df.loc[mask_padre, 'Debe'].values + float(fila['Debe'])
                         df.loc[mask_padre, 'Haber'] = df.loc[mask_padre, 'Haber'].values + float(fila['Haber'])
 
+        # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL ---
         df['Tipo_1'] = df['codigo_limpio'].str[0]
         es_contra_activo = df['codigo_limpio'].str.startswith('1.2')
         
@@ -3456,6 +3454,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
         df.loc[es_acreedor, 'Saldo Final'] = df['Saldo Inicial'] - df['Debe'] + df['Haber']
 
+        # 3. Fila Total Global
         df_nivel_1 = df[df['nivel'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
