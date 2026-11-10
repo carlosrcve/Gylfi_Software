@@ -3357,6 +3357,88 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
 
 
 @st.cache_data(ttl=300)
+@st.cache_data(ttl=300)
+def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
+    if not db_name:
+        return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+    
+    conn = conectar_db(db_name)
+    if not conn:
+        return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+    
+    try:
+        # Consultas directas asegurando compatibilidad total
+        sql_si = f"SELECT * FROM `{db_name}`.saldos_iniciales LIMIT 1"
+        df_test_si = ejecutar_consulta(sql_si, conn)
+        
+        # Detectar el nombre de la columna de cuentas dinámicamente
+        col_c = 'plan_cuentas'
+        if df_test_si is not None and not df_test_si.empty:
+            cols_l = [str(c).lower() for c in df_test_si.columns]
+            col_c = next((c for c in cols_l if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_l[0])
+
+        sql_si_real = f"SELECT `{col_c}` as plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY `{col_c}`"
+        sql_mo_d = f"SELECT `{col_c}` as plan_cuentas, SUM(debe) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c}`"
+        sql_mo_h = f"SELECT `{col_c}` as plan_cuentas, SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c}`"
+
+        df_si = ejecutar_consulta(sql_si_real, conn)
+        df_debe = ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f))
+        df_haber = ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
+
+        dfs = {'si': df_si, 'debe': df_debe, 'haber': df_haber}
+        lista_frames = []
+        
+        for nombre, df in dfs.items():
+            if df is not None and not df.empty:
+                df.columns = [str(c).lower().strip() for c in df.columns]
+                col_pc = next((c for c in df.columns if 'plan' in c or 'cuenta' in c or 'codigo' in c), df.columns[0])
+                col_val = next((c for c in df.columns if c != col_pc), df.columns[-1])
+                
+                df = df.rename(columns={col_pc: 'Código', col_val: nombre})
+                df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
+                df['Código'] = df['Código'].astype(str).str.strip()
+                df = df.groupby('Código')[nombre].sum().reset_index()
+                df = df.set_index('Código')
+                lista_frames.append(df)
+
+        if not lista_frames:
+            return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+
+        balance = pd.concat(lista_frames, axis=1).fillna(0.0)
+        balance.reset_index(inplace=True)
+        
+        for c in ['si', 'debe', 'haber']:
+            if c not in balance.columns: 
+                balance[c] = 0.0
+            balance[c] = balance[c].astype(float)
+            
+        balance['Tipo'] = balance['Código'].astype(str).str[0]
+        
+        es_cuenta_resultado = balance['Tipo'].isin(['5', '6', '7', '8'])
+        balance['Saldo Inicial'] = balance['si']
+        balance.loc[es_cuenta_resultado, 'Saldo Inicial'] = 0.0
+        
+        es_contra_activo = balance['Código'].astype(str).str.startswith('1.2')
+        es_activo_gasto = (balance['Tipo'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
+
+        balance['Saldo Final'] = 0.0
+        balance.loc[es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] + balance['debe'] - balance['haber']
+        balance.loc[~es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] - balance['debe'] + balance['haber']
+        
+        return balance[['Código', 'Saldo Inicial', 'debe', 'haber', 'Saldo Final']].rename(columns={
+            'debe': 'Debe', 'haber': 'Haber'
+        })
+
+    except Exception as e:
+        st.error(f"⚠️ Error en comprobación: {e}")
+        return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+    finally:
+        if conn and hasattr(conn, 'close'):
+            try: conn.close()
+            except: pass
+
+
+@st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
     if not db_name or db_name == 'none':
         st.error("No se ha especificado el nombre de la base de datos.")
@@ -3392,6 +3474,12 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
 
         df_saldos = generar_balance_comprobacion(db_name, f_i, f_f, sucursal)
         
+        # Mensaje de diagnóstico para ver si está trayendo datos
+        if df_saldos is not None and not df_saldos.empty:
+            st.info(f"🔍 Diagnóstico: Se encontraron movimientos en {len(df_saldos)} cuentas desde la BD.")
+        else:
+            st.warning("⚠️ Diagnóstico: `generar_balance_comprobacion` devolvió 0 registros. Revisa si hay asientos en este rango de fechas.")
+
         saldos_dict = {}
         if df_saldos is not None and not df_saldos.empty:
             df_saldos.columns = [str(c).strip().lower() for c in df_saldos.columns]
@@ -3493,7 +3581,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         return df_final
 
     except Exception as e:
-        st.error(f"❌ Error crítico en balance profesional: {e}")
+        st.error(f"❌ Error crítico en profesional: {e}")
         return pd.DataFrame()
         
     finally:
