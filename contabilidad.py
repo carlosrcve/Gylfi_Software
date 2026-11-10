@@ -3361,8 +3361,8 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
     """
-    Genera el balance profesional inyectando saldos y acumulando 
-    de abajo hacia arriba mediante una jerarquía de puntos exacta.
+    Genera el balance profesional inyectando saldos iniciales y movimientos,
+    acumulando de abajo hacia arriba estrictamente una sola vez sin duplicar.
     """
     if not db_name or db_name == 'none':
         st.error("No se ha especificado el nombre de la base de datos.")
@@ -3388,14 +3388,6 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df_plan.columns = [str(c).strip().lower() for c in df_plan.columns]
         df_plan['codigo_limpio'] = df_plan['codigo'].astype(str).str.strip()
         
-        def calcular_padre(cod):
-            partes = str(cod).strip().split('.')
-            if len(partes) > 1:
-                return '.'.join(partes[:-1])
-            return None
-
-        df_plan['padre_real'] = df_plan['codigo_limpio'].apply(calcular_padre)
-
         df_saldos = generar_balance_comprobacion(db_name, f_i, f_f, sucursal)
         
         saldos_dict = {}
@@ -3420,7 +3412,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df['Haber'] = 0.0
         df['Saldo Final'] = 0.0
 
-        # 1. Inyectar todos los saldos iniciales y movimientos en su respectiva cuenta (sea hoja o padre con movimientos)
+        # 1. Inyectar saldos iniciales y movimientos en su respectiva cuenta
         for idx, row_df in df.iterrows():
             c_cod = row_df['codigo_limpio']
             if c_cod in saldos_dict:
@@ -3428,35 +3420,36 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                 df.loc[idx, 'Debe'] = saldos_dict[c_cod]['Debe']
                 df.loc[idx, 'Haber'] = saldos_dict[c_cod]['Haber']
 
-        # 2. ACUMULACIÓN JERÁRQUICA ASCENDENTE (EL HIJO SUMA AL PADRE EXPLÍCITO Y A TODOS LOS PADRES SUPERIORES)
-        # Ordenamos de mayor nivel (más profundo) a menor nivel (más superficial)
+        # 2. ACUMULACIÓN JERÁRQUICA ASCENDENTE ESTRICTA (SIN DUPLICAR)
+        # Convertimos el nivel a numérico y ordenamos de mayor a menor profundidad
         df['nivel_num'] = pd.to_numeric(df['nivel'], errors='coerce').fillna(1)
         niveles_ordenados = sorted(df['nivel_num'].unique(), reverse=True)
 
+        # Mapeo rápido de índices para sumar directamente por código limpio
+        indices_por_codigo = {row['codigo_limpio']: idx for idx, row in df.iterrows()}
+
         for n in niveles_ordenados:
             filas_nivel = df[df['nivel_num'] == n]
-            for _, fila in filas_nivel.iterrows():
+            for idx_fila, fila in filas_nivel.iterrows():
                 c_actual = str(fila['codigo_limpio'])
                 si_val = float(fila['Saldo Inicial'])
                 deb_val = float(fila['Debe'])
                 hab_val = float(fila['Haber'])
-                
-                # Si esta cuenta tiene un padre explícito en la columna 'padre' o lo deducimos por puntos
-                p_cod = str(fila.get('padre', '')).strip()
-                if not p_cod or p_cod.lower() == 'none' or p_cod.lower() == 'nan':
-                    partes = c_actual.split('.')
-                    if len(partes) > 1:
-                        p_cod = '.'.join(partes[:-1])
-                
-                # Propagar hacia arriba de forma recursiva por cada segmento del código
-                partes_actuales = c_actual.split('.')
-                for i in range(1, len(partes_actuales)):
-                    padre_ancestro = '.'.join(partes_actuales[:i])
-                    mask_ancestro = df['codigo_limpio'] == padre_ancestro
-                    if mask_ancestro.any():
-                        df.loc[mask_ancestro, 'Saldo Inicial'] = df.loc[mask_ancestro, 'Saldo Inicial'].values + si_val
-                        df.loc[mask_ancestro, 'Debe'] = df.loc[mask_ancestro, 'Debe'].values + deb_val
-                        df.loc[mask_ancestro, 'Haber'] = df.loc[mask_ancestro, 'Haber'].values + hab_val
+
+                # Si la cuenta está completamente en ceros, no hay nada que propagar hacia arriba
+                if si_val == 0.0 and deb_val == 0.0 and hab_val == 0.0:
+                    continue
+
+                # Determinar el código del padre inmediato por puntos (ej: '6.1.1.03' -> '6.1.1')
+                partes = c_actual.split('.')
+                if len(partes) > 1:
+                    p_str = '.'.join(partes[:-1])
+                    if p_str in indices_por_codigo:
+                        idx_padre = indices_por_codigo[p_str]
+                        # Sumar únicamente al padre inmediato de forma directa
+                        df.loc[idx_padre, 'Saldo Inicial'] += si_val
+                        df.loc[idx_padre, 'Debe'] += deb_val
+                        df.loc[idx_padre, 'Haber'] += hab_val
 
         # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL ---
         df['Tipo_1'] = df['codigo_limpio'].str[0]
@@ -3470,7 +3463,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df.loc[es_acreedor, 'Saldo Final'] = df['Saldo Inicial'] - df['Debe'] + df['Haber']
 
         # 3. Fila Total Global
-        df_nivel_1 = df[df['nivel'] == 1]
+        df_nivel_1 = df[df['nivel_num'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
         total_haber = float(df_nivel_1['Haber'].sum())
