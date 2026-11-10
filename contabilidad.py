@@ -9716,8 +9716,9 @@ from datetime import datetime
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
     Motor IFRS 100% Dinámico, Autónomo y Cero Parches Manuales.
-    Calcula el flujo indirecto mediante variaciones puras de balance y clases contables,
-    adaptándose automáticamente a cualquier cuenta nueva creada en períodos futuros.
+    Agrupa dinámicamente los pasivos operativos corrientes por el tronco 2.1 
+    (cubriendo 2.1.1, 2.1.2, 2.1.3 y cualquier cuenta nueva futura) y 
+    el financiamiento por el tronco 2.2 y 3 (cubriendo 2.2.1.01).
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
@@ -9796,9 +9797,9 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                 movimiento_activos = float((act_op_df['debe'] - act_op_df['haber']).sum())
                 variacion_activos_operativos = -movimiento_activos
 
-            # --- C. Pasivos Operativos Corrientes (Clase 2.1.1.01) ---
+            # --- C. Pasivos Operativos Corrientes (Tronco 2.1: atrapa automáticamente 2.1.1, 2.1.2, 2.1.3 y futuros) ---
             pas_op_df = df[
-                df['plan_cuentas'].str.startswith('2.1.1.01')
+                df['plan_cuentas'].str.startswith('2.1')
             ]
             if not pas_op_df.empty:
                 movimiento_pasivos = float((pas_op_df['haber'] - pas_op_df['debe']).sum())
@@ -9808,7 +9809,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             inv_df = df[df['plan_cuentas'].str.startswith('1.2') & ~df['plan_cuentas'].str.startswith('1.2.1.02')]
             flujo_inversion = -abs(float((inv_df['debe'] - inv_df['haber']).sum()))
 
-            # --- E. Actividades de Financiamiento (Pasivos No Corrientes 2.2 y Patrimonio 3) ---
+            # --- E. Actividades de Financiamiento (Pasivos No Corrientes 2.2 -atrapando 2.2.1.01- y Patrimonio 3) ---
             fin_df = df[
                 df['plan_cuentas'].str.startswith('2.2') | 
                 df['plan_cuentas'].str.startswith('3')
@@ -9836,20 +9837,19 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         str_lit.subheader(f"📊 ESTADO DE FLUJOS DE EFECTIVO — {nombre_mes} {ano}")
         str_lit.markdown("*(Método Indirecto - Período Actual)*")
 
-        # Construcción de la tabla de auditoría con formato numérico formateado idéntico al Excel
         df_audit = pd.DataFrame({
             "Concepto / Cuenta": [
                 "1. ACTIVIDADES DE OPERACIÓN",
                 "Utilidad (Ganancia) Neta del Ejercicio",
                 "(+) Depreciación de Propiedades, Planta y Equipo",
                 "(-) Variación en Activos Operativos (Capital de Trabajo)",
-                "(+) Variación en Pasivos Operativos Corrientes",
-                "Flujo Netto de Efectivo por Actividades de Operación",
+                "(+) Variación en Pasivos Operativos Corrientes (Trunk 2.1)",
+                "Flujo Neto de Efectivo por Actividades de Operación",
                 "2. ACTIVIDADES DE INVERSIÓN",
                 "(-) Adquisición en Activos No Corrientes / Inversión",
                 "Flujo Neto de Efectivo por Actividades de Inversión",
                 "3. ACTIVIDADES DE FINANCIAMIENTO",
-                "(+) Financiamiento / Pasivo No Corriente & Patrimonio",
+                "(+) Financiamiento / Pasivo No Corriente & Patrimonio (2.2 / 3)",
                 "Flujo Neto de Efectivo por Actividades de Financiamiento",
                 "4. RESUMEN Y CONCILIACIÓN",
                 "Incremento / Disminución Neta del Efectivo",
