@@ -8319,156 +8319,154 @@ def extraer_datos_factura_inteligente(imagen_pil):
 
 
 def modulo_escaneo_facturas_manuales(conn, db_actual):
-    st.subheader("📸 Escáner OCR de Facturas (Extracción 100% Automática)")
-    st.markdown("Sube la foto del talonario diario. El sistema leerá el documento y llenará los campos de forma autónoma.")
+    st.subheader("📸 Registro Rápido de Facturas (Flujo Productivo Cero Costos)")
+    st.markdown("Sube la foto del talonario para control visual. Selecciona el proveedor frecuente y registra en segundos.")
 
     archivo_subido = st.file_uploader(
         "Seleccionar o arrastrar imagen de factura",
         type=["png", "jpg", "jpeg"],
-        help="Sube una foto clara de la factura."
+        help="Sube la foto de la factura física para tu auditoría visual."
     )
 
-    if "ocr_procesado" not in st.session_state:
-        st.session_state.ocr_procesado = False
-    if "datos_ocr" not in st.session_state:
-        st.session_state.datos_ocr = {}
+    # 1. Consultar proveedores ya guardados en MySQL para el autocompletado inteligente
+    proveedores_db = []
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT DISTINCT rif_proveedor, nombre_proveedor, domicilio_fiscal FROM facturas_escaneadas")
+            proveedores_db = cursor.fetchall()
+    except:
+        pass
 
-    if archivo_subido is not None:
-        img = Image.open(archivo_subido)
+    # Diccionario rápido de proveedores guardados
+    dict_provs = {p[1]: {"rif": p[0], "domicilio": p[2]} for p in proveedores_db} if proveedores_db else {}
 
-        if not st.session_state.ocr_procesado:
-            with st.spinner("🤖 Leyendo imagen con motor OCR..."):
-                datos_extraidos, texto_bruto = extraer_datos_factura_inteligente(img)
-                st.session_state.datos_ocr = datos_extraidos
-                st.session_state.ocr_procesado = True
-                st.session_state.texto_bruto_ocr = texto_bruto
+    col_izq, col_der = st.columns([1, 1.2])
 
-        col_izq, col_der = st.columns([1, 1.2])
+    with col_izq:
+        if archivo_subido is not None:
+            img = Image.open(archivo_subido)
+            st.image(img, caption="Factura Física de Referencia", use_container_width=True)
+        else:
+            st.info("💡 Sube una foto del talonario para visualizarla mientras registras.")
 
-        with col_izq:
-            st.image(img, caption="Factura Original", use_container_width=True)
-            if st.button("🔄 Escanear otra factura"):
-                st.session_state.ocr_procesado = False
-                st.rerun()
+    with col_der:
+        st.markdown("### 📝 Datos Fiscales y Control Interno")
+        
+        if "qr_generado_bytes" not in st.session_state:
+            st.session_state.qr_generado_bytes = None
+
+        with st.form("form_factura_manual_produccion"):
             
-            # Opcional: Mostrar texto crudo leído por si quieres verificar qué leyó el OCR
-            with st.expander("🔍 Ver texto crudo detectado por OCR"):
-                st.text(st.session_state.get("texto_bruto_ocr", "Sin texto"))
+            # Selector de Proveedor Frecuente (Evita tipear RIF y dirección cada vez)
+            lista_nombres = list(dict_provs.keys()) + ["➕ Registrar Nuevo Proveedor..."]
+            sel_proveedor = st.selectbox("Seleccionar Proveedor Frecuente", lista_nombres)
 
-        with col_der:
-            st.markdown("### 📝 Datos Extraídos por el OCR")
-            d = st.session_state.datos_ocr
+            if sel_proveedor != "➕ Registrar Nuevo Proveedor...":
+                rif_def = dict_provs[sel_proveedor]["rif"]
+                nombre_def = sel_proveedor
+                dom_def = dict_provs[sel_proveedor]["domicilio"]
+            else:
+                rif_def = ""
+                nombre_def = ""
+                dom_def = ""
 
-            if "qr_generado_bytes" not in st.session_state:
-                st.session_state.qr_generado_bytes = None
-            if "nro_factura_cache" not in st.session_state:
-                st.session_state.nro_factura_cache = ""
+            rif_prov = st.text_input("RIF del Proveedor", value=rif_def)
+            nombre_prov = st.text_input("Nombre del Proveedor", value=nombre_def)
+            
+            nro_factura = st.text_input("Número de Factura (Ej: 001178)", placeholder="001178")
+            nro_control = st.text_input("Número de Control (Ej: 00-001178)", placeholder="00-001178")
+            
+            fecha_str = st.text_input("Fecha de la Factura (DD/MM/AAAA)", value=datetime.now().strftime('%d/%m/%Y'))
+            
+            col_b, col_i = st.columns(2)
+            with col_b:
+                base_imp_str = st.text_input("Base Imponible Bs.", value="0.00")
+            with col_i:
+                monto_iva_str = st.text_input("IVA (16%) Bs.", value="0.00")
 
-            with st.form("form_factura_manual_hibrido"):
-                nro_factura = st.text_input("Número de Factura", value=d.get("factura", ""))
-                nro_control = st.text_input("Número de Control", value=d.get("control", ""))
-                rif_prov = st.text_input("RIF del Proveedor", value=d.get("rif", ""))
-                nombre_prov = st.text_input("Nombre del Proveedor", value=d.get("nombre", ""))
+            domicilio = st.text_area("Dirección Fiscal", value=dom_def)
+
+            modo_emision = st.radio(
+                "Comprobante posterior:",
+                [
+                    "📱 Generar Código QR de Control Interno",
+                    "📄 Emitir Facturación Digital de Control Interno"
+                ]
+            )
+
+            try:
+                val_b = float(base_imp_str.replace(',', '.')) if base_imp_str else 0.00
+            except:
+                val_b = 0.00
                 
-                fecha_str = st.text_input("Fecha de la Factura (DD/MM/AAAA)", value=d.get("fecha", ""))
-                base_imp_str = st.text_input("Base Imponible Bs.", value=str(d.get("base", "0.00")))
-                monto_iva_str = st.text_input("IVA (16%) Bs.", value=str(d.get("iva", "0.00")))
-                monto_ex_str = st.text_input("Monto Exento Bs.", value="0.00")
+            try:
+                val_i = float(monto_iva_str.replace(',', '.')) if monto_iva_str else round(val_b * 0.16, 2)
+            except:
+                val_i = round(val_b * 0.16, 2)
 
-                domicilio = st.text_area("Dirección Fiscal", value=d.get("domicilio", ""))
+            monto_total = val_b + val_i
+            st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
 
-                modo_emision = st.radio(
-                    "Seleccione el comprobante posterior:",
-                    [
-                        "📱 Generar Código QR de Control Interno",
-                        "📄 Emitir Facturación Digital de Control Interno (Comprobante Empresa)"
-                    ]
-                )
+            submitted = st.form_submit_button("💾 Guardar y Registrar en MySQL", type="primary")
 
-                try:
-                    val_b = float(str(base_imp_str).replace(',', '.')) if base_imp_str else 0.00
-                except:
-                    val_b = 0.00
-                    
-                try:
-                    val_i = float(str(monto_iva_str).replace(',', '.')) if monto_iva_str else round(val_b * 0.16, 2)
-                except:
-                    val_i = round(val_b * 0.16, 2)
+            if submitted:
+                if not nro_factura or not nombre_prov or not rif_prov:
+                    st.error("⚠️ Complete los campos obligatorios principales.")
+                elif not conn:
+                    st.error("⚠️ Sin conexión a la base de datos.")
+                else:
+                    try:
+                        fecha_fac_final = datetime.strptime(fecha_str.strip(), '%d/%m/%Y').date()
 
-                try:
-                    val_e = float(str(monto_ex_str).replace(',', '.')) if monto_ex_str else 0.00
-                except:
-                    val_e = 0.00
+                        with conn.cursor() as cursor:
+                            sql = """
+                                INSERT INTO facturas_escaneadas 
+                                (rif_proveedor, nombre_proveedor, domicilio_fiscal, nro_factura, nro_control, fecha_factura, base_imponible, iva, monto_exento, monto_total)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            """
+                            cursor.execute(sql, (
+                                rif_prov, nombre_prov, domicilio, nro_factura, nro_control, 
+                                fecha_fac_final, val_b, val_i, 0.00, monto_total
+                            ))
+                            conn.commit()
 
-                monto_total = val_b + val_i + val_e
-                st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
+                        st.success("¡Factura registrada exitosamente en MySQL!")
 
-                submitted = st.form_submit_button("💾 Guardar y Emitir Control Interno", type="primary")
+                        if "QR" in modo_emision:
+                            info_qr = (
+                                f"GYLFI SOFTWARE - CONTROL INTERNO\n"
+                                f"Factura: {nro_factura} | Control: {nro_control}\n"
+                                f"Fecha: {fecha_fac_final.strftime('%d/%m/%Y')}\n"
+                                f"Proveedor: {nombre_prov} ({rif_prov})\n"
+                                f"Total: {monto_total:,.2f} Bs."
+                            )
+                            qr = qrcode.QRCode(version=1, box_size=10, border=4)
+                            qr.add_data(info_qr)
+                            qr.make(fit=True)
+                            img_qr = qr.make_image(fill_color="black", back_color="white")
+                            buffer = BytesIO()
+                            img_qr.save(buffer, format="PNG")
+                            
+                            st.session_state.qr_generado_bytes = buffer.getvalue()
+                            st.session_state.nro_factura_cache = nro_factura
+                            st.session_state.modo_resultado = "QR"
+                        else:
+                            st.session_state.modo_resultado = "FACTURA"
 
-                if submitted:
-                    if not nro_factura or not nombre_prov or not rif_prov or not fecha_str:
-                        st.error("⚠️ Faltan campos obligatorios por extraer.")
-                    elif not conn:
-                        st.error("⚠️ Sin conexión a la base de datos MySQL.")
-                    else:
-                        try:
-                            fecha_fac_final = datetime.strptime(fecha_str.strip(), '%d/%m/%Y').date()
+                    except Exception as e:
+                        st.error(f"❌ Error al guardar en MySQL: {e}")
 
-                            with conn.cursor() as cursor:
-                                sql = """
-                                    INSERT INTO facturas_escaneadas 
-                                    (rif_proveedor, nombre_proveedor, domicilio_fiscal, nro_factura, nro_control, fecha_factura, base_imponible, iva, monto_exento, monto_total)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                """
-                                cursor.execute(sql, (
-                                    rif_prov, nombre_prov, domicilio, nro_factura, nro_control, 
-                                    fecha_fac_final, val_b, val_i, val_e, monto_total
-                                ))
-                                conn.commit()
-
-                            st.success("¡Factura procesada por OCR y registrada en MySQL con éxito!")
-
-                            if "QR" in modo_emision:
-                                info_qr = (
-                                    f"GYLFI SOFTWARE - CONTROL INTERNO\n"
-                                    f"Factura: {nro_factura} | Control: {nro_control}\n"
-                                    f"Fecha: {fecha_fac_final.strftime('%d/%m/%Y')}\n"
-                                    f"Proveedor: {nombre_prov} ({rif_prov})\n"
-                                    f"Base: {val_b:,.2f} | IVA: {val_i:,.2f} | Total: {monto_total:,.2f}"
-                                )
-
-                                qr = qrcode.QRCode(version=1, box_size=10, border=4)
-                                qr.add_data(info_qr)
-                                qr.make(fit=True)
-
-                                img_qr = qr.make_image(fill_color="black", back_color="white")
-                                buffer = BytesIO()
-                                img_qr.save(buffer, format="PNG")
-                                
-                                st.session_state.qr_generado_bytes = buffer.getvalue()
-                                st.session_state.nro_factura_cache = nro_factura
-                                st.session_state.modo_resultado = "QR"
-                            else:
-                                st.session_state.modo_resultado = "FACTURA"
-                                st.session_state.datos_factura_cache = {
-                                    "empresa": db_actual, "proveedor": nombre_prov, "rif": rif_prov,
-                                    "domicilio": domicilio, "factura": nro_factura, "control": nro_control,
-                                    "fecha": fecha_fac_final.strftime('%d/%m/%Y'), "base": val_b, "iva": val_i, "total": monto_total
-                                }
-
-                        except Exception as e:
-                            st.error(f"❌ Error al registrar en MySQL: {e}")
-
-            if st.session_state.get("modo_resultado") == "QR" and st.session_state.get("qr_generado_bytes"):
-                st.markdown("---")
-                st.markdown("### 📱 Código QR de Auditoría Interna")
-                st.image(st.session_state.qr_generado_bytes, width=220)
-                st.download_button(
-                    label="📥 Descargar QR de Control",
-                    data=st.session_state.qr_generado_bytes,
-                    file_name=f"QR_Manual_{st.session_state.nro_factura_cache}.png",
-                    mime="image/png"
-                )
+        # Salidas fuera del formulario para códigos QR
+        if st.session_state.get("modo_resultado") == "QR" and st.session_state.get("qr_generado_bytes"):
+            st.markdown("---")
+            st.markdown("### 📱 Código QR de Control Interno")
+            st.image(st.session_state.qr_generado_bytes, width=200)
+            st.download_button(
+                label="📥 Descargar QR",
+                data=st.session_state.qr_generado_bytes,
+                file_name=f"QR_{st.session_state.nro_factura_cache}.png",
+                mime="image/png"
+            )
 
 
 import io
