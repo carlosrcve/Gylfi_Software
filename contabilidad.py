@@ -3304,47 +3304,31 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                         df.loc[mask_padre, 'Haber'] = df.loc[mask_padre, 'Haber'].values + float(fila['Haber'])
 
         # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL DE CADA CUENTA ---
-        df['Tipo_1'] = df['codigo'].astype(str).str[0]
-        es_contra_activo = df['codigo'].astype(str).str.startswith('1.2')
-        
-        # Deudoras: Activos (1, excepto contra-activos), Costos (5), Gastos (6), Otros Egresos (8)
-        es_deudor = (df['Tipo_1'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
-        # Acreedoras: Pasivos (2), Patrimonio (3), Ingresos (4, 7) y Contra-Activos (1.2)
-        es_acreedor = df['Tipo_1'].isin(['2', '3', '4', '7']) | es_contra_activo
-
-        df['Saldo Final'] = 0.0
-        
-        # Las deudoras parten de su saldo inicial, suman el Debe y restan el Haber
-        df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
-        
-        # Las acreedoras (aquí entra el Patrimonio 3) parten de su saldo inicial, RESTAN el Debe y SUMAN el Haber
-        df.loc[es_acreedor, 'Saldo Final'] = df['Saldo Inicial'] - df['Debe'] + df['Haber']
-
-        # 6. Fila Total Global (Replicando exactamente la fórmula del Excel)
+        # 6. Fila Total Global (Replicando la fórmula exacta del Excel y controlando los signos del Pasivo y Patrimonio)
         df_nivel_1 = df[df['nivel'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
         total_haber = float(df_nivel_1['Haber'].sum())
         total_saldo_inicial_neto = float(df_nivel_1['Saldo Inicial'].sum())
         
-        # Diccionario para capturar el saldo final por cada tipo de cuenta (Nivel 1: del 1 al 8)
         totales_n1 = {}
         for _, r_n1 in df_nivel_1.iterrows():
             t_1 = str(r_n1['codigo']).strip()[0]
             totales_n1[t_1] = float(r_n1['Saldo Final'])
 
-        # Extracción de cada grupo exacto tal cual como los tienes en tu Excel
         val_activo = totales_n1.get('1', 0.0)
-        val_pasivo = totales_n1.get('2', 0.0)      # <-- Aquí se suma el tipo 2 (Pasivo)
-        val_patrimonio = totales_n1.get('3', 0.0)  # <-- Aquí se suma el tipo 3 (Patrimonio)
-        val_ingresos = totales_n1.get('4', 0.0)    # <-- Aquí se suma el tipo 4 (Ingresos)
+        val_pasivo = totales_n1.get('2', 0.0)      # Viene negativo si es acreedor
+        val_patrimonio = totales_n1.get('3', 0.0)  # Viene negativo (-600.000,00)
+        val_ingresos = totales_n1.get('4', 0.0)
         val_costos = totales_n1.get('5', 0.0)
         val_gastos = totales_n1.get('6', 0.0)
-        val_otros_ing = totales_n1.get('7', 0.0)   # <-- Aquí se suma el tipo 7 (Otros Ingresos)
+        val_otros_ing = totales_n1.get('7', 0.0)
         val_egresos = totales_n1.get('8', 0.0)
 
-        # Aplicación estricta de la fórmula de tu Excel:
-        neto_excel = val_activo - val_pasivo - val_patrimonio - (((val_ingresos - val_costos - val_gastos) - val_otros_ing) - val_egresos)
+        # Como el patrimonio y el pasivo ya traen su saldo acreedor en negativo,
+        # sumarlos algebraicamente respeta la identidad contable sin doble negación:
+        # Activo + Pasivo(negativo) + Patrimonio(negativo) - ...
+        neto_excel = val_activo + val_pasivo + val_patrimonio - (((val_ingresos - val_costos - val_gastos) - val_otros_ing) - val_egresos)
 
         fila_total = pd.DataFrame([{
             'codigo': 'Σ', 
