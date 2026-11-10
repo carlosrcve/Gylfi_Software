@@ -3204,8 +3204,8 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
     """
-    Genera el balance profesional inyectando saldos solo en cuentas hoja 
-    y acumulando estrictamente por jerarquía, replicando la fórmula de saldo final del Excel.
+    Genera el balance profesional inyectando saldos en cuentas y acumulando
+    estrictamente por jerarquía, replicando la fórmula de saldo final del Excel.
     """
     if not db_name or db_name == 'none':
         st.error("No se ha especificado el nombre de la base de datos.")
@@ -3275,19 +3275,15 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
 
         padres_set = set(df['llave_padre'].dropna().astype(str))
 
-        # 4. INYECTAR SALDOS ÚNICAMENTE EN LAS CUENTAS HOJA
+        # 4. INYECTAR SALDOS DIRECTAMENTE
         saldos_dict = df_saldos.set_index('llave_join')[['Saldo Inicial', 'Debe', 'Haber']].to_dict('index')
         
         for idx, row_df in df.iterrows():
             k = row_df['llave_join']
-            es_padre_node = k in padres_set
-            es_grupo_node = str(row_df['tipo']).lower() == 'grupo'
-            
-            if not es_padre_node and not es_grupo_node:
-                if k in saldos_dict:
-                    df.loc[idx, 'Saldo Inicial'] = float(saldos_dict[k].get('Saldo Inicial', 0.0))
-                    df.loc[idx, 'Debe'] = float(saldos_dict[k].get('Debe', 0.0))
-                    df.loc[idx, 'Haber'] = float(saldos_dict[k].get('Haber', 0.0))
+            if k in saldos_dict:
+                df.loc[idx, 'Saldo Inicial'] = float(saldos_dict[k].get('Saldo Inicial', 0.0))
+                df.loc[idx, 'Debe'] = float(saldos_dict[k].get('Debe', 0.0))
+                df.loc[idx, 'Haber'] = float(saldos_dict[k].get('Haber', 0.0))
 
         # 5. SUMATORIA JERÁRQUICA RIGUROSA DE ABAJO HACIA ARRIBA
         niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
@@ -3304,7 +3300,20 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                         df.loc[mask_padre, 'Haber'] = df.loc[mask_padre, 'Haber'].values + float(fila['Haber'])
 
         # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL DE CADA CUENTA ---
-        # 6. Fila Total Global (Replicando la fórmula exacta del Excel y controlando los signos del Pasivo y Patrimonio)
+        df['codigo_str'] = df['codigo'].astype(str).str.strip()
+        df['Tipo_1'] = df['codigo_str'].str[0]
+        es_contra_activo = df['codigo_str'].str.startswith('1.2')
+        
+        # Deudoras: Activos (1, excepto contra-activos), Costos (5), Gastos (6), Otros Egresos (8)
+        es_deudor = (df['Tipo_1'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
+        # Acreedoras: Pasivos (2), Patrimonio (3), Ingresos (4, 7) y Contra-Activos (1.2)
+        es_acreedor = df['Tipo_1'].isin(['2', '3', '4', '7']) | es_contra_activo
+
+        df['Saldo Final'] = 0.0
+        df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
+        df.loc[es_acreedor, 'Saldo Final'] = df['Saldo Inicial'] - df['Debe'] + df['Haber']
+
+        # 6. Fila Total Global (Replicando la fórmula exacta del Excel y controlando los signos)
         df_nivel_1 = df[df['nivel'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
@@ -3317,17 +3326,14 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
             totales_n1[t_1] = float(r_n1['Saldo Final'])
 
         val_activo = totales_n1.get('1', 0.0)
-        val_pasivo = totales_n1.get('2', 0.0)      # Viene negativo si es acreedor
-        val_patrimonio = totales_n1.get('3', 0.0)  # Viene negativo (-600.000,00)
+        val_pasivo = totales_n1.get('2', 0.0)
+        val_patrimonio = totales_n1.get('3', 0.0)
         val_ingresos = totales_n1.get('4', 0.0)
         val_costos = totales_n1.get('5', 0.0)
         val_gastos = totales_n1.get('6', 0.0)
         val_otros_ing = totales_n1.get('7', 0.0)
         val_egresos = totales_n1.get('8', 0.0)
 
-        # Como el patrimonio y el pasivo ya traen su saldo acreedor en negativo,
-        # sumarlos algebraicamente respeta la identidad contable sin doble negación:
-        # Activo + Pasivo(negativo) + Patrimonio(negativo) - ...
         neto_excel = val_activo + val_pasivo + val_patrimonio - (((val_ingresos - val_costos - val_gastos) - val_otros_ing) - val_egresos)
 
         fila_total = pd.DataFrame([{
