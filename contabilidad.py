@@ -3304,24 +3304,20 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                         df.loc[mask_padre, 'Haber'] = df.loc[mask_padre, 'Haber'].values + float(fila['Haber'])
 
         # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL DE CADA CUENTA ---
-        # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL DE CADA CUENTA ---
         df['Tipo_1'] = df['codigo'].astype(str).str[0]
-        
-        # 1. Definimos con precisión quirúrgica qué cuentas son deudoras y cuáles acreedoras
         es_contra_activo = df['codigo'].astype(str).str.startswith('1.2')
         
         # Deudoras: Activos (1, excepto contra-activos), Costos (5), Gastos (6), Otros Egresos (8)
-        es_deudor = (df['Tipo_1'].isin(['1'])) & (~es_contra_activo)
-        
+        es_deudor = (df['Tipo_1'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
         # Acreedoras: Pasivos (2), Patrimonio (3), Ingresos (4, 7) y Contra-Activos (1.2)
-        es_acreedor = df['Tipo_1'].isin(['2']) | es_contra_activo
+        es_acreedor = df['Tipo_1'].isin(['2', '3', '4', '7']) | es_contra_activo
 
         df['Saldo Final'] = 0.0
         
-        # Las deudoras aumentan por el Debe y disminuyen por el Haber
+        # Las deudoras parten de su saldo inicial, suman el Debe y restan el Haber
         df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
         
-        # Las acreedoras (Aquí entran 2, 3, 4, 7 y 1.2) aumentan por el Haber y disminuyen por el Debe
+        # Las acreedoras (aquí entra el Patrimonio 3) parten de su saldo inicial, RESTAN el Debe y SUMAN el Haber
         df.loc[es_acreedor, 'Saldo Final'] = df['Saldo Inicial'] - df['Debe'] + df['Haber']
 
         # 6. Fila Total Global (Replicando exactamente la fórmula del Excel)
