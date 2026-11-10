@@ -8407,7 +8407,7 @@ def limpiar_y_extraer_factura(imagen_pil):
 
 def modulo_escaneo_facturas_manuales(conn, db_actual):
     st.subheader("📸 Escáner Inteligente de Facturas a Bolígrafo (EasyOCR + OpenCV)")
-    st.markdown("Sube la foto del talonario. El sistema leerá la escritura a mano y llenará los campos automáticamente.")
+    st.markdown("Sube la foto del talonario para comenzar el análisis automático.")
 
     archivo_subido = st.file_uploader(
         "Seleccionar o arrastrar imagen de factura",
@@ -8420,27 +8420,34 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
     if "datos_ocr" not in st.session_state:
         st.session_state.datos_ocr = {}
 
+    # SI NO HAY ARCHIVO SUBIDO, SE OCULTA TODO EL RESTO Y SOLO QUEDA EL UPLOADER
+    if archivo_subido is None:
+        st.info("💡 Sube una foto del talonario arriba para habilitar el formulario de registro automáticamente.")
+        st.session_state.ocr_procesado = False
+        st.session_state.datos_ocr = {}
+        return
+
+    # A PARTIR DE AQUÍ SÓLO SE MUESTRA CUANDO EL USUARIO YA SUBIó LA IMAGEN
+    img = Image.open(archivo_subido)
+
+    if not st.session_state.ocr_procesado:
+        with st.spinner("🤖 Leyendo escritura a bolígrafo con EasyOCR..."):
+            datos_extraidos, img_procesada = limpiar_y_extraer_factura(img)
+            st.session_state.datos_ocr = datos_extraidos
+            st.session_state.img_proc = img_procesada
+            st.session_state.ocr_procesado = True
+
     col_izq, col_der = st.columns([1, 1.2])
 
-    if archivo_subido is not None:
-        img = Image.open(archivo_subido)
-
-        if not st.session_state.ocr_procesado:
-            with st.spinner("🤖 Leyendo escritura a bolígrafo con EasyOCR..."):
-                datos_extraidos, img_procesada = limpiar_y_extraer_factura(img)
-                st.session_state.datos_ocr = datos_extraidos
-                st.session_state.img_proc = img_procesada
-                st.session_state.ocr_procesado = True
-
-        with col_izq:
-            st.image(img, caption="Factura Original", use_container_width=True)
-            if "img_proc" in st.session_state:
-                with st.expander("🛠️ Vista Optimizada OpenCV"):
-                    st.image(st.session_state.img_proc, caption="Procesada para lectura", use_container_width=True)
-            
-            if st.button("🔄 Escanear otra factura"):
-                st.session_state.ocr_procesado = False
-                st.rerun()
+    with col_izq:
+        st.image(img, caption="Factura Original", use_container_width=True)
+        if "img_proc" in st.session_state:
+            with st.expander("🛠️ Vista Optimizada OpenCV"):
+                st.image(st.session_state.img_proc, caption="Procesada para lectura", use_container_width=True)
+        
+        if st.button("🔄 Escanear otra factura"):
+            st.session_state.ocr_procesado = False
+            st.rerun()
 
     with col_der:
         st.markdown("### 📝 Campos Autocompletados por IA")
@@ -8536,16 +8543,16 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                     except Exception as e:
                         st.error(f"❌ Error al guardar en MySQL: {e}")
 
-        if st.session_state.get("modo_resultado") == "QR" and st.session_state.get("qr_generado_bytes"):
-            st.markdown("---")
-            st.markdown("### 📱 Código QR de Control Interno")
-            st.image(st.session_state.qr_generado_bytes, width=200)
-            st.download_button(
-                label="📥 Descargar QR",
-                data=st.session_state.qr_generado_bytes,
-                file_name=f"QR_{st.session_state.nro_factura_cache}.png",
-                mime="image/png"
-            )
+    if st.session_state.get("modo_resultado") == "QR" and st.session_state.get("qr_generado_bytes"):
+        st.markdown("---")
+        st.markdown("### 📱 Código QR de Control Interno")
+        st.image(st.session_state.qr_generado_bytes, width=200)
+        st.download_button(
+            label="📥 Descargar QR",
+            data=st.session_state.qr_generado_bytes,
+            file_name=f"QR_{st.session_state.nro_factura_cache}.png",
+            mime="image/png"
+        )
 
 import io
 from datetime import date
@@ -9342,7 +9349,24 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
-def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u_mensual, cpc_info=None):
+import io
+import hashlib
+import uuid
+import qrcode
+from datetime import datetime
+import streamlit as st
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus.flowables import HRFlowable
+from reportlab.platypus import Image as RLImage
+
+def generar_pdf_certificado_solvencia(nombre_empresa=None, ano=2026, mes_str="Mayo", resultado=None, u_mensual=0.0, cpc_info=None):
+    # Recuperamos la base de datos activa desde st.session_state si no viene definida o es inválida
+    if not nombre_empresa or str(nombre_empresa).strip() in ["", "{db}", "None"]:
+        nombre_empresa = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual') or "Empresa_Matriz"
+
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, 
@@ -9401,10 +9425,13 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
     )
 
     # --- DATOS Y CÁLCULOS TÉCNICOS BANCARIOS (PILAR 4) ---
-    activo = resultado['activo_total']
-    pasivo = resultado['pasivo_total']
-    patrimonio = resultado['patrimonio']
-    utilidad_neta = resultado['utilidad_neta']
+    activo = resultado.get('activo_total', 0.0) if resultado else 0.0
+    pasivo = resultado.get('pasivo_total', 0.0) if resultado else 0.0
+    patrimonio = resultado.get('patrimonio', 0.0) if resultado else 0.0
+    utilidad_neta = resultado.get('utilidad_neta', 0.0) if resultado else 0.0
+    puntaje = resultado.get('puntaje', 0) if resultado else 0
+    estado = resultado.get('estado', 'SIN EVALUAR') if resultado else 'SIN EVALUAR'
+
     ratio_solvencia = (activo / pasivo) if pasivo > 0 else (activo if activo > 0 else 0.0)
     pct_endeudamiento = (pasivo / activo * 100) if activo > 0 else 0.0
 
@@ -9455,7 +9482,7 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
 
     texto_principal = (
         f"Por medio de la presente, el motor algorítmico automatizado de Gylfi Software, "
-        f"en representación analítica de la entidad corporativa <b>{nombre_empresa.upper()}</b>, "
+        f"en representación analítica de la entidad corporativa <b>{str(nombre_empresa).upper()}</b>, "
         f"CERTIFICA que la empresa presenta la estructura contable, solvencia y diagnóstico de riesgo "
         f"detallados al cierre del período <b>{mes_str} {ano}</b>."
     )
@@ -9523,8 +9550,8 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
     story.append(Spacer(1, 2))
 
     puntos_apalancamiento = (
-        f"• <b>Evaluación de Solvencia ({ratio_solvencia:.2f}x):</b> Calificación del sistema de <b>{resultado['puntaje']}/100</b> "
-        f"({resultado['estado']}). Por cada Bolívar adeudado (Pasivo Total: Bs. {pasivo:,.2f}), la empresa cuenta con "
+        f"• <b>Evaluación de Solvencia ({ratio_solvencia:.2f}x):</b> Calificación del sistema de <b>{puntaje}/100</b> "
+        f"({estado}). Por cada Bolívar adeudado (Pasivo Total: Bs. {pasivo:,.2f}), la empresa cuenta con "
         f"Bs. {ratio_solvencia:.2f} en respaldo patrimonial y de activos (Activo Total: Bs. {activo:,.2f})."
     )
     story.append(Paragraph(puntos_apalancamiento, bullet_style))
@@ -9541,7 +9568,7 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
     # Cierre institucional
     texto_cierre = (
         f"Se expide la presente certificación a solicitud de la parte interesada en Caracas, "
-        f"a los 7 días del mes de noviembre de 2026. Cualquier entidad financiera puede verificar la autenticidad "
+        f"a los {datetime.now().day} días del mes de {mes_str} de {ano}. Cualquier entidad financiera puede verificar la autenticidad "
         f"de este reporte escaneando el código QR superior o ingresando el token único en la plataforma oficial de Gylfi Software."
     )
     story.append(Paragraph(texto_cierre, body_style))
@@ -9577,21 +9604,25 @@ def generar_pdf_certificado_solvencia(nombre_empresa, ano, mes_str, resultado, u
     buffer.seek(0)
     return buffer.getvalue()
 
-
 from datetime import datetime
 
 import streamlit as st
 from datetime import datetime
 
-import streamlit as st
-from datetime import datetime
 
-def calcular_flujo_caja_detallado(conn, db_name, fecha_inicio, fecha_fin):
+def calcular_flujo_caja_detallado(conn, db_name=None, fecha_inicio=None, fecha_fin=None):
     """
     Calcula el flujo de caja analítico garantizando la exactitud matemática de los saldos.
     Toma el saldo inicial exacto de saldos_bancarios y asegura que la suma del desglose
     coincida perfectamente con el total de movimientos de las cuentas de Banco/Caja.
     """
+    # Sincronización robusta con DB_ACTUAL de st.session_state si no se pasa o es inválida
+    if not db_name or str(db_name).strip() in ["", "{db}", "None"]:
+        db_name = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual') or "Empresa_Matriz"
+    
+    # Aseguramos que la sesión mantenga el valor actualizado
+    st.session_state['DB_ACTUAL'] = db_name
+
     saldo_inicial = 0.0
     entradas_agrupadas = []
     salidas_agrupadas = []
@@ -9624,7 +9655,6 @@ def calcular_flujo_caja_detallado(conn, db_name, fecha_inicio, fecha_fin):
             saldo_inicial = float(row_ini[0] or 0.0)
 
         # 2. TOTALES TOTALMENTE FIJOS Y REALES DE ENTRADAS Y SALIDAS (CONTROL DE SALDOS)
-        # Calculamos cuánto movió exactamente la cuenta BANCO/CAJA en el período
         query_totales_banco = f"""
             SELECT 
                 COALESCE(SUM(debe), 0.0) as entradas_reales,
@@ -10869,16 +10899,19 @@ if opcion_menu == "🏠 Inicio":
     mes_str = st.session_state.get('mes_seleccionado', 'Mayo')
     mes_int = dic_meses.get(mes_str, 5)  # Por defecto mes 5 (Mayo) si ocurre algún imprevisto
 
-    # 3. Recuperamos la base de datos activa de forma segura
-    db = st.session_state.get('DB_ACTUAL')
+    # 3. Recuperamos la base de datos activa de forma segura desde st.session_state
+    db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
 
-    if not db or db == "{db}" or db == "None" or str(db).strip() == "":
+    if not db or str(db).strip() == "" or str(db) == "{db}" or str(db) == "None":
         st.markdown("""
             <div style="padding: 15px; background-color: #fff3cd; border-left: 5px solid #ffc107; border-radius: 4px; color: #856404;">
                 <strong>⚠️ Atención:</strong> Por favor, selecciona una empresa o base de datos activa en la barra lateral para ver su diagnóstico de solvencia.
             </div>
         """, unsafe_allow_html=True)
     else:
+        # Aseguramos que la sesión mantenga el valor actualizado
+        st.session_state['DB_ACTUAL'] = db
+
         # 4. Ejecutamos la función de evaluación para el acumulado del período
         resultado_solvencia = evaluar_salud_financiera(db, año_int, mes_int)
 
