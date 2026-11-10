@@ -3277,7 +3277,14 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
                     if mask_padre.any():
                         df.loc[mask_padre, cols_num] = df.loc[mask_padre, cols_num].values + fila[cols_num].values
 
-        df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
+        # --- CORRECCIÓN DE NATURALEZA CONTABLE PARA EL SALDO FINAL ---
+        df['Tipo_1'] = df['codigo'].astype(str).str[0]
+        es_contra_activo = df['codigo'].astype(str).str.startswith('1.2')
+        es_deudor = (df['Tipo_1'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
+
+        df['Saldo Final'] = 0.0
+        df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
+        df.loc[~es_deudor, 'Saldo Final'] = df['Saldo Inicial'] - df['Debe'] + df['Haber']
 
         # 6. Fila Total Global (Suma estricta del Nivel 1)
         df_nivel_1 = df[df['nivel'] == 1]
