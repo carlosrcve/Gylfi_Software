@@ -3161,7 +3161,7 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
             st.warning("⚠️ El plan de cuentas está vacío.")
             return pd.DataFrame()
 
-        # 2. Obtener los saldos del balance de comprobación pasando 'db' (string) en lugar de 'conn'
+        # 2. Obtener los saldos del balance de comprobación
         df_saldos = generar_balance_comprobacion(db, f_i, f_f, sucursal)
         
         cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
@@ -3199,10 +3199,14 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
         cols_num = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         df[cols_num] = df[cols_num].fillna(0.0).astype(float)
 
-        # 4. Limpiar saldos en cuentas de tipo "Grupo"
-        if 'tipo' in df.columns:
-            is_grupo = df['tipo'].astype(str).str.lower() == 'grupo'
-            df.loc[is_grupo, cols_num] = 0.0
+        # 4. Limpiar saldos en cuentas de tipo "Grupo" O CUENTAS QUE SEAN PADRES
+        # Identificamos qué códigos actúan como padres en el plan para evitar duplicidad
+        padres_set = set(df['llave_padre'].dropna().astype(str))
+        is_padre = df['llave_join'].isin(padres_set)
+        is_grupo = df['tipo'].astype(str).str.lower() == 'grupo'
+
+        # Blanqueamos los grupos y los padres para que sus saldos nazcan en 0 y acumulen limpio de abajo hacia arriba
+        df.loc[is_grupo | is_padre, cols_num] = 0.0
 
         # 5. SUMATORIA JERÁRQUICA OPTIMIZADA
         niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
@@ -3218,7 +3222,7 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
 
         df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
 
-        # 6. Fila Total Global
+        # 6. Fila Total Global (Suma estricta del Nivel 1)
         df_nivel_1 = df[df['nivel'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
@@ -3241,6 +3245,14 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
         cols_salida = ['codigo', 'nombre', 'nivel', 'tipo', 'padre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         df_final = pd.concat([df[cols_salida], fila_total[cols_salida]], ignore_index=True)
         return df_final
+
+    except Exception as e:
+        st.error(f"❌ Error crítico en balance profesional: {e}")
+        return pd.DataFrame()
+    finally:
+        if conn:
+            try: conn.close()
+            except: pass
 
     except Exception as e:
         st.error(f"Error en balance de comprobación: {e}")
@@ -16106,10 +16118,12 @@ elif sub_opcion == "Balance de Comprobación":
     
     # 1. PRIMERO: Asegurar que la sesión tenga los datos del cliente activo
     if 'row' in locals() or 'row' in globals():
-        if row and 'db_nombre' in row:
-            st.session_state['DB_ACTUAL'] = row['db_nombre']
-            st.session_state['cliente_id'] = row['cliente_id']
-            st.session_state['CLIENTE_NOMBRE'] = row.get('nombre_empresa', 'Empresa')
+        # Usamos una variable auxiliar para no sobreescribir la 'row' global si existe
+        _row_local = locals().get('row') or globals().get('row')
+        if _row_local and 'db_nombre' in _row_local:
+            st.session_state['DB_ACTUAL'] = _row_local['db_nombre']
+            st.session_state['cliente_id'] = _row_local['cliente_id']
+            st.session_state['CLIENTE_NOMBRE'] = _row_local.get('nombre_empresa', 'Empresa')
 
     # 2. SEGUNDO: Obtener los datos de sesión ya actualizados
     EMPRESA = st.session_state.get('CLIENTE_NOMBRE', 'Empresa')
@@ -16142,24 +16156,20 @@ elif sub_opcion == "Balance de Comprobación":
     def obtener_balance_cached(db_name_param, fecha_desde, fecha_hasta, sucursal_sel):
         df = pd.DataFrame()
         try:
-            # Convertir a string YYYY-MM-DD para evitar diferencias de tipo
             f_desde_str = fecha_desde.strftime('%Y-%m-%d') if hasattr(fecha_desde, 'strftime') else str(fecha_desde)
             f_hasta_str = fecha_hasta.strftime('%Y-%m-%d') if hasattr(fecha_hasta, 'strftime') else str(fecha_hasta)
             
-            # Llamamos a la función profesional pasando el nombre de la BD en texto
             df = generar_balance_profesional(db_name_param, f_desde_str, f_hasta_str, sucursal_sel)
         except Exception as err:
             st.error(f"❌ Error al obtener balance en caché: {err}")
         return df
 
-    # 4. OBTENCIÓN DE DATOS (Pasando db_actual como argumento)
+    # 4. OBTENCIÓN DE DATOS
     df_bal = obtener_balance_cached(db_actual, f_bal_desde, f_bal_hasta, sucursal)
     
-    # Validar que df_bal no sea None ni esté vacío
     if df_bal is None or not hasattr(df_bal, 'empty') or df_bal.empty:
         st.info("ℹ️ No hay datos de asientos contables registrados para el rango de fechas seleccionado.")
     else:
-        # Normalizar nombres de columnas
         renombres = {}
         if 'Código' in df_bal.columns: renombres['Código'] = 'codigo'
         if 'Plan' in df_bal.columns: renombres['Plan'] = 'nombre'
@@ -16167,7 +16177,6 @@ elif sub_opcion == "Balance de Comprobación":
         if renombres:
             df_bal = df_bal.rename(columns=renombres)
 
-        # Asegurarnos de que las columnas requeridas existan
         columnas_necesarias = ['codigo', 'nombre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final', 'nivel']
         faltantes = [c for c in columnas_necesarias if c not in df_bal.columns]
         
@@ -16176,10 +16185,8 @@ elif sub_opcion == "Balance de Comprobación":
         else:
             df_display = df_bal[columnas_necesarias].copy()
             
-            # Preparar columna con sangría para la pantalla
             df_display['Cuenta'] = df_display.apply(lambda x: f"{'    ' * (int(x['nivel'])-1)}{x['nombre']}", axis=1)
 
-            # --- VISUALIZACIÓN EN DATAFRAME ---
             st.dataframe(
                 df_display.style.format({
                     'Saldo Inicial': formato_contable, 
@@ -16191,7 +16198,6 @@ elif sub_opcion == "Balance de Comprobación":
                 use_container_width=True, height=500, hide_index=True
             )
 
-            # --- OBTENER TOTALES DIRECTO DE LA FILA Σ ---
             fila_sigma = df_display[df_display['codigo'] == 'Σ']
 
             if not fila_sigma.empty:
@@ -16203,7 +16209,6 @@ elif sub_opcion == "Balance de Comprobación":
             else:
                 t_inicial = t_debe = t_haber = t_final = 0.0
 
-            # --- VISUALIZACIÓN DEL RESUMEN PATRIMONIAL ---
             st.markdown("### 📊 Resumen Patrimonial")
 
             c1, c2, c3, c4 = st.columns(4)
@@ -16212,14 +16217,12 @@ elif sub_opcion == "Balance de Comprobación":
             c3.metric("Total Haber", formato_contable(t_haber))
             c4.metric("Saldo Final", formato_contable(t_final))
 
-            # Mensaje de cuadre
             if abs(abs(t_debe) - abs(t_haber)) < 0.01:
                 st.success("✅ La ecuación patrimonial está balanceada.")
             else:
                 diferencia = t_debe - t_haber
                 st.error(f"❌ Descuadre detectado: {formato_contable(diferencia)}")
 
-            # --- BOTONES DE EXPORTACIÓN ---
             st.divider()
             col_btn1, col_btn2 = st.columns(2)
 
@@ -16281,18 +16284,20 @@ elif sub_opcion == "Balance de Comprobación":
 
                     pdf = PDF()
                     pdf.add_page()
-                    for _, row in df_display.iterrows():
-                        pdf.set_font("Arial", 'B' if row['nivel'] <= 2 else '', 7)
-                        indent = "  " * (int(row['nivel']) - 1)
+                    
+                    # CORREGIDO: Se usa 'r_cuenta' para evitar pisar la variable 'row' externa
+                    for _, r_cuenta in df_display.iterrows():
+                        pdf.set_font("Arial", 'B' if r_cuenta['nivel'] <= 2 else '', 7)
+                        indent = "  " * (int(r_cuenta['nivel']) - 1)
                         
-                        cod_str = str(row['codigo']).replace('Σ', 'TOTAL')
+                        cod_str = str(r_cuenta['codigo']).replace('Σ', 'TOTAL')
                         
                         pdf.cell(25, 6, cod_str, 1)
-                        pdf.cell(70, 6, f"{indent}{row['nombre']}"[:45], 1)
-                        pdf.cell(24, 6, f"{row['Saldo Inicial']:,.2f}", 1, 0, 'R')
-                        pdf.cell(24, 6, f"{row['Debe']:,.2f}", 1, 0, 'R')
-                        pdf.cell(24, 6, f"{row['Haber']:,.2f}", 1, 0, 'R')
-                        pdf.cell(24, 6, f"{row['Saldo Final']:,.2f}", 1, 1, 'R')
+                        pdf.cell(70, 6, f"{indent}{r_cuenta['nombre']}"[:45], 1)
+                        pdf.cell(24, 6, f"{r_cuenta['Saldo Inicial']:,.2f}", 1, 0, 'R')
+                        pdf.cell(24, 6, f"{r_cuenta['Debe']:,.2f}", 1, 0, 'R')
+                        pdf.cell(24, 6, f"{r_cuenta['Haber']:,.2f}", 1, 0, 'R')
+                        pdf.cell(24, 6, f"{r_cuenta['Saldo Final']:,.2f}", 1, 1, 'R')
 
                     # Totales finales en el PDF
                     pdf.set_fill_color(0, 0, 0)
@@ -16304,12 +16309,12 @@ elif sub_opcion == "Balance de Comprobación":
                     pdf.cell(24, 8, f"{t_haber:,.2f}", 1, 0, 'R', True)
                     pdf.cell(24, 8, f"{t_final:,.2f}", 1, 1, 'R', True)
 
-                    pdf_bytes = bytes(pdf.output())
+                    pdf_bytes = pdf.output()
                     
                     st.download_button(
                         label="⬇️ Descargar PDF Ahora", 
                         data=pdf_bytes, 
-                        file_name=nombre_archivo_pdf, 
+                        file_name=f"Balance_{EMPRESA}.pdf", # CORREGIDO: Se agregó variable de nombre válida
                         mime="application/pdf", 
                         use_container_width=True
                     )
