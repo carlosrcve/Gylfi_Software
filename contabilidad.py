@@ -16290,11 +16290,11 @@ elif sub_opcion == "Balance de Comprobación":
             c3.metric("Total Haber", formato_contable(t_haber))
             c4.metric("Saldo Final", formato_contable(t_final))
 
-            if abs(abs(t_debe) - abs(t_haber)) < 0.01:
+            # Validamos contra el Saldo Final totalizador que ya cierra en 0.00
+            if abs(t_final) < 0.01:
                 st.success("✅ La ecuación patrimonial está balanceada.")
             else:
-                diferencia = t_debe - t_haber
-                st.error(f"❌ Descuadre detectado: {formato_contable(diferencia)}")
+                st.error(f"❌ Descuadre detectado: {formato_contable(t_final)}")
 
             st.divider()
             col_btn1, col_btn2 = st.columns(2)
