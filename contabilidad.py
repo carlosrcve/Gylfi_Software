@@ -243,21 +243,40 @@ def registrar_log_automatico(conn, accion, detalles):
         if cursor:
             cursor.close()
 
-def ejecutar_consulta(query, conn, params=None):
+def ejecutar_consulta(query, conn_or_db_name, params=None):
     cursor = None
+    conn_a_cerrar = None
     try:
-        # Usamos DictCursor de PyMySQL
+        # BLINDAJE: Si por error pasan un string (el nombre de la BD) en vez de un objeto conexión, lo abrimos aquí mismo
+        if isinstance(conn_or_db_name, str):
+            conn = conectar_db(conn_or_db_name)
+            conn_a_cerrar = conn
+        else:
+            conn = conn_or_db_name
+
+        if not conn:
+            return pd.DataFrame()
+
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute(query, params or ())
         resultados = cursor.fetchall()
         return pd.DataFrame(resultados) if resultados else pd.DataFrame()
+
     except Exception as e:
-        # CONVERSIÓN SEGURA: Forzamos str(e) para evitar que Python falle formateando objetos internos
         st.error(f"❌ Error crítico en ejecutar_consulta: {str(e)} | Query: {query}")
         return pd.DataFrame()
     finally:
         if cursor:
-            cursor.close()
+            try:
+                cursor.close()
+            except:
+                pass
+        # Si abrimos la conexión localmente en este try, la cerramos aquí para evitar fugas
+        if conn_a_cerrar:
+            try:
+                conn_a_cerrar.close()
+            except:
+                pass
 
 def verificar_usuario(conn, user, password):
     if conn is None:
