@@ -8318,9 +8318,16 @@ def extraer_datos_factura_inteligente(imagen_pil):
     return datos, texto_ocr
 
 
+import re
+from io import BytesIO
+from PIL import Image
+from datetime import datetime
+import streamlit as st
+import qrcode
+
 def modulo_escaneo_facturas_manuales(conn, db_actual):
     st.subheader("📸 Registro Rápido de Facturas (Flujo Productivo Cero Costos)")
-    st.markdown("Sube la foto del talonario para control visual. Selecciona el proveedor frecuente o registra uno nuevo.")
+    st.markdown("Sube la foto del talonario. Selecciona tu proveedor frecuente y completa los montos en segundos.")
 
     archivo_subido = st.file_uploader(
         "Seleccionar o arrastrar imagen de factura",
@@ -8355,10 +8362,10 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
         if "qr_generado_bytes" not in st.session_state:
             st.session_state.qr_generado_bytes = None
 
-        # Usamos st.form para agrupar el registro
+        # Usamos st.form para agrupar el registro limpio
         with st.form("form_factura_manual_produccion"):
             
-            # Lista de nombres asegurando que la opción por defecto sea "Registrar Nuevo"
+            # Selector de Proveedor Frecuente
             lista_nombres = ["➕ Registrar Nuevo Proveedor..."] + list(dict_provs.keys())
             sel_proveedor = st.selectbox("Seleccionar Proveedor Frecuente", lista_nombres)
 
@@ -8375,8 +8382,9 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
             rif_prov = st.text_input("RIF del Proveedor", value=rif_def)
             nombre_prov = st.text_input("Nombre del Proveedor", value=nombre_def)
             
-            nro_factura = st.text_input("Número de Factura (Ej: 001178)", placeholder="001178")
-            nro_control = st.text_input("Número de Control (Ej: 00-001178)", placeholder="00-001178")
+            # Campos directos para los datos escritos a mano o impresos
+            nro_factura = st.text_input("Número de Factura", placeholder="Ej: 001178")
+            nro_control = st.text_input("Número de Control", placeholder="Ej: 00-001178")
             
             fecha_str = st.text_input("Fecha de la Factura (DD/MM/AAAA)", value=datetime.now().strftime('%d/%m/%Y'))
             
