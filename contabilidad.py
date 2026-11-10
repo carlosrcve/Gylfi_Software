@@ -8326,30 +8326,30 @@ import qrcode
 import cv2
 import numpy as np
 
+
 def limpiar_imagen_factura(imagen_pil):
     """
-    Aplica pre-procesamiento OpenCV a la foto del talonario:
-    Convierte a escala de grises y aplica umbralización para resaltar
-    el texto a bolígrafo y eliminar sombras del papel.
+    Aplica pre-procesamiento OpenCV optimizado: limpia el fondo,
+    suaviza el ruido periférico y resalta la tinta del bolígrafo.
     """
     img_cv = np.array(imagen_pil)
     
-    # Si es color, pasar a grises
+    # Convertir a escala de grises
     if len(img_cv.shape) == 3:
         gray = cv2.cvtColor(img_cv, cv2.COLOR_RGB2GRAY)
     else:
         gray = img_cv
 
-    # Aplicar filtro bilateral para suavizar ruido manteniendo bordes
-    denoised = cv2.bilateralFilter(gray, 9, 75, 75)
+    # Reducir el ruido de fondo y sombras de los bordes de la cámara
+    denoised = cv2.fastNlMeansDenoising(gray, h=10, templateWindowSize=7, searchWindowSize=21)
     
-    # Umbralización adaptativa para destacar la tinta sobre el fondo arrugado
+    # Umbralización adaptativa con parámetros calibrados para papel arrugado y bolígrafo
     thresh = cv2.adaptiveThreshold(
         denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-        cv2.THRESH_BINARY, 11, 2
+        cv2.THRESH_BINARY, 21, 15
     )
     
-    return thresh
+    return threshsh
 
 def modulo_escaneo_facturas_manuales(conn, db_actual):
     st.subheader("📸 Registro Rápido de Facturas (Flujo Productivo Cero Costos)")
