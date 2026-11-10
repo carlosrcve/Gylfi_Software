@@ -9798,7 +9798,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
             # --- C. Pasivos Operativos Corrientes (Clase 2.1 de corto plazo) ---
             pas_op_df = df[
-                df['plan_cuentas'].str.startswith('2.1')
+                df['plan_cuentas'].str.startswith('2.1.1.01')
             ]
             if not pas_op_df.empty:
                 movimiento_pasivos = float((pas_op_df['haber'] - pas_op_df['debe']).sum())
