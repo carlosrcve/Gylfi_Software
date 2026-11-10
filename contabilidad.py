@@ -3105,12 +3105,12 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 @st.cache_data(ttl=300)
 def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
     """
-    Recibe el NOMBRE de la BD (str), abre la conexión internamente 
-    y consulta los saldos sin romper el caché de Streamlit.
+    Función cacheada para calcular los saldos del balance de comprobación.
     """
     if not db_name:
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
+    # Abrimos la conexión activa
     conn = conectar_db(db_name)
     if not conn:
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
@@ -3127,7 +3127,7 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
         sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
 
-        # Ejecución usando la conexión abierta 'conn'
+        # LE PASAMOS EL OBJETO `conn` (no el string `db_name`) A LA FUNCIÓN ejecutar_consulta
         dfs = {
             'si': ejecutar_consulta(sql_si, conn),
             'debe': ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f)),
@@ -3141,7 +3141,9 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
                 if 'plan_cuentas' in df.columns:
                     df = df.rename(columns={'plan_cuentas': 'Código', 'val': nombre})
                     df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
+                    
                     df['Código'] = df['Código'].astype(str).str.strip()
+                    
                     df = df.groupby('Código')[nombre].sum().reset_index()
                     df = df.set_index('Código')
                     lista_frames.append(df)
@@ -3159,8 +3161,9 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
             
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         
-        # Cuentas de resultado (5, 6, 7, 8) no arrastran saldo inicial en reportes mensuales
+        # Las cuentas de resultado (5, 6, 7, 8) no arrastran saldo inicial en reportes por período
         es_cuenta_resultado = balance['Tipo'].isin(['5', '6', '7', '8'])
+        
         balance['Saldo Inicial'] = balance['si']
         balance.loc[es_cuenta_resultado, 'Saldo Inicial'] = 0.0
         
