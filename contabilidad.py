@@ -3207,7 +3207,8 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
     """
-    Genera el balance profesional consolidando la jerarquía contable sin duplicar saldos en padres.
+    Genera el balance profesional inyectando saldos solo en cuentas hoja 
+    y acumulando estrictamente por jerarquía para evitar duplicidades.
     """
     if not db_name or db_name == 'none':
         st.error("No se ha especificado el nombre de la base de datos.")
@@ -3268,39 +3269,36 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df_plan['llave_padre'] = df_plan['padre_calculado'].fillna('').str.replace(r'[^0-9]', '', regex=True)
         df_saldos['llave_join'] = df_saldos['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
 
-        # 3. Hacer el merge
-        df = pd.merge(
-            df_plan, 
-            df_saldos[['llave_join', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']], 
-            on='llave_join', 
-            how='left'
-        )
-        
-        cols_num = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
-        df[cols_num] = df[cols_num].fillna(0.0).astype(float)
+        # 3. Inicializar todas las cuentas con ceros absolutos en el DataFrame maestro del plan
+        df = df_plan.copy()
+        df['Saldo Inicial'] = 0.0
+        df['Debe'] = 0.0
+        df['Haber'] = 0.0
+        df['Saldo Final'] = 0.0
 
-        # 4. IDENTIFICAR CUENTAS DE MOVIMIENTO VS GRUPOS/PADRES
+        # Identificar qué llaves son padres (tienen cuentas hijas apuntando a ellas)
         padres_set = set(df['llave_padre'].dropna().astype(str))
-        is_padre = df['llave_join'].isin(padres_set)
-        is_grupo = df['tipo'].astype(str).str.lower() == 'grupo'
 
-        # Blanqueamos los grupos y padres para que no dupliquen lo de sus hijas
-        df.loc[is_grupo | is_padre, cols_num] = 0.0
-
-        # Mapeo limpio utilizando un diccionario directo para evitar errores de índices y objetos flotantes
+        # 4. INYECTAR SALDOS ÚNICAMENTE EN LAS CUENTAS HOJA (QUE NO SON PADRES NI GRUPOS)
         saldos_dict = df_saldos.set_index('llave_join')[['Saldo Inicial', 'Debe', 'Haber']].to_dict('index')
         
         for idx, row_df in df.iterrows():
             k = row_df['llave_join']
-            if not is_padre.iloc[idx] and str(df.loc[idx, 'tipo']).lower() != 'grupo':
+            es_padre_node = k in padres_set
+            es_grupo_node = str(row_df['tipo']).lower() == 'grupo'
+            
+            # Si es una cuenta de último nivel (hoja de movimiento)
+            if not es_padre_node and not es_grupo_node:
                 if k in saldos_dict:
                     df.loc[idx, 'Saldo Inicial'] = float(saldos_dict[k].get('Saldo Inicial', 0.0))
                     df.loc[idx, 'Debe'] = float(saldos_dict[k].get('Debe', 0.0))
                     df.loc[idx, 'Haber'] = float(saldos_dict[k].get('Haber', 0.0))
 
         # 5. SUMATORIA JERÁRQUICA RIGUROSA DE ABAJO HACIA ARRIBA
+        # Ordenamos los niveles del más profundo al nivel 1
         niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
         
+        cols_num = ['Saldo Inicial', 'Debe', 'Haber']
         for n in niveles_disponibles:
             filas_nivel = df[df['nivel'] == n]
             for _, fila in filas_nivel.iterrows():
