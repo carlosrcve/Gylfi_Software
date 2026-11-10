@@ -8320,7 +8320,7 @@ def extraer_datos_factura_inteligente(imagen_pil):
 
 def modulo_escaneo_facturas_manuales(conn, db_actual):
     st.subheader("📸 Registro Rápido de Facturas (Flujo Productivo Cero Costos)")
-    st.markdown("Sube la foto del talonario para control visual. Selecciona el proveedor frecuente y registra en segundos.")
+    st.markdown("Sube la foto del talonario para control visual. Selecciona el proveedor frecuente o registra uno nuevo.")
 
     archivo_subido = st.file_uploader(
         "Seleccionar o arrastrar imagen de factura",
@@ -8328,7 +8328,7 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
         help="Sube la foto de la factura física para tu auditoría visual."
     )
 
-    # 1. Consultar proveedores ya guardados en MySQL para el autocompletado inteligente
+    # 1. Consultar proveedores ya guardados en MySQL
     proveedores_db = []
     try:
         with conn.cursor() as cursor:
@@ -8355,12 +8355,14 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
         if "qr_generado_bytes" not in st.session_state:
             st.session_state.qr_generado_bytes = None
 
+        # Usamos st.form para agrupar el registro
         with st.form("form_factura_manual_produccion"):
             
-            # Selector de Proveedor Frecuente (Evita tipear RIF y dirección cada vez)
-            lista_nombres = list(dict_provs.keys()) + ["➕ Registrar Nuevo Proveedor..."]
+            # Lista de nombres asegurando que la opción por defecto sea "Registrar Nuevo"
+            lista_nombres = ["➕ Registrar Nuevo Proveedor..."] + list(dict_provs.keys())
             sel_proveedor = st.selectbox("Seleccionar Proveedor Frecuente", lista_nombres)
 
+            # Asignación dinámica según la selección del usuario
             if sel_proveedor != "➕ Registrar Nuevo Proveedor...":
                 rif_def = dict_provs[sel_proveedor]["rif"]
                 nombre_def = sel_proveedor
