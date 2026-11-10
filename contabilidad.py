@@ -3188,14 +3188,12 @@ def generar_balance_comprobacion(_db, f_i, f_f, sucursal):
             except: pass
 
 @st.cache_data(ttl=300)
-def generar_balance_profesional(db, f_i, f_f, sucursal):
-    # Abrimos una conexión fresca y segura dentro de la función cacheada usando 'db'
-    conn = conectar_db(db)
-    script_conn_valido = bool(conn)
-    if not script_conn_valido:
-        st.error(f"Papi, no se pudo establecer conexión a la base de datos: {db}")
-        return pd.DataFrame()
-    
+def generar_balance_profesional(conn, f_i, f_f, sucursal):
+    db = st.session_state.get('DB_ACTUAL')
+    if not db:
+        st.error("Papi, no has seleccionado ninguna base de datos.")
+        return None
+
     cursor = None
     try:
         cursor = conn.cursor()
@@ -3206,17 +3204,18 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
         df_plan = ejecutar_consulta(query_plan, conn)
         
         if df_plan is None or df_plan.empty:
-            st.warning("⚠️ El plan de cuentas está vacío.")
-            return pd.DataFrame()
+            st.error("⚠️ El plan de cuentas está vacío.")
+            return None
 
         # 2. Obtener los saldos del balance de comprobación
-        df_saldos = generar_balance_comprobacion(db, f_i, f_f, sucursal)
+        df_saldos = generar_balance_comprobacion(conn, f_i, f_f, sucursal)
         
         cols_finales = ['codigo', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         
         if df_saldos is None or df_saldos.empty:
             df_saldos = pd.DataFrame(columns=cols_finales)
         else:
+            # Estandarizar nombres de columnas de saldos
             renombres = {}
             for col in df_saldos.columns:
                 c_low = str(col).lower()
@@ -3231,22 +3230,13 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
             if c not in df_saldos.columns: 
                 df_saldos[c] = 0.0
 
-        # --- LIMPIEZA Y DERIVACIÓN AUTOMÁTICA DEL PADRE POR ESTRUCTURA ---
-        df_plan['codigo_limpio'] = df_plan['codigo'].astype(str).str.strip()
+        # --- LIMPIEZA Y NORMALIZACIÓN DE CÓDIGOS PARA EL MERGE ---
+        df_plan['llave_join'] = df_plan['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
+        df_plan['llave_padre'] = df_plan['padre'].astype(str).str.replace(r'[^0-9]', '', regex=True)
         
-        def calcular_padre(cod):
-            partes = str(cod).strip().split('.')
-            if len(partes) > 1:
-                return '.'.join(partes[:-1])
-            return None
-
-        df_plan['padre_calculado'] = df_plan['codigo_limpio'].apply(calcular_padre)
-        
-        df_plan['llave_join'] = df_plan['codigo_limpio'].str.replace(r'[^0-9]', '', regex=True)
-        df_plan['llave_padre'] = df_plan['padre_calculado'].fillna('').str.replace(r'[^0-9]', '', regex=True)
         df_saldos['llave_join'] = df_saldos['codigo'].astype(str).str.replace(r'[^0-9]', '', regex=True)
 
-        # 3. Hacer el merge
+        # 3. Hacer el merge utilizando la llave numérica limpia
         df = pd.merge(
             df_plan, 
             df_saldos[['llave_join', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']], 
@@ -3257,15 +3247,12 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
         cols_num = ['Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
         df[cols_num] = df[cols_num].fillna(0.0).astype(float)
 
-        # 4. Limpiar saldos en cuentas de tipo "Grupo" O CUENTAS QUE SEAN PADRES
-        padres_set = set(df['llave_padre'].dropna().astype(str))
-        is_padre = df['llave_join'].isin(padres_set)
-        is_grupo = df['tipo'].astype(str).str.lower() == 'grupo'
+        # 4. Limpiar los saldos en las cuentas de tipo "Grupo" para que no dupliquen valores propios
+        if 'tipo' in df.columns:
+            is_grupo = df['tipo'].astype(str).str.lower() == 'grupo'
+            df.loc[is_grupo, cols_num] = 0.0
 
-        # Blanqueamos los grupos y los padres para que sus saldos nazcan en 0 y acumulen limpio
-        df.loc[is_grupo | is_padre, cols_num] = 0.0
-
-        # 5. SUMATORIA JERÁRQUICA OPTIMIZADA
+        # 5. SUMATORIA JERÁRQUICA DE ABAJO HACIA ARRIBA (Usando la llave limpia del padre)
         niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
         
         for n in niveles_disponibles:
@@ -3277,20 +3264,16 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
                     if mask_padre.any():
                         df.loc[mask_padre, cols_num] = df.loc[mask_padre, cols_num].values + fila[cols_num].values
 
-        # --- CORRECCIÓN DE NATURALEZA CONTABLE PARA EL SALDO FINAL ---
-        df['Tipo_1'] = df['codigo'].astype(str).str[0]
-        es_contra_activo = df['codigo'].astype(str).str.startswith('1.2')
-        es_deudor = (df['Tipo_1'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
+        # Recalcular saldo final global de cada fila por seguridad
+        df['Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
 
-        df['Saldo Final'] = 0.0
-        df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
-        df.loc[~es_deudor, 'Saldo Final'] = df['Saldo Inicial'] - df['Debe'] + df['Haber']
-
-        # 6. Fila Total Global (Suma estricta del Nivel 1)
+        # 6. Fila Total Global replicando exactamente la suma de las cuentas de Nivel 1 del Excel
         df_nivel_1 = df[df['nivel'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
         total_haber = float(df_nivel_1['Haber'].sum())
+
+        # Suma directa de las filas principales de nivel 1 tal cual como en el Excel
         total_saldo_inicial_neto = float(df_nivel_1['Saldo Inicial'].sum())
         total_saldo_final_neto = float(df_nivel_1['Saldo Final'].sum())
 
@@ -3300,10 +3283,10 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
             'nivel': 0, 
             'tipo': 'Total', 
             'padre': None,
-            'Saldo Inicial': round(total_saldo_inicial_neto, 2),
-            'Debe': total_debe,
-            'Haber': total_haber,
-            'Saldo Final': round(total_saldo_final_neto, 2)
+            'Saldo Inicial': round(total_saldo_inicial_neto, 2), # Cierra en 0.00 exacto
+            'Debe': total_debe,                                 # Suma total de movimientos del Debe
+            'Haber': total_haber,                               # Suma total de movimientos del Haber
+            'Saldo Final': round(total_saldo_final_neto, 2)     # Cierra en 0.00 exacto
         }])
         
         cols_salida = ['codigo', 'nombre', 'nivel', 'tipo', 'padre', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final']
@@ -3311,20 +3294,10 @@ def generar_balance_profesional(db, f_i, f_f, sucursal):
         return df_final
 
     except Exception as e:
-        st.error(f"❌ Error crítico en balance profesional: {e}")
-        return pd.DataFrame()
-        
+        st.error(f"Error procesando balance profesional: {e}")
+        return None
     finally:
-        if cursor:
-            try:
-                cursor.close()
-            except Exception:
-                pass
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+        if cursor: cursor.close()
 
 
 @st.cache_data(ttl=300)
@@ -3621,24 +3594,20 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
             try: conn.close()
             except: pass
 
-@st.cache_data(ttl=300)
-def generar_balance_comprobacion(db, f_i, f_f, sucursal):
-    """
-    Genera el balance de comprobación cacheado, limpiando y consolidando 
-    la jerarquía contable para evitar duplicidad entre cuentas principales y auxiliares.
-    """
-    if not db:
+def generar_balance_comprobacion(conn, f_i, f_f, sucursal):
+    db = st.session_state.get('DB_ACTUAL')
+    cliente_id = st.session_state.get('cliente_id')
+    
+    if not db or not conn:
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
     
-    conn = conectar_db(db)
-    if not conn:
-        return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+    registrar_log_automatico(conn, "BALANCE_COMPROBACION", f"Balance para cliente ID: {cliente_id} (BD: {db})")
     
     try:
         # 1. Traer los Saldos Iniciales fijos de la tabla 'saldos_iniciales'
         sql_si = f"SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY plan_cuentas"
         
-        # 2. Movimientos del rango seleccionado en 'asientos_contables'
+        # 2. Movimientos EXCLUSIVOS del rango seleccionado (Ej: Del 1 al 31 de mayo) en 'asientos_contables'
         sql_mo_d = f"SELECT plan_cuentas, SUM(debe) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
         sql_mo_h = f"SELECT plan_cuentas, SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY plan_cuentas"
 
@@ -3654,50 +3623,32 @@ def generar_balance_comprobacion(db, f_i, f_f, sucursal):
                 if 'plan_cuentas' in df.columns:
                     df = df.rename(columns={'plan_cuentas': 'Código', 'val': nombre})
                     df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
-                    
-                    # Limpieza y estandarización del código contable
-                    df['Código'] = df['Código'].astype(str).str.strip()
-                    
-                    # Agrupamos por código limpio para sumar posibles fragmentaciones
-                    df = df.groupby('Código')[nombre].sum().reset_index()
+                    # Limpiamos todo lo que no sea número para asegurar que '1.1.1.01' y '11101' sean lo mismo
+                    df['Código'] = df['Código'].astype(str).str.replace(r'[^0-9]', '', regex=True)
                     df = df.set_index('Código')
                     lista_frames.append(df)
 
         if not lista_frames:
             return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
 
-        # Consolidamos todos los DataFrames en uno solo alineando por Código
         balance = pd.concat(lista_frames, axis=1).fillna(0.0)
         balance.reset_index(inplace=True)
         
-        # Aseguramos columnas numéricas
         for c in ['si', 'debe', 'haber']:
             if c not in balance.columns: 
                 balance[c] = 0.0
             balance[c] = balance[c].astype(float)
             
-        # Filtro de seguridad opcional: Si prefieres que el balance muestre únicamente 
-        # las cuentas de detalle (las que tienen puntos o nivel profundo) para que 
-        # las cuentas principales no dupliquen los saldos de sus hijas:
-        # (Descomenta la siguiente línea si en tu BD se registran asientos en ambas)
-        # balance = balance[~balance['Código'].isin(['6.1.1.04'])] # Ejemplo de exclusión de resumen si aplica
-
         balance['Tipo'] = balance['Código'].astype(str).str[0]
+        
+        # El Saldo Inicial para el reporte es directamente lo que viene de la tabla saldos_iniciales ('si')
         balance['Saldo Inicial'] = balance['si']
         
-        # Identificamos las cuentas de contra-activo (ej. Depreciación Acumulada que empiezan por 1.2)
-        # Tienen naturaleza acreedora a pesar de estar dentro del rubro 1.
-        es_contra_activo = balance['Código'].astype(str).str.startswith('1.2')
+        # Naturaleza de las cuentas (Activo/Gasto aumentan por el Debe, Pasivo/Capital/Ingreso por el Haber)
+        es_activo_gasto = balance['Tipo'].isin(['1', '5'])
         
-        # Activos reales y Gastos/Costos (Naturaleza Deudora)
-        es_activo_gasto = balance['Tipo'].isin(['1', '5', '6', '8']) & (~es_contra_activo)
-
         balance['Saldo Final'] = 0.0
-        
-        # 1. Para Activos reales, Costos y Gastos: Deudor (Suma Debe, Resta Haber)
         balance.loc[es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] + balance['debe'] - balance['haber']
-        
-        # 2. Para Contra-activos, Pasivos, Capital e Ingresos: Acreedor (Resta Debe, Suma Haber)
         balance.loc[~es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] - balance['debe'] + balance['haber']
         
         return balance[['Código', 'Saldo Inicial', 'debe', 'haber', 'Saldo Final']].rename(columns={
@@ -3705,12 +3656,8 @@ def generar_balance_comprobacion(db, f_i, f_f, sucursal):
         })
 
     except Exception as e:
-        st.error(f"❌ Error crítico procesando el balance: {e}")
+        st.error(f"❌ Error crítico procesando el balance para el cliente {cliente_id}: {e}")
         return pd.DataFrame()
-    finally:
-        if conn:
-            try: conn.close()
-            except: pass
 
 @st.cache_data(ttl=300)
 def formato_contable(valor):
