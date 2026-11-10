@@ -9723,6 +9723,10 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     gasto_depreciacion = 0.0
     variacion_activos_operativos = 0.0
     variacion_pasivos_operativos = 0.0
+    flujo_operacion = 0.0
+    flujo_inversion = 0.0
+    flujo_financiamiento = 0.0
+    variacion_efectivo = 0.0
     
     saldo_inicial_bancos = 0.0
     saldo_final_bancos = 0.0
@@ -9775,7 +9779,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             
             utilidad_neta = float(c4 - c5 - c6 + c7 - c8)
 
-            # --- A. Depreciación: Captura dinámica de cualquier cuenta de gasto de depreciación (Clase 6 o rama 6.1.1.03) ---
+            # --- A. Depreciación: Captura dinámica de cualquier cuenta de gasto de depreciación ---
             dep_df = df[
                 df['plan_cuentas'].str.startswith('6.1.1.03') | 
                 df['cuenta_lower'].str.contains('deprec')
@@ -9783,18 +9787,16 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             if not dep_df.empty:
                 gasto_depreciacion = abs(float((dep_df['debe'] - dep_df['haber']).sum()))
 
-            # --- B. Activos Operativos (Clase 1 excluyendo caja/bancos y activos fijos puros) ---
-            # Las variaciones de activo operativo consumen caja al aumentar (por eso van con signo negativo)
+            # --- B. Activos Operativos (Clase 1 excluyendo caja/bancos) ---
             act_op_df = df[
                 df['plan_cuentas'].str.startswith('1.1') & 
-                ~df['plan_cuentas'].str.startswith('1.1.1')  # Excluye cuentas de efectivo/bancos
+                ~df['plan_cuentas'].str.startswith('1.1.1')
             ]
             if not act_op_df.empty:
                 movimiento_activos = float((act_op_df['debe'] - act_op_df['haber']).sum())
                 variacion_activos_operativos = -movimiento_activos
 
-            # --- C. Pasivos Operativos (Clase 2 de corto plazo / proveedores / impuestos / retenciones) ---
-            # Las variaciones de pasivo operativo aportan caja al aumentar (por eso van en positivo)
+            # --- C. Pasivos Operativos (Clase 2.1 de corto plazo) ---
             pas_op_df = df[
                 df['plan_cuentas'].str.startswith('2.1')
             ]
@@ -9802,11 +9804,15 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                 movimiento_pasivos = float((pas_op_df['haber'] - pas_op_df['debe']).sum())
                 variacion_pasivos_operativos = movimiento_pasivos
 
-            # --- D. Actividades de Inversión y Financiamiento (Clases 1.2 de activos no corrientes y Clases 2.2 / 3 de pasivos largos y patrimonio) ---
-            inv_df = df[df['plan_cuentas'].str.startswith('1.2') & ~df['plan_cuentas'].str.startswith('1.2.1.02')] # Excluye acum. depreciación
+            # --- D. Actividades de Inversión y Financiamiento ---
+            inv_df = df[df['plan_cuentas'].str.startswith('1.2') & ~df['plan_cuentas'].str.startswith('1.2.1.02')]
             flujo_inversion = -abs(float((inv_df['debe'] - inv_df['haber']).sum()))
 
-            fin_df = df[df['plan_cuentas'].str.startswith('2.2') or df['plan_cuentas'].str.startswith('3')]
+            # CORRECCIÓN: Uso de operador '|' en lugar de 'or' para evitar error de Serie en Pandas
+            fin_df = df[
+                df['plan_cuentas'].str.startswith('2.2') | 
+                df['plan_cuentas'].str.startswith('3')
+            ]
             flujo_financiamiento = float((fin_df['haber'] - fin_df['debe']).sum())
 
         # =========================================================================
@@ -9819,11 +9825,44 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             variacion_pasivos_operativos
         )
 
-        # Ajuste específico de conciliación histórica si aplica al mes evaluado
+        # Ajuste específico de conciliación histórica si aplica al mes evaluado (Julio)
         ajuste_no_identificado = -691035.44 if mes_num == 7 else 0.0
 
         variacion_efectivo = flujo_operacion + flujo_inversion + flujo_financiamiento + ajuste_no_identificado
         saldo_final_calculado = saldo_inicial_bancos + variacion_efectivo
+
+        # =========================================================================
+        # AUDITORÍA EN PANTALLA (ST.DATAFRAME)
+        # =========================================================================
+        str_lit.markdown("---")
+        str_lit.subheader(f"🔍 Auditoría Dinámica MySQL — {nombre_mes} {ano}")
+        df_audit = pd.DataFrame({
+            "Concepto / Ramo Contable": [
+                "Utilidad Neta (Clases 4 a 8)",
+                "(+) Gasto de Depreciación",
+                "(-) Activos Operativos (Clase 1.1)",
+                "(+) Pasivos Operativos (Clase 2.1)",
+                "Efectivo Neto por Operación",
+                "(-) Inversión (Clase 1.2)",
+                "(+) Financiamiento / Patrimonio (2.2 / 3)",
+                "Efectivo Neto por Financiamiento",
+                "Ajuste de Conciliación (si aplica)"
+            ],
+            "Monto Extraído (Bs.)": [
+                utilidad_neta,
+                gasto_depreciacion,
+                variacion_activos_operativos,
+                variacion_pasivos_operativos,
+                flujo_operacion,
+                flujo_inversion,
+                flujo_financiamiento,
+                flujo_financiamiento,
+                ajuste_no_identificado
+            ]
+        })
+        str_lit.dataframe(df_audit, use_container_width=True)
+        str_lit.markdown(f"**Variación Neta del Efectivo:** Bs. {variacion_efectivo:,.2f} | **Saldo Final Banco:** Bs. {saldo_final_calculado:,.2f}")
+        str_lit.markdown("---")
 
     except Exception as e:
         str_lit.error(f"Error en motor dinámico de efectivo: {e}")
@@ -9832,6 +9871,14 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         'utilidad_neta': utilidad_neta,
         'gasto_depreciacion': gasto_depreciacion,
         'depreciaciones': gasto_depreciacion,
+        'cxp_accionistas': 0.0,
+        'credito_cashea': 0.0,
+        'retencion_islr': 0.0,
+        'anticipo_proveedores': variacion_activos_operativos,
+        'cxc_jean': 0.0,
+        'cxc_sandra': 0.0,
+        'variacion_cxc': 0.0,
+        'variacion_cxp': variacion_pasivos_operativos,
         'flujo_operacion': flujo_operacion,
         'flujo_inversion': flujo_inversion,
         'flujo_financiamiento': flujo_financiamiento,
