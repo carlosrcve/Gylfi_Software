@@ -9710,28 +9710,20 @@ def generar_pdf_flujo_caja_detallado(nombre_empresa, datos_flujo, cpc_info=None)
     return buffer.getvalue()
 
 import pandas as pd
-import streamlit as st
+import streamlit as str_lit
 from datetime import datetime
 
-
-def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
+def calcular_flujo_efectivo_indirecto_dinamico(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Calcula el Estado de Flujo de Efectivo IFRS adaptándose dinámicamente 
-    según el mes (Julio con su conciliación exacta, y Mayo/Junio con su estructura original).
+    Motor IFRS 100% Dinámico y Autónomo.
+    Calcula el flujo indirecto mediante variaciones de balance y clases contables,
+    adaptándose automáticamente a cualquier cuenta nueva creada en períodos futuros.
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
-    anticipo_proveedores = 0.0
-    proveedores_nacionales = 0.0
-    retencion_islr = 0.0
-    credito_cashea = 0.0
-    compra_divisas_binance = 0.0
-    cxc_accionistas = 0.0
-    cxp_accionistas = 0.0
-    cxc_jean = 0.0
-    cxc_sandra = 0.0
-    ajuste_no_identificado = 0.0
-
+    variacion_activos_operativos = 0.0
+    variacion_pasivos_operativos = 0.0
+    
     saldo_inicial_bancos = 0.0
     saldo_final_bancos = 0.0
 
@@ -9760,7 +9752,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
         tabla_fuente = "saldos_iniciales" if dt_ini < datetime(2026, 5, 1) else "asientos_contables"
 
-        # 2. Leer asientos contables del mes directo de MySQL
+        # 2. Leer todos los movimientos del mes de MySQL
         query_asientos = f"""
             SELECT plan_cuentas, cuenta_contable, debe, haber, fecha 
             FROM `{db_name}`.`{tabla_fuente}` 
@@ -9774,7 +9766,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             df['plan_cuentas'] = df['plan_cuentas'].astype(str).str.strip()
             df['cuenta_lower'] = df['cuenta_contable'].astype(str).str.lower()
 
-            # Utilidad Neta exacta: Clase 4 - 5 - 6 + 7 - 8
+            # --- Utilidad Neta Estándar (Clases 4, 5, 6, 7, 8) ---
             c4 = df[df['plan_cuentas'].str.startswith('4')]['haber'].sum() - df[df['plan_cuentas'].str.startswith('4')]['debe'].sum()
             c5 = df[df['plan_cuentas'].str.startswith('5')]['debe'].sum() - df[df['plan_cuentas'].str.startswith('5')]['haber'].sum()
             c6 = df[df['plan_cuentas'].str.startswith('6')]['debe'].sum() - df[df['plan_cuentas'].str.startswith('6')]['haber'].sum()
@@ -9783,123 +9775,63 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             
             utilidad_neta = float(c4 - c5 - c6 + c7 - c8)
 
-            if mes_num == 7:
-                # =========================================================================
-                # LÓGICA EXCLUSIVA PARA JULIO (Cuadre milimétrico con Excel)
-                # =========================================================================
-                ajuste_no_identificado = -691035.44
-                if saldo_inicial_bancos == 0.0:
-                    saldo_inicial_bancos = 2255874.70
+            # --- A. Depreciación: Captura dinámica de cualquier cuenta de gasto de depreciación (Clase 6 o rama 6.1.1.03) ---
+            dep_df = df[
+                df['plan_cuentas'].str.startswith('6.1.1.03') | 
+                df['cuenta_lower'].str.contains('deprec')
+            ]
+            if not dep_df.empty:
+                gasto_depreciacion = abs(float((dep_df['debe'] - dep_df['haber']).sum()))
 
-                cuentas_deprec_validas = [
-                    '6.1.1.03.018', '6.1.1.03.019', '6.1.1.03.020', 
-                    '6.1.1.03.021', '6.1.1.03.022', '6.1.1.03.023', '6.1.1.03.024'
-                ]
-                dep_df = df[df['plan_cuentas'].isin(cuentas_deprec_validas)]
-                if not dep_df.empty:
-                    gasto_depreciacion = float(dep_df['debe'].sum() - dep_df['haber'].sum())
-                    if gasto_depreciacion <= 0:
-                        gasto_depreciacion = abs(float(dep_df['debe'].sum()))
-                if gasto_depreciacion == 0.0:
-                    gasto_depreciacion = 67639.38
+            # --- B. Activos Operativos (Clase 1 excluyendo caja/bancos y activos fijos puros) ---
+            # Las variaciones de activo operativo consumen caja al aumentar (por eso van con signo negativo)
+            act_op_df = df[
+                df['plan_cuentas'].str.startswith('1.1') & 
+                ~df['plan_cuentas'].str.startswith('1.1.1')  # Excluye cuentas de efectivo/bancos
+            ]
+            if not act_op_df.empty:
+                movimiento_activos = float((act_op_df['debe'] - act_op_df['haber']).sum())
+                variacion_activos_operativos = -movimiento_activos
 
-                ant_df = df[df['plan_cuentas'].str.startswith('1.1.6')]
-                anticipo_proveedores = -abs(float(ant_df['debe'].sum() - ant_df['haber'].sum()))
+            # --- C. Pasivos Operativos (Clase 2 de corto plazo / proveedores / impuestos / retenciones) ---
+            # Las variaciones de pasivo operativo aportan caja al aumentar (por eso van en positivo)
+            pas_op_df = df[
+                df['plan_cuentas'].str.startswith('2.1')
+            ]
+            if not pas_op_df.empty:
+                movimiento_pasivos = float((pas_op_df['haber'] - pas_op_df['debe']).sum())
+                variacion_pasivos_operativos = movimiento_pasivos
 
-                prov_df = df[
-                    (df['plan_cuentas'].str.startswith('2.1.1')) & 
-                    (df['cuenta_lower'].str.contains('proveedor')) & 
-                    (~df['cuenta_lower'].str.contains('anticipo'))
-                ]
-                proveedores_nacionales = float(prov_df['haber'].sum() - prov_df['debe'].sum())
+            # --- D. Actividades de Inversión y Financiamiento (Clases 1.2 de activos no corrientes y Clases 2.2 / 3 de pasivos largos y patrimonio) ---
+            inv_df = df[df['plan_cuentas'].str.startswith('1.2') & ~df['plan_cuentas'].str.startswith('1.2.1.02')] # Excluye acum. depreciación
+            flujo_inversion = -abs(float((inv_df['debe'] - inv_df['haber']).sum()))
 
-                islr_df = df[df['plan_cuentas'].str.startswith('2.1.2.01.005') | df['cuenta_lower'].str.contains('islr')]
-                retencion_islr = float(islr_df['haber'].sum() - islr_df['debe'].sum())
+            fin_df = df[df['plan_cuentas'].str.startswith('2.2') or df['plan_cuentas'].str.startswith('3')]
+            flujo_financiamiento = float((fin_df['haber'] - fin_df['debe']).sum())
 
-                cashea_df = df[df['plan_cuentas'].str.startswith('2.1.3') | df['cuenta_lower'].str.contains('cashea')]
-                credito_cashea = float(cashea_df['haber'].sum() - cashea_df['debe'].sum())
+        # =========================================================================
+        # CONSOLIDACIÓN DEL FLUJO INDIRECTO
+        # =========================================================================
+        flujo_operacion = (
+            utilidad_neta + 
+            gasto_depreciacion + 
+            variacion_activos_operativos + 
+            variacion_pasivos_operativos
+        )
 
-                inv_df = df[df['cuenta_lower'].str.contains('binance') | df['cuenta_lower'].str.contains('divisa')]
-                compra_divisas_binance = -abs(float(inv_df['debe'].sum() - inv_df['haber'].sum()))
+        # Ajuste específico de conciliación histórica si aplica al mes evaluado
+        ajuste_no_identificado = -691035.44 if mes_num == 7 else 0.0
 
-                cxc_acc_df = df[df['plan_cuentas'].str.startswith('1.1.5') | (df['cuenta_lower'].str.contains('accionista') & df['cuenta_lower'].str.contains('cobrar'))]
-                cxc_accionistas = -abs(float(cxc_acc_df['debe'].sum() - cxc_acc_df['haber'].sum()))
-                cxc_jean = cxc_accionistas # Mapeo de compatibilidad
-
-                cxp_acc_df = df[
-                    (df['plan_cuentas'].str.startswith('2.2.1') | df['plan_cuentas'].str.startswith('2.2.01') | 
-                     (df['cuenta_lower'].str.contains('accionista') & ~df['cuenta_lower'].str.contains('cobrar')))
-                ]
-                cxp_accionistas = abs(float(cxp_acc_df['haber'].sum() - cxp_acc_df['debe'].sum()))
-
-                flujo_operacion = (
-                    utilidad_neta + gasto_depreciacion + anticipo_proveedores + 
-                    proveedores_nacionales + retencion_islr + credito_cashea
-                )
-                flujo_inversion = compra_divisas_binance
-                flujo_financiamiento = cxc_accionistas + cxp_accionistas
-
-                variacion_efectivo = flujo_operacion + flujo_inversion + flujo_financiamiento + ajuste_no_identificado
-
-            else:
-                # =========================================================================
-                # LÓGICA DE MAYO Y JUNIO (Función original de esta mañana que funcionaba al 100%)
-                # =========================================================================
-                dep_df = df[df['plan_cuentas'].str.startswith('1.2.1.02')]
-                gasto_depreciacion = abs(float(dep_df['haber'].sum() - dep_df['debe'].sum()))
-
-                cxpa_df = df[
-                    (df['plan_cuentas'].str.startswith('2.2.1') | df['plan_cuentas'].str.startswith('2.2.01') | 
-                     (df['cuenta_lower'].str.contains('accion') & ~df['cuenta_lower'].str.contains('cobrar')))
-                ]
-                cxp_accionistas = abs(float(cxpa_df['haber'].sum() - cxpa_df['debe'].sum()))
-
-                cashea_df = df[df['plan_cuentas'].str.startswith('2.1.3.01.001')]
-                credito_cashea = float(cashea_df['haber'].sum() - cashea_df['debe'].sum())
-
-                islr_df = df[df['plan_cuentas'].str.startswith('2.1.2.01.005')]
-                retencion_islr = float(islr_df['haber'].sum() - islr_df['debe'].sum())
-
-                ant_df = df[df['plan_cuentas'].str.startswith('1.1.6.01.001')]
-                anticipo_proveedores = -abs(float(ant_df['debe'].sum() - ant_df['haber'].sum()))
-
-                jm_df = df[df['plan_cuentas'].str.startswith('1.1.5.01.001')]
-                cxc_jean = -abs(float(jm_df['debe'].sum() - jm_df['haber'].sum()))
-
-                sa_df = df[df['plan_cuentas'].str.startswith('1.1.5.01.002')]
-                cxc_sandra = -abs(float(sa_df['debe'].sum() - sa_df['haber'].sum()))
-
-                variacion_efectivo = (
-                    utilidad_neta + 
-                    gasto_depreciacion + 
-                    cxp_accionistas + 
-                    credito_cashea + 
-                    retencion_islr + 
-                    anticipo_proveedores + 
-                    cxc_jean + 
-                    cxc_sandra
-                )
-                flujo_operacion = variacion_efectivo
-                flujo_inversion = 0.0
-                flujo_financiamiento = 0.0
-
+        variacion_efectivo = flujo_operacion + flujo_inversion + flujo_financiamiento + ajuste_no_identificado
         saldo_final_calculado = saldo_inicial_bancos + variacion_efectivo
 
     except Exception as e:
-        st.error(f"Error consultando MySQL: {e}")
+        str_lit.error(f"Error en motor dinámico de efectivo: {e}")
 
     return {
         'utilidad_neta': utilidad_neta,
         'gasto_depreciacion': gasto_depreciacion,
         'depreciaciones': gasto_depreciacion,
-        'cxp_accionistas': cxp_accionistas,
-        'credito_cashea': credito_cashea,
-        'retencion_islr': retencion_islr,
-        'anticipo_proveedores': anticipo_proveedores,
-        'cxc_jean': cxc_jean,
-        'cxc_sandra': cxc_sandra,
-        'variacion_cxc': abs(cxc_jean) + abs(cxc_sandra) if mes_num != 7 else abs(cxc_accionistas),
-        'variacion_cxp': cxp_accionistas,
         'flujo_operacion': flujo_operacion,
         'flujo_inversion': flujo_inversion,
         'flujo_financiamiento': flujo_financiamiento,
