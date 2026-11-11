@@ -3220,8 +3220,8 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
     """
-    Genera el balance profesional normalizando la naturaleza deudora/acreedora 
-    y acumulando estrictamente de abajo hacia arriba por niveles.
+    Genera el balance profesional normalizando la naturaleza deudora/acreedora,
+    acumulando estrictamente de abajo hacia arriba y cerrando saldos iniciales en 0,00.
     """
     if not db_name or db_name == 'none':
         st.error("No se ha especificado el nombre de la base de datos.")
@@ -3262,8 +3262,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                 cod_key = str(r[c_cod]).strip()
                 si_val = float(r.get(c_si, 0.0) or 0.0)
                 
-                # Normalización contable: Las cuentas de Activo (1) y Costos/Gastos por naturaleza son deudoras.
-                # Excluimos la depreciación acumulada (1.2.1.02) que sí es acreedora (negativa).
+                # Normalización contable: Cuentas de Activo deudoras en positivo (excepto depreciación)
                 if cod_key.startswith('1') and not cod_key.startswith('1.2.1.02'):
                     si_val = abs(si_val)
 
@@ -3287,7 +3286,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                 df.loc[idx, 'Debe'] = saldos_dict[c_code]['Debe']
                 df.loc[idx, 'Haber'] = saldos_dict[c_code]['Haber']
 
-        # 2. ACUMULACIÓN JERÁRQUICA ASCENDENTE EXACTA (DE HIJOS A PADRES: Nivel 5 -> 4 -> 3 -> 2 -> 1)
+        # 2. ACUMULACIÓN JERÁRQUICA ASCENDENTE EXACTA (DE HIJOS A PADRES)
         df['nivel_num'] = pd.to_numeric(df['nivel'], errors='coerce').fillna(1)
         niveles_ordenados = sorted(df['nivel_num'].unique(), reverse=True)
         indices_por_codigo = {row['codigo_limpio']: idx for idx, row in df.iterrows()}
@@ -3303,7 +3302,6 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                 if si_val == 0.0 and deb_val == 0.0 and hab_val == 0.0:
                     continue
 
-                # Propagar hacia arriba recortando los puntos de la jerarquía
                 partes = c_actual.split('.')
                 while len(partes) > 1:
                     partes.pop()
@@ -3313,7 +3311,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                         df.loc[idx_padre, 'Saldo Inicial'] += si_val
                         df.loc[idx_padre, 'Debe'] += deb_val
                         df.loc[idx_padre, 'Haber'] += hab_val
-                        break  # Sube al padre inmediato en cada nivel
+                        break
 
         # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL ---
         df['Tipo_1'] = df['codigo_limpio'].str[0]
@@ -3326,8 +3324,8 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
         df.loc[es_acreedor, 'Saldo Final'] = df['Saldo Inicial'] + df['Haber'] - df['Debe']
 
-        # 3. Fila Total Global
-        ddf_nivel_1 = df[df['nivel_num'] == 1]
+        # 3. Fila Total Global y Totales Nivel 1 (DEFINIDO CORRECTAMENTE)
+        df_nivel_1 = df[df['nivel_num'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
         total_haber = float(df_nivel_1['Haber'].sum())
@@ -3339,19 +3337,19 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
             totales_n1_si[t_1] = float(r_n1['Saldo Inicial'])
             totales_n1_fin[t_1] = float(r_n1['Saldo Final'])
 
-        # Extracción de saldos iniciales por tipo para la ecuación patrimonial inicial (= 0)
+        # Ecuación patrimonial para saldos iniciales (= 0,00)
         s_activo = totales_n1_si.get('1', 0.0)
         s_pasivo = totales_n1_si.get('2', 0.0)
         s_patrimonio = totales_n1_si.get('3', 0.0)
         s_ingresos = totales_n1_si.get('4', 0.0)
         s_costos = totales_n1_si.get('5', 0.0)
-        s_gastos = totales_n1.get('6', 0.0)
+        s_gastos = totales_n1_si.get('6', 0.0)
         s_otros_ing = totales_n1_si.get('7', 0.0)
-        s_egresos = totales_n1.get('8', 0.0)
+        s_egresos = totales_n1_si.get('8', 0.0)
 
-        total_saldo_inicial_neto = s_activo - s_pasivo - s_patrimonio - (((s_ingresos - s_costos - s_gastos) + s_otros_ing) - s_egresos)
+        total_saldo_inicial_neto = s_activo - s_pasivo - s_patrimonio - (((s_ingresos - s_costos - s_gastos) - s_otros_ing) - s_egresos)
 
-        # Extracción de saldos finales para el total general
+        # Ecuación patrimonial para saldos finales
         val_activo = totales_n1_fin.get('1', 0.0)
         val_pasivo = totales_n1_fin.get('2', 0.0)
         val_patrimonio = totales_n1_fin.get('3', 0.0)
@@ -3361,7 +3359,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         val_otros_ing = totales_n1_fin.get('7', 0.0)
         val_egresos = totales_n1_fin.get('8', 0.0)
 
-        neto_excel = val_activo - val_pasivo - val_patrimonio - (((val_ingresos - val_costos - val_gastos) + val_otros_ing) - val_egresos)
+        neto_excel = val_activo - val_pasivo - val_patrimonio - (((val_ingresos - val_costos - val_gastos) - val_otros_ing) - val_egresos)
 
         fila_total = pd.DataFrame([{
             'codigo': 'Σ', 
