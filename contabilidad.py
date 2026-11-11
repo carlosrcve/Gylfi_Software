@@ -3277,18 +3277,15 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                 df.loc[idx, 'Haber'] = saldos_dict[c_cod]['Haber']
 
         # 2. SUMATORIA JERÁRQUICA DE ABAJO HACIA ARRIBA (LOS HIJOS SUMAN AL PADRE)
-        niveles_disponibles = sorted([n for n in df['nivel'].dropna().unique()], reverse=True)
-        
-        for n in niveles_disponibles:
-            filas_nivel = df[df['nivel'] == n]
-            for _, fila in filas_nivel.iterrows():
-                p_cod = fila['padre_real']
-                if pd.notna(p_cod) and p_cod != '' and p_cod != 'none' and p_cod != 'nan':
-                    mask_padre = df['codigo_limpio'] == str(p_cod).strip()
-                    if mask_padre.any():
-                        df.loc[mask_padre, 'Saldo Inicial'] = df.loc[mask_padre, 'Saldo Inicial'].values + float(fila['Saldo Inicial'])
-                        df.loc[mask_padre, 'Debe'] = df.loc[mask_padre, 'Debe'].values + float(fila['Debe'])
-                        df.loc[mask_padre, 'Haber'] = df.loc[mask_padre, 'Haber'].values + float(fila['Haber'])
+        df['long_codigo'] = df['llave_join'].str.len()
+        df = df.sort_values(by='long_codigo', ascending=False).reset_index(drop=True)
+
+        for _, fila in df.iterrows():
+            p_cod = fila['llave_padre']
+            if pd.notna(p_cod) and p_cod != '' and p_cod != 'none' and p_cod != 'nan':
+                mask_padre = df['llave_join'] == str(p_cod)
+                if mask_padre.any():
+                    df.loc[mask_padre, cols_num] = df.loc[mask_padre, cols_num].values + fila[cols_num].values
 
         # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL ---
         df['Tipo_1'] = df['codigo_limpio'].str[0]
