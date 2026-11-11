@@ -3300,6 +3300,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                 df.loc[idx, 'Haber'] = saldos_dict[c_cod]['Haber']
 
         # 2. ACUMULACIÓN JERÁRQUICA ASCENDENTE PURA Y ESTRICTA DESDE LAS HOJAS
+        # 2. ACUMULACIÓN JERÁRQUICA ASCENDENTE EN CASCADA (SIN BREAK)
         df['nivel_num'] = pd.to_numeric(df['nivel'], errors='coerce').fillna(1)
         niveles_ordenados = sorted(df['nivel_num'].unique(), reverse=True)
         indices_por_codigo = {row['codigo_limpio']: idx for idx, row in df.iterrows()}
@@ -3315,7 +3316,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                 if si_val == 0.0 and deb_val == 0.0 and hab_val == 0.0:
                     continue
 
-                # Propagar hacia arriba de forma limpia al padre inmediato
+                # Propagar hacia arriba en cascada por todos los niveles superiores hasta la raíz
                 partes = c_actual.split('.')
                 while len(partes) > 1:
                     partes.pop()
@@ -3325,7 +3326,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                         df.loc[idx_padre, 'Saldo Inicial'] += si_val
                         df.loc[idx_padre, 'Debe'] += deb_val
                         df.loc[idx_padre, 'Haber'] += hab_val
-                        break
+                        # NOTA: Sin break para que siga subiendo al siguiente nivel padre (abuelo, bisabuelo, etc.)
         # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL ---
         df['Tipo_1'] = df['codigo_limpio'].str[0]
         es_contra_activo = df['codigo_limpio'].str.startswith('1.2')
