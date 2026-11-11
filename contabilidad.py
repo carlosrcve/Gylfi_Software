@@ -3278,25 +3278,31 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df['Haber'] = 0.0
         df['Saldo Final'] = 0.0
 
-        # 1. Inyectar saldos iniciales y movimientos en su respectiva cuenta
+        # Identificar qué códigos son padres (tienen cuentas hijas que dependen de ellos)
+        codigos_todos = set(df['codigo_limpio'].dropna())
+        codigos_padres = set()
+        for c in codigos_todos:
+            partes = c.split('.')
+            while len(partes) > 1:
+                partes.pop()
+                codigos_padres.add('.'.join(partes))
+
+        # 1. Inyectar saldos iniciales y movimientos EXCLUSIVAMENTE en cuentas de movimiento (hojas)
         for idx, row_df in df.iterrows():
             c_cod = row_df['codigo_limpio']
+            # Si la cuenta es un padre, no se le inyecta saldo directo para evitar duplicidad o cifras fantasmas
+            if c_cod in codigos_padres:
+                continue 
+                
             if c_cod in saldos_dict:
                 df.loc[idx, 'Saldo Inicial'] = saldos_dict[c_cod]['Saldo Inicial']
                 df.loc[idx, 'Debe'] = saldos_dict[c_cod]['Debe']
                 df.loc[idx, 'Haber'] = saldos_dict[c_cod]['Haber']
 
-        # 2. ACUMULACIÓN JERÁRQUICA ASCENDENTE ESTRICTA (SIN DUPLICAR)
+        # 2. ACUMULACIÓN JERÁRQUICA ASCENDENTE PURA Y ESTRICTA DESDE LAS HOJAS
         df['nivel_num'] = pd.to_numeric(df['nivel'], errors='coerce').fillna(1)
-        
-        # Ordenamos de mayor profundidad a menor profundidad para sumar hijos -> padres
         niveles_ordenados = sorted(df['nivel_num'].unique(), reverse=True)
         indices_por_codigo = {row['codigo_limpio']: idx for idx, row in df.iterrows()}
-
-        # Opcional recomendado: Limpiar los saldos iniciales y movimientos de los padres 
-        # para que no tengan valores directos erróneos y acumulen exclusivamente de sus hijos.
-        # (Descomenta la siguiente línea si los padres no deben tener transacciones directas):
-        # df.loc[df['tipo'] != 'Movimiento', ['Saldo Inicial', 'Debe', 'Haber']] = 0.0
 
         for n in niveles_ordenados:
             filas_nivel = df[df['nivel_num'] == n]
@@ -3309,19 +3315,17 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                 if si_val == 0.0 and deb_val == 0.0 and hab_val == 0.0:
                     continue
 
-                # Encontrar al padre inmediato recortando por puntos (ej: '1.1.1.02' -> '1.1.1')
+                # Propagar hacia arriba de forma limpia al padre inmediato
                 partes = c_actual.split('.')
                 while len(partes) > 1:
                     partes.pop()
                     p_str = '.'.join(partes)
                     if p_str in indices_por_codigo:
                         idx_padre = indices_por_codigo[p_str]
-                        # Sumar al padre inmediato encontrado en la jerarquía
                         df.loc[idx_padre, 'Saldo Inicial'] += si_val
                         df.loc[idx_padre, 'Debe'] += deb_val
                         df.loc[idx_padre, 'Haber'] += hab_val
-                        break  # Salimos del while una vez sumado a su padre directo superior
-
+                        break
         # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL ---
         df['Tipo_1'] = df['codigo_limpio'].str[0]
         es_contra_activo = df['codigo_limpio'].str.startswith('1.2')
