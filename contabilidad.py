@@ -3142,18 +3142,20 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         cols_ac = [row[0].lower() for row in cursor.fetchall()]
         col_c_ac = next((c for c in cols_ac if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_ac[0])
 
+        # EL SALDO INICIAL DE JUNIO = SALDO FINAL ACUMULADO AL 31 DE MAYO (< '2026-06-01')
         sql_si = f"""
             SELECT plan_cuentas, SUM(val) as val FROM (
                 SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY plan_cuentas
                 UNION ALL
                 SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha < %s GROUP BY plan_cuentas
-            ) as acumulado_historico
+            ) as saldo_final_mes_anterior
             GROUP BY plan_cuentas
         """
         
         sql_mo_d = f"SELECT `{col_c_ac}` as cuenta_id, SUM(debe) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
         sql_mo_h = f"SELECT `{col_c_ac}` as cuenta_id, SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
 
+        # f_i es '2026-06-01', por lo que fecha < f_i toma estrictamente todo hasta el cierre de mayo
         df_si = ejecutar_consulta(sql_si, conn, params=(f_i,))
         df_debe = ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f))
         df_haber = ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
@@ -3187,14 +3189,13 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
             
         balance['Tipo'] = balance['Código'].astype(str).str[0]
         
-        # ELIMINADO EL FILTRO QUE PONÍA EN 0 LAS CUENTAS 5, 6, 7, 8:
         balance['Saldo Inicial'] = balance['si']
         
         es_contra_activo = balance['Código'].astype(str).str.startswith('1.2')
         es_deudor = (balance['Tipo'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
         es_acreedor = balance['Tipo'].isin(['2', '3', '4', '7']) | es_contra_activo
 
-        # Convertimos el saldo inicial de las cuentas acreedoras a positivo
+        # Inversión de signo para las cuentas acreedoras para que reflejen su saldo real de cierre de mayo en positivo
         balance.loc[es_acreedor, 'Saldo Inicial'] = balance.loc[es_acreedor, 'Saldo Inicial'] * -1
 
         balance['Saldo Final'] = 0.0
