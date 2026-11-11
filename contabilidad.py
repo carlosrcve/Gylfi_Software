@@ -3123,6 +3123,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
 
 @st.cache_data(ttl=300)
+@st.cache_data(ttl=300)
 def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
     if not db_name:
         return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
@@ -3143,7 +3144,9 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         cols_ac = [row[0].lower() for row in cursor.fetchall()]
         col_c_ac = next((c for c in cols_ac if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_ac[0])
 
-        # CONSULTA UNIFICADA: Balance con historia completa y Resultados acumulados del año
+        # CONSULTA UNIFICADA Y ROBUSTA: 
+        # 1. Balance (1, 2, 3): Saldos iniciales manuales + histórico completo anterior.
+        # 2. Resultados (4, 5, 6, 7, 8): Acumulado del año en curso desde el 1 de enero hasta antes de f_i (cierre de mayo).
         sql_si = f"""
             SELECT plan_cuentas, SUM(val) as val FROM (
                 SELECT `{col_c_si}` as plan_cuentas, SUM(debe) - SUM(haber) as val 
@@ -3158,8 +3161,8 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
                 UNION ALL
                 SELECT `{col_c_ac}` as plan_cuentas, SUM(debe) - SUM(haber) as val 
                 FROM `{db_name}`.asientos_contables 
-                WHERE fecha < %s 
-                  AND fecha >= DATE_FORMAT(%s, '%%Y-01-01')
+                WHERE YEAR(fecha) = YEAR(%s) 
+                  AND fecha < %s 
                   AND SUBSTRING(`{col_c_ac}`, 1, 1) IN ('4', '5', '6', '7', '8') 
                 GROUP BY `{col_c_ac}`
             ) as acumulado_total
@@ -3169,6 +3172,7 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         sql_mo_d = f"SELECT `{col_c_ac}` as cuenta_id, SUM(debe) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
         sql_mo_h = f"SELECT `{col_c_ac}` as cuenta_id, SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
 
+        # Pasamos f_i tres veces para los tres comodines %s de la consulta de saldo inicial
         df_si = ejecutar_consulta(sql_si, conn, params=(f_i, f_i, f_i))
         df_debe = ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f))
         df_haber = ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
