@@ -3302,18 +3302,35 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
         df.loc[es_acreedor, 'Saldo Final'] = df['Saldo Inicial'] + df['Haber'] - df['Debe']
 
-        # 3. Fila Total Global
+        # ACUMULACIÓN JERÁRQUICA ASCENDENTE EXACTA (DE HIJOS A PADRES)
         df['nivel_num'] = pd.to_numeric(df['nivel'], errors='coerce').fillna(1)
-        df_nivel_1 = df[df['nivel_num'] == 1]
         
-        total_debe = float(df_nivel_1['Debe'].sum())
-        total_haber = float(df_nivel_1['Haber'].sum())
-        total_saldo_inicial_neto = float(df_nivel_1['Saldo Inicial'].sum())
-        
-        totales_n1 = {}
-        for _, r_n1 in df_nivel_1.iterrows():
-            t_1 = str(r_n1['codigo_limpio']).strip()[0]
-            totales_n1[t_1] = float(r_n1['Saldo Final'])
+        # Ordenamos de mayor nivel (hijas) a menor nivel (padres de nivel 1)
+        niveles_ordenados = sorted(df['nivel_num'].unique(), reverse=True)
+        indices_por_codigo = {row['codigo_limpio']: idx for idx, row in df.iterrows()}
+
+        for n in niveles_ordenados:
+            filas_nivel = df[df['nivel_num'] == n]
+            for idx_fila, fila in filas_nivel.iterrows():
+                c_actual = str(fila['codigo_limpio'])
+                si_val = float(fila['Saldo Inicial'])
+                deb_val = float(fila['Debe'])
+                hab_val = float(fila['Haber'])
+
+                if si_val == 0.0 and deb_val == 0.0 and hab_val == 0.0:
+                    continue
+
+                # Buscar el padre inmediato recortando los puntos (ej: '1.1.1' -> '1.1')
+                partes = c_actual.split('.')
+                if len(partes) > 1:
+                    partes.pop()
+                    p_str = '.'.join(partes)
+                    if p_str in indices_por_codigo:
+                        idx_padre = indices_por_codigo[p_str]
+                        # Sumar limpiamente al padre inmediato
+                        df.loc[idx_padre, 'Saldo Inicial'] += si_val
+                        df.loc[idx_padre, 'Debe'] += deb_val
+                        df.loc[idx_padre, 'Haber'] += hab_val
 
         val_activo = totales_n1.get('1', 0.0)
         val_pasivo = totales_n1.get('2', 0.0)
