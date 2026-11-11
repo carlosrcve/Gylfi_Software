@@ -3288,9 +3288,15 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
 
         # 2. ACUMULACIÓN JERÁRQUICA ASCENDENTE ESTRICTA (SIN DUPLICAR)
         df['nivel_num'] = pd.to_numeric(df['nivel'], errors='coerce').fillna(1)
+        
+        # Ordenamos de mayor profundidad a menor profundidad para sumar hijos -> padres
         niveles_ordenados = sorted(df['nivel_num'].unique(), reverse=True)
-
         indices_por_codigo = {row['codigo_limpio']: idx for idx, row in df.iterrows()}
+
+        # Opcional recomendado: Limpiar los saldos iniciales y movimientos de los padres 
+        # para que no tengan valores directos erróneos y acumulen exclusivamente de sus hijos.
+        # (Descomenta la siguiente línea si los padres no deben tener transacciones directas):
+        # df.loc[df['tipo'] != 'Movimiento', ['Saldo Inicial', 'Debe', 'Haber']] = 0.0
 
         for n in niveles_ordenados:
             filas_nivel = df[df['nivel_num'] == n]
@@ -3303,14 +3309,18 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                 if si_val == 0.0 and deb_val == 0.0 and hab_val == 0.0:
                     continue
 
+                # Encontrar al padre inmediato recortando por puntos (ej: '1.1.1.02' -> '1.1.1')
                 partes = c_actual.split('.')
-                if len(partes) > 1:
-                    p_str = '.'.join(partes[:-1])
+                while len(partes) > 1:
+                    partes.pop()
+                    p_str = '.'.join(partes)
                     if p_str in indices_por_codigo:
                         idx_padre = indices_por_codigo[p_str]
+                        # Sumar al padre inmediato encontrado en la jerarquía
                         df.loc[idx_padre, 'Saldo Inicial'] += si_val
                         df.loc[idx_padre, 'Debe'] += deb_val
                         df.loc[idx_padre, 'Haber'] += hab_val
+                        break  # Salimos del while una vez sumado a su padre directo superior
 
         # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL ---
         df['Tipo_1'] = df['codigo_limpio'].str[0]
