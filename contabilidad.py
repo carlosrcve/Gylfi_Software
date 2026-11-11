@@ -3158,11 +3158,12 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         """
 
         # 2. Saldo inicial para cuentas de Resultado (4, 5, 6, 7, 8): 
-        # Acumulan los movimientos desde el inicio del ejercicio hasta el día anterior (cierre del mes pasado)
         sql_si_resultado = f"""
             SELECT `{col_c_ac}` as plan_cuentas, SUM(debe) - SUM(haber) as val 
             FROM `{db_name}`.asientos_contables 
-            WHERE fecha < %s AND SUBSTRING(`{col_c_ac}`, 1, 1) IN ('4', '5', '6', '7', '8') 
+            WHERE fecha < %s 
+              AND fecha >= DATE_FORMAT(%s, '%%Y-01-01')
+              AND SUBSTRING(`{col_c_ac}`, 1, 1) IN ('4', '5', '6', '7', '8') 
             GROUP BY `{col_c_ac}`
         """
         
