@@ -3143,12 +3143,15 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         col_c_ac = next((c for c in cols_ac if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_ac[0])
 
         # EL SALDO INICIAL DE JUNIO = SALDO FINAL ACUMULADO AL 31 DE MAYO (< '2026-06-01')
+        # Blindaje: Forzamos a que las cuentas de resultado (5,6,7,8) no acumulen asientos contables históricos previos como saldo inicial, 
         sql_si = f"""
             SELECT plan_cuentas, SUM(val) as val FROM (
                 SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY plan_cuentas
                 UNION ALL
-                SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha < %s GROUP BY plan_cuentas
-            ) as saldo_final_mes_anterior
+                SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.asientos_contables 
+                WHERE fecha < %s AND SUBSTRING(plan_cuentas, 1, 1) IN ('1', '2', '3', '4') 
+                GROUP BY plan_cuentas
+            ) as acumulado_historico
             GROUP BY plan_cuentas
         """
         
