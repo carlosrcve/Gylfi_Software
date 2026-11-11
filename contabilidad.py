@@ -3220,8 +3220,8 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
     """
-    Genera el balance profesional calculando la jerarquía de forma estricta por puntos,
-    garantizando que los padres sumen exactamente a sus hijos sin errores de base de datos.
+    Genera el balance profesional garantizando que las cuentas de nivel superior (1, 2, 3, etc.)
+    sean la suma estricta de todas sus subcuentas mediante prefijos.
     """
     if not db_name or db_name == 'none':
         st.error("No se ha especificado el nombre de la base de datos.")
@@ -3247,7 +3247,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df_plan.columns = [str(c).strip().lower() for c in df_plan.columns]
         df_plan['codigo_limpio'] = df_plan['codigo'].astype(str).str.strip()
         
-        # 1. Obtenemos el balance de comprobación base (con los saldos y movimientos de las auxiliares)
+        # 1. Obtener saldos y movimientos base
         df_saldos = generar_balance_comprobacion(db_name, f_i, f_f, sucursal)
         
         saldos_dict = {}
@@ -3272,9 +3272,8 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df['Haber'] = 0.0
         df['Saldo Final'] = 0.0
 
-        # 2. ACUMULACIÓN MATEMÁTICA POR PREFIJOS DE PUNTOS
-        # Cada cuenta del plan de cuentas (sea grupo o detalle) acumula estrictamente 
-        # la suma de todas las cuentas del diccionario cuyo código comience con su prefijo.
+        # 2. SUMATORIA ESTRICTA POR PREFIJOS PARA CADA CUENTA (INCLUYENDO NIVEL 1, 2, 3...)
+        # Esto obliga a que la cuenta '1' (Activo) sume absolutamente todo lo que empieza por '1.'
         for idx, row in df.iterrows():
             c_code = str(row['codigo_limpio'])
             
@@ -3283,7 +3282,6 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
             hab_acc = 0.0
             
             for leaf_code, vals in saldos_dict.items():
-                # Coincidencia exacta o si es una subcuenta hija (ej: '1.1.1.02' empieza por '1.1.')
                 if leaf_code == c_code or leaf_code.startswith(c_code + '.'):
                     si_acc += vals['Saldo Inicial']
                     deb_acc += vals['Debe']
@@ -3301,9 +3299,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         es_acreedor = df['Tipo_1'].isin(['2', '3', '4', '7']) | es_contra_activo
 
         df['Saldo Final'] = 0.0
-        # Cuentas deudoras: Inicial + Debe - Haber
         df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
-        # Cuentas acreedoras: Inicial + Haber - Debe
         df.loc[es_acreedor, 'Saldo Final'] = df['Saldo Inicial'] + df['Haber'] - df['Debe']
 
         # 3. Fila Total Global
