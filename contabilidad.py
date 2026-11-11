@@ -13073,7 +13073,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 except Exception as ex_historial:
                     st.warning(f"Aviso en historial: {ex_historial}")
         with tab3:
-            sst.subheader("📂 Estado de Cuenta Bancario")
+            st.subheader("📂 Estado de Cuenta Bancario")
 
             db_actual = st.session_state.get('DB_ACTUAL')
 
