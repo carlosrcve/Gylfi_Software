@@ -3120,7 +3120,6 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
             st.dataframe(reporte_vista, use_container_width=True, hide_index=True)
 
-
 @st.cache_data(ttl=300)
 def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
     if not db_name:
@@ -3142,15 +3141,14 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         cols_ac = [row[0].lower() for row in cursor.fetchall()]
         col_c_ac = next((c for c in cols_ac if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_ac[0])
 
-        # EL SALDO INICIAL DE JUNIO = SALDO FINAL ACUMULADO AL 31 DE MAYO (< '2026-06-01')
-        # Blindaje: Forzamos a que las cuentas de resultado (5,6,7,8) no acumulen asientos contables históricos previos como saldo inicial, 
+        # Uso dinámico de las columnas detectadas (col_c_si y col_c_ac)
         sql_si = f"""
             SELECT plan_cuentas, SUM(val) as val FROM (
-                SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY plan_cuentas
+                SELECT `{col_c_si}` as plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY `{col_c_si}`
                 UNION ALL
-                SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.asientos_contables 
-                WHERE fecha < %s AND SUBSTRING(plan_cuentas, 1, 1) IN ('1', '2', '3', '4') 
-                GROUP BY plan_cuentas
+                SELECT `{col_c_ac}` as plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.asientos_contables 
+                WHERE fecha < %s AND SUBSTRING(`{col_c_ac}`, 1, 1) IN ('1', '2', '3', '4') 
+                GROUP BY `{col_c_ac}`
             ) as acumulado_historico
             GROUP BY plan_cuentas
         """
@@ -3158,7 +3156,6 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         sql_mo_d = f"SELECT `{col_c_ac}` as cuenta_id, SUM(debe) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
         sql_mo_h = f"SELECT `{col_c_ac}` as cuenta_id, SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
 
-        # f_i es '2026-06-01', por lo que fecha < f_i toma estrictamente todo hasta el cierre de mayo
         df_si = ejecutar_consulta(sql_si, conn, params=(f_i,))
         df_debe = ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f))
         df_haber = ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
@@ -3191,20 +3188,16 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
             balance[c] = balance[c].astype(float)
             
         balance['Tipo'] = balance['Código'].astype(str).str[0]
-        
         balance['Saldo Inicial'] = balance['si']
         
         es_contra_activo = balance['Código'].astype(str).str.startswith('1.2')
         es_deudor = (balance['Tipo'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
         es_acreedor = balance['Tipo'].isin(['2', '3', '4', '7']) | es_contra_activo
 
-        # Inversión de signo para las cuentas acreedoras para que reflejen su saldo real de cierre de mayo en positivo
         balance.loc[es_acreedor, 'Saldo Inicial'] = balance.loc[es_acreedor, 'Saldo Inicial'] * -1
 
         balance['Saldo Final'] = 0.0
-        # Cuentas deudoras: Inicial + Debe - Haber
         balance.loc[es_deudor, 'Saldo Final'] = balance['Saldo Inicial'] + balance['debe'] - balance['haber']
-        # Cuentas acreedoras: Inicial + Haber - Debe
         balance.loc[es_acreedor, 'Saldo Final'] = balance['Saldo Inicial'] + balance['haber'] - balance['debe']
         
         return balance[['Código', 'Saldo Inicial', 'debe', 'haber', 'Saldo Final']].rename(columns={
@@ -3227,8 +3220,8 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
     """
-    Genera el balance profesional inyectando saldos iniciales y movimientos,
-    acumulando de forma exacta por prefijos (infalible y sin duplicar).
+    Genera el balance profesional ignorando registros en cuentas padres 
+    y acumulando limpiamente por prefijos desde las auxiliares.
     """
     if not db_name or db_name == 'none':
         st.error("No se ha especificado el nombre de la base de datos.")
@@ -3254,6 +3247,15 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df_plan.columns = [str(c).strip().lower() for c in df_plan.columns]
         df_plan['codigo_limpio'] = df_plan['codigo'].astype(str).str.strip()
         
+        # Identificar qué códigos son padres/títulos en el plan de cuentas
+        codigos_todos = set(df_plan['codigo_limpio'].dropna())
+        codigos_padres = set()
+        for c in codigos_todos:
+            partes = c.split('.')
+            while len(partes) > 1:
+                partes.pop()
+                codigos_padres.add('.'.join(partes))
+
         df_saldos = generar_balance_comprobacion(db_name, f_i, f_f, sucursal)
         
         saldos_dict = {}
@@ -3266,6 +3268,9 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
             
             for _, r in df_saldos.iterrows():
                 cod_key = str(r[c_cod]).strip()
+                # BLINDAJE: Si la cuenta es un padre, se ignora para evitar corrupción de saldos
+                if cod_key in codigos_padres:
+                    continue
                 saldos_dict[cod_key] = {
                     'Saldo Inicial': float(r.get(c_si, 0.0) or 0.0),
                     'Debe': float(r.get(c_deb, 0.0) or 0.0),
@@ -3278,9 +3283,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df['Haber'] = 0.0
         df['Saldo Final'] = 0.0
 
-        # ACUMULACIÓN JERÁRQUICA PROFESIONAL POR PREFIJOS (100% PRECISA)
-        # Cada cuenta (sea padre o auxiliar) acumula la suma estricta de todas las cuentas 
-        # del diccionario de saldos cuyo código sea igual o comience con su código + '.'
+        # ACUMULACIÓN JERÁRQUICA POR PREFIJOS DESDE LAS HOJAS REALES
         for idx, row in df.iterrows():
             c_code = str(row['codigo_limpio'])
             
@@ -3306,9 +3309,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         es_acreedor = df['Tipo_1'].isin(['2', '3', '4', '7']) | es_contra_activo
 
         df['Saldo Final'] = 0.0
-        # Cuentas deudoras: Inicial + Debe - Haber
         df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
-        # Cuentas acreedoras: Inicial + Haber - Debe
         df.loc[es_acreedor, 'Saldo Final'] = df['Saldo Inicial'] + df['Haber'] - df['Debe']
 
         # 3. Fila Total Global
