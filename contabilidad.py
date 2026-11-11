@@ -13277,7 +13277,7 @@ elif opcion_menu == "📝 Asientos Contables":
                 st.error(f"Error de conexión o consulta con la base de datos: {e}")
 
         with tab6:
-            stst.subheader("🗑️ Vaciar Estado de Cuenta (Movimientos Bancarios) por Rango")
+            st.subheader("🗑️ Vaciar Estado de Cuenta (Movimientos Bancarios) por Rango")
 
             db_actual = st.session_state.get('DB_ACTUAL')
 
