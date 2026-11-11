@@ -3142,7 +3142,7 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         cols_ac = [row[0].lower() for row in cursor.fetchall()]
         col_c_ac = next((c for c in cols_ac if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_ac[0])
 
-        # Corrección: Usamos `db_name` en lugar de `db`
+        # Asegúrate de que diga {db_name} en ambas tablas dentro del f-string:
         sql_si = f"""
             SELECT plan_cuentas, SUM(val) as val FROM (
                 SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY plan_cuentas
