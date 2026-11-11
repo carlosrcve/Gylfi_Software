@@ -3363,7 +3363,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         s_otros_ing = totales_n1_si.get('7', 0.0)
         s_egresos = totales_n1_si.get('8', 0.0)
 
-        total_saldo_inicial_neto = s_activo - s_pasivo - s_patrimonio - (((s_ingresos - s_costos - s_gastos) - s_otros_ing) - s_egresos)
+        total_saldo_inicial_neto = s_activo - s_pasivo - s_patrimonio - (((s_ingresos - s_costos - s_gastos) + s_otros_ing) - s_egresos)
 
         # Ecuación patrimonial para saldos finales
         val_activo = totales_n1_fin.get('1', 0.0)
