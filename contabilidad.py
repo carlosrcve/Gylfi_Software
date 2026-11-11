@@ -3142,20 +3142,21 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         cols_ac = [row[0].lower() for row in cursor.fetchall()]
         col_c_ac = next((c for c in cols_ac if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_ac[0])
 
-        # El saldo inicial debe acumular: (Saldos iniciales fijos) + (Movimientos netos de todo lo previo al mes seleccionado)
+        # Corrección: Usamos `db_name` en lugar de `db`
         sql_si = f"""
             SELECT plan_cuentas, SUM(val) as val FROM (
-                SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY plan_cuentas
+                SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY plan_cuentas
                 UNION ALL
-                SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY plan_cuentas
+                SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha < %s GROUP BY plan_cuentas
             ) as acumulado_historico
             GROUP BY plan_cuentas
         """
-# Al ejecutar esta consulta, pasas como parámetro la fecha de inicio del mes seleccionado (ej. '2026-06-01')
+        
         sql_mo_d = f"SELECT `{col_c_ac}` as cuenta_id, SUM(debe) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
         sql_mo_h = f"SELECT `{col_c_ac}` as cuenta_id, SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
 
-        df_si = ejecutar_consulta(sql_si, conn)
+        # Pasamos f_i como parámetro para el 'WHERE fecha < %s' del saldo inicial (acumulado antes de junio)
+        df_si = ejecutar_consulta(sql_si, conn, params=(f_i,))
         df_debe = ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f))
         df_haber = ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
 
@@ -3213,7 +3214,6 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         if conn:
             try: conn.close()
             except: pass
-
 
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
