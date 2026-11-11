@@ -3141,9 +3141,8 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         cols_ac = [row[0].lower() for row in cursor.fetchall()]
         col_c_ac = next((c for c in cols_ac if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_ac[0])
 
-        # CONSULTA CORREGIDA: Restablece el acumulado histórico completo para clases 1, 2, 3 y 4 
-        # (asegurando la continuidad del resultado acumulado de mayo a junio)
-        # CONSULTA CORREGIDA: Acumulado histórico para TODAS las clases de cuentas (1 a 8)
+        # CONSULTA CORREGIDA: Acumulado histórico completo para TODAS las clases (1 al 8)
+        # Esto permite que las cuentas de resultados (4, 5, 6, 7, 8) arrastren el saldo acumulado de mayo a junio.
         sql_si = f"""
             SELECT plan_cuentas, SUM(val) as val FROM (
                 SELECT `{col_c_si}` as plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY `{col_c_si}`
