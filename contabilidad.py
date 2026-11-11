@@ -3141,13 +3141,13 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         cols_ac = [row[0].lower() for row in cursor.fetchall()]
         col_c_ac = next((c for c in cols_ac if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_ac[0])
 
-        # Uso dinámico de las columnas detectadas (col_c_si y col_c_ac)
+        # CONSULTA CORREGIDA: Histórico acumulado solo para cuentas de Balance (1, 2, 3) + saldos iniciales explícitos
         sql_si = f"""
             SELECT plan_cuentas, SUM(val) as val FROM (
                 SELECT `{col_c_si}` as plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY `{col_c_si}`
                 UNION ALL
                 SELECT `{col_c_ac}` as plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.asientos_contables 
-                WHERE fecha < %s AND SUBSTRING(`{col_c_ac}`, 1, 1) IN ('1', '2', '3', '4') 
+                WHERE fecha < %s AND SUBSTRING(`{col_c_ac}`, 1, 1) IN ('1', '2', '3') 
                 GROUP BY `{col_c_ac}`
             ) as acumulado_historico
             GROUP BY plan_cuentas
@@ -3214,8 +3214,6 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         if conn:
             try: conn.close()
             except: pass
-
-
 
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
