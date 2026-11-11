@@ -3142,7 +3142,16 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         cols_ac = [row[0].lower() for row in cursor.fetchall()]
         col_c_ac = next((c for c in cols_ac if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_ac[0])
 
-        sql_si = f"SELECT `{col_c_si}` as cuenta_id, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY `{col_c_si}`"
+        # El saldo inicial debe acumular: (Saldos iniciales fijos) + (Movimientos netos de todo lo previo al mes seleccionado)
+        sql_si = f"""
+            SELECT plan_cuentas, SUM(val) as val FROM (
+                SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.saldos_iniciales GROUP BY plan_cuentas
+                UNION ALL
+                SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db}`.asientos_contables WHERE fecha < %s GROUP BY plan_cuentas
+            ) as acumulado_historico
+            GROUP BY plan_cuentas
+        """
+# Al ejecutar esta consulta, pasas como parámetro la fecha de inicio del mes seleccionado (ej. '2026-06-01')
         sql_mo_d = f"SELECT `{col_c_ac}` as cuenta_id, SUM(debe) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
         sql_mo_h = f"SELECT `{col_c_ac}` as cuenta_id, SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
 
