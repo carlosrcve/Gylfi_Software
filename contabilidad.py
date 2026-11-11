@@ -3142,7 +3142,6 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         cols_ac = [row[0].lower() for row in cursor.fetchall()]
         col_c_ac = next((c for c in cols_ac if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_ac[0])
 
-        # Asegúrate de que diga {db_name} en ambas tablas dentro del f-string:
         sql_si = f"""
             SELECT plan_cuentas, SUM(val) as val FROM (
                 SELECT plan_cuentas, SUM(debe) - SUM(haber) as val FROM `{db_name}`.saldos_iniciales GROUP BY plan_cuentas
@@ -3155,7 +3154,6 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         sql_mo_d = f"SELECT `{col_c_ac}` as cuenta_id, SUM(debe) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
         sql_mo_h = f"SELECT `{col_c_ac}` as cuenta_id, SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
 
-        # Pasamos f_i como parámetro para el 'WHERE fecha < %s' del saldo inicial (acumulado antes de junio)
         df_si = ejecutar_consulta(sql_si, conn, params=(f_i,))
         df_debe = ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f))
         df_haber = ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
@@ -3163,18 +3161,18 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         dfs = {'si': df_si, 'debe': df_debe, 'haber': df_haber}
         lista_frames = []
         
-        for nombre, df in dfs.items():
-            if df is not None and not df.empty:
-                df.columns = [str(c).lower().strip() for c in df.columns]
-                col_pc = next((c for c in df.columns if 'cuenta' in c or 'plan' in c or 'codigo' in c), df.columns[0])
-                col_val = next((c for c in df.columns if c != col_pc), df.columns[-1])
+        for nombre, df_aux in dfs.items():
+            if df_aux is not None and not df_aux.empty:
+                df_aux.columns = [str(c).lower().strip() for c in df_aux.columns]
+                col_pc = next((c for c in df_aux.columns if 'cuenta' in c or 'plan' in c or 'codigo' in c), df_aux.columns[0])
+                col_val = next((c for c in df_aux.columns if c != col_pc), df_aux.columns[-1])
                 
-                df = df.rename(columns={col_pc: 'Código', col_val: nombre})
-                df[nombre] = pd.to_numeric(df[nombre], errors='coerce').fillna(0.0)
-                df['Código'] = df['Código'].astype(str).str.strip()
-                df = df.groupby('Código')[nombre].sum().reset_index()
-                df = df.set_index('Código')
-                lista_frames.append(df)
+                df_aux = df_aux.rename(columns={col_pc: 'Código', col_val: nombre})
+                df_aux[nombre] = pd.to_numeric(df_aux[nombre], errors='coerce').fillna(0.0)
+                df_aux['Código'] = df_aux['Código'].astype(str).str.strip()
+                df_aux = df_aux.groupby('Código')[nombre].sum().reset_index()
+                df_aux = df_aux.set_index('Código')
+                lista_frames.append(df_aux)
 
         if not lista_frames:
             return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
@@ -3194,11 +3192,17 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         balance.loc[es_cuenta_resultado, 'Saldo Inicial'] = 0.0
         
         es_contra_activo = balance['Código'].astype(str).str.startswith('1.2')
-        es_activo_gasto = (balance['Tipo'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
+        es_deudor = (balance['Tipo'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
+        es_acreedor = balance['Tipo'].isin(['2', '3', '4', '7']) | es_contra_activo
+
+        # Convertimos el saldo inicial de las cuentas acreedoras a positivo
+        balance.loc[es_acreedor, 'Saldo Inicial'] = balance.loc[es_acreedor, 'Saldo Inicial'] * -1
 
         balance['Saldo Final'] = 0.0
-        balance.loc[es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] + balance['debe'] - balance['haber']
-        balance.loc[~es_activo_gasto, 'Saldo Final'] = balance['Saldo Inicial'] - balance['debe'] + balance['haber']
+        # Cuentas deudoras: Inicial + Debe - Haber
+        balance.loc[es_deudor, 'Saldo Final'] = balance['Saldo Inicial'] + balance['debe'] - balance['haber']
+        # Cuentas acreedoras: Inicial + Haber - Debe (acumula correctamente los ingresos)
+        balance.loc[es_acreedor, 'Saldo Final'] = balance['Saldo Inicial'] + balance['haber'] - balance['debe']
         
         return balance[['Código', 'Saldo Inicial', 'debe', 'haber', 'Saldo Final']].rename(columns={
             'debe': 'Debe', 'haber': 'Haber'
