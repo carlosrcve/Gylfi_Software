@@ -10046,9 +10046,8 @@ from datetime import datetime
 
 def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     """
-    Motor IFRS 100% Dinámico, Autónomo y Robusto.
-    Calcula el Flujo de Efectivo por el Método Indirecto con signos contables exactos
-    y un saldo de control para evitar descuadres en cualquier mes (incluyendo agosto).
+    Motor IFRS 100% Dinámico y Autónomo.
+    Calcula el Flujo de Efectivo por el Método Indirecto con los movimientos reales de la base de datos.
     """
     utilidad_neta = 0.0
     gasto_depreciacion = 0.0
@@ -10122,7 +10121,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             
             utilidad_neta = float(c4 - c5 - c6 + c7 - c8)
 
-            # --- A. Depreciación (Ajuste que suma por no monetario) ---
+            # --- A. Depreciación ---
             dep_df = df[
                 df['plan_cuentas'].str.startswith('6.1.1.04') | 
                 df['cuenta_lower'].str.contains('deprec')
@@ -10130,35 +10129,35 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             if not dep_df.empty:
                 gasto_depreciacion = abs(float((dep_df['debe'] - dep_df['haber']).sum()))
 
-            # --- B. CxC Accionista Jean Marco (1.1.5.01.001) - Activo: Incremento resta (-) ---
+            # --- B. CxC Accionista Jean Marco (1.1.5.01.001) ---
             jm_df = df[df['plan_cuentas'].str.startswith('1.1.5.01.001')]
             if not jm_df.empty:
                 val_neto = float((jm_df['debe'] - jm_df['haber']).sum())
                 cxc_jean = -val_neto
 
-            # --- C. CxC Accionista Sandra Arroyo (1.1.5.01.002) - Activo: Incremento resta (-) ---
+            # --- C. CxC Accionista Sandra Arroyo (1.1.5.01.002) ---
             sa_df = df[df['plan_cuentas'].str.startswith('1.1.5.01.002')]
             if not sa_df.empty:
                 val_neto = float((sa_df['debe'] - sa_df['haber']).sum())
                 cxc_sandra = -val_neto
 
-            # --- D. Anticipo a Proveedores (1.1.6) - Activo: Incremento resta (-) ---
+            # --- D. Anticipo a Proveedores (1.1.6) ---
             ant_df = df[df['plan_cuentas'].str.startswith('1.1.6')]
             if not ant_df.empty:
                 val_neto = float((ant_df['debe'] - ant_df['haber']).sum())
                 anticipo_proveedores = -val_neto
 
-            # --- E. Proveedores Nacionales (2.1.1) - Pasivo: Incremento suma (+) ---
+            # --- E. Proveedores Nacionales (2.1.1) ---
             prov_df = df[df['plan_cuentas'].str.startswith('2.1.1') & ~df['plan_cuentas'].str.startswith('2.1.1.01.002')]
             if not prov_df.empty:
                 proveedores_nacionales = float((prov_df['haber'] - prov_df['debe']).sum())
 
-            # --- F. Retención ISLR Proveedores (2.1.2.01) - Pasivo: Incremento suma (+) ---
+            # --- F. Retención ISLR Proveedores (2.1.2.01) ---
             islr_df = df[df['plan_cuentas'].str.startswith('2.1.2.01')]
             if not islr_df.empty:
                 retencion_islr = float((islr_df['haber'] - islr_df['debe']).sum())
 
-            # --- G. Crédito Cashea (2.1.3.01) - Pasivo/Obligación: Variación neta ---
+            # --- G. Crédito Cashea (2.1.3.01) ---
             cashea_df = df[df['plan_cuentas'].str.startswith('2.1.3.01')]
             if not cashea_df.empty:
                 credito_cashea = float((cashea_df['haber'] - cashea_df['debe']).sum())
@@ -10190,8 +10189,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
             flujo_financiamiento = credito_vehiculo_val + cxp_accionistas + cxp_accionistas_2
 
-            # --- K. Captura Automática de Cuentas No Mapeadas (Evita descuadres en agosto) ---
-            # Si en agosto hay cuentas de Activo Corriente (1.1) o Pasivo Corriente (2.1) no contempladas arriba, las absorbe aquí.
+            # --- K. Captura Automática de Cuentas No Mapeadas ---
             cuentas_conocidas_prefix = ('4', '5', '6', '7', '8', '1.1.5.01.001', '1.1.5.01.002', '1.1.6', '2.1.1', '2.1.2.01', '2.1.3.01', '2.2.1.01', '2.2.2.01', '1.2', '3')
             df_desconocidos = df[~df['plan_cuentas'].str.startswith(cuentas_conocidas_prefix)]
             if not df_desconocidos.empty:
@@ -10199,13 +10197,13 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
                     p_cta = str(row['plan_cuentas'])
                     d_val = float(row['debe'])
                     h_val = float(row['haber'])
-                    if p_cta.startswith('1.'): # Activo no mapeado (incremento resta)
+                    if p_cta.startswith('1.'): 
                         otras_variaciones_circulante -= (d_val - h_val)
-                    elif p_cta.startswith('2.'): # Pasivo no mapeado (incremento suma)
+                    elif p_cta.startswith('2.'): 
                         otras_variaciones_circulante += (h_val - d_val)
 
         # =========================================================================
-        # CONSOLIDACIÓN DEL FLUJO INDIRECTO
+        # CONSOLIDACIÓN DEL FLUJO INDIRECTO (SIN PARCHES)
         # =========================================================================
         flujo_operacion = (
             utilidad_neta + 
@@ -10220,15 +10218,6 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         )
 
         variacion_efectivo = flujo_operacion + flujo_inversion + flujo_financiamiento
-        
-        # Forzar que el saldo final calculado coincida exactamente con el saldo final bancario real de agosto si hay diferencia de céntimos/redondeo o mapeo
-        # (Esto garantiza que la auditoría y los reportes cierren perfecto sin romper la visualización)
-        diferencia_cuadre = saldo_final_bancos - (saldo_inicial_bancos + variacion_efectivo)
-        if abs(diferencia_cuadre) > 0.01 and abs(diferencia_cuadre) < 5000: # Margen seguro para absorción de céntimos o cuentas menores de agosto
-            otras_variaciones_circulante += diferencia_cuadre
-            flujo_operacion += diferencia_cuadre
-            variacion_efectivo = flujo_operacion + flujo_inversion + flujo_financiamiento
-
         saldo_final_calculado = saldo_inicial_bancos + variacion_efectivo
 
         # =========================================================================
@@ -10341,7 +10330,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         'cambio_neto_efectivo': variacion_efectivo,
         'variacion_efectivo': variacion_efectivo,
         'saldo_inicial_bancos': saldo_inicial_bancos,
-        'saldo_final_bancos': saldo_final_calculado,
+        'saldo_final_bancos': saldo_final_bancos,
         'saldo_final_calculado': saldo_final_calculado,
         'efectivo_final_calculado': saldo_final_calculado,
         'fecha_inicio': fecha_inicio,
