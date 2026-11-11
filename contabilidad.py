@@ -3219,6 +3219,10 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
 
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
+    """
+    Genera el balance profesional normalizando la naturaleza deudora/acreedora 
+    y acumulando estrictamente de abajo hacia arriba por niveles.
+    """
     if not db_name or db_name == 'none':
         st.error("No se ha especificado el nombre de la base de datos.")
         return pd.DataFrame()
@@ -3243,11 +3247,9 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df_plan.columns = [str(c).strip().lower() for c in df_plan.columns]
         df_plan['codigo_limpio'] = df_plan['codigo'].astype(str).str.strip()
         
-        # 1. Obtener saldos y movimientos base
+        # 1. Obtener saldos y movimientos base de las auxiliares
         df_saldos = generar_balance_comprobacion(db_name, f_i, f_f, sucursal)
         
-        st.write("🔍 **DEBUG - df_saldos recibido de comprobación:**", df_saldos.head(10) if df_saldos is not None else "Es None")
-
         saldos_dict = {}
         if df_saldos is not None and not df_saldos.empty:
             df_saldos.columns = [str(c).strip().lower() for c in df_saldos.columns]
@@ -3258,13 +3260,18 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
             
             for _, r in df_saldos.iterrows():
                 cod_key = str(r[c_cod]).strip()
+                si_val = float(r.get(c_si, 0.0) or 0.0)
+                
+                # Normalización contable: Las cuentas de Activo (1) y Costos/Gastos por naturaleza son deudoras.
+                # Excluimos la depreciación acumulada (1.2.1.02) que sí es acreedora (negativa).
+                if cod_key.startswith('1') and not cod_key.startswith('1.2.1.02'):
+                    si_val = abs(si_val)
+
                 saldos_dict[cod_key] = {
-                    'Saldo Inicial': float(r.get(c_si, 0.0) or 0.0),
+                    'Saldo Inicial': si_val,
                     'Debe': float(r.get(c_deb, 0.0) or 0.0),
                     'Haber': float(r.get(c_hab, 0.0) or 0.0)
                 }
-
-        st.write("🔍 **DEBUG - saldos_dict procesado (primeros 5 elementos):**", list(saldos_dict.items())[:5])
 
         df = df_plan.copy()
         df['Saldo Inicial'] = 0.0
@@ -3272,7 +3279,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df['Haber'] = 0.0
         df['Saldo Final'] = 0.0
 
-        # Inyectar en plan de cuentas
+        # Inyectar valores base en las cuentas auxiliares
         for idx, row in df.iterrows():
             c_code = str(row['codigo_limpio'])
             if c_code in saldos_dict:
@@ -3280,7 +3287,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                 df.loc[idx, 'Debe'] = saldos_dict[c_code]['Debe']
                 df.loc[idx, 'Haber'] = saldos_dict[c_code]['Haber']
 
-        # 2. ACUMULACIÓN JERÁRQUICA ASCENDENTE (DE HIJOS A PADRES)
+        # 2. ACUMULACIÓN JERÁRQUICA ASCENDENTE EXACTA (DE HIJOS A PADRES: Nivel 5 -> 4 -> 3 -> 2 -> 1)
         df['nivel_num'] = pd.to_numeric(df['nivel'], errors='coerce').fillna(1)
         niveles_ordenados = sorted(df['nivel_num'].unique(), reverse=True)
         indices_por_codigo = {row['codigo_limpio']: idx for idx, row in df.iterrows()}
@@ -3296,6 +3303,7 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                 if si_val == 0.0 and deb_val == 0.0 and hab_val == 0.0:
                     continue
 
+                # Propagar hacia arriba recortando los puntos de la jerarquía
                 partes = c_actual.split('.')
                 while len(partes) > 1:
                     partes.pop()
@@ -3305,11 +3313,11 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
                         df.loc[idx_padre, 'Saldo Inicial'] += si_val
                         df.loc[idx_padre, 'Debe'] += deb_val
                         df.loc[idx_padre, 'Haber'] += hab_val
-                        break
+                        break  # Sube al padre inmediato en cada nivel
 
         # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL ---
         df['Tipo_1'] = df['codigo_limpio'].str[0]
-        es_contra_activo = df['codigo_limpio'].str.startswith('1.2')
+        es_contra_activo = df['codigo_limpio'].str.startswith('1.2.1.02')
         
         es_deudor = (df['Tipo_1'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
         es_acreedor = df['Tipo_1'].isin(['2', '3', '4', '7']) | es_contra_activo
