@@ -3228,7 +3228,7 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
     """
     Genera el balance profesional inyectando saldos iniciales y movimientos,
-    acumulando de abajo hacia arriba estrictamente una sola vez sin duplicar.
+    acumulando de forma exacta por prefijos (infalible y sin duplicar).
     """
     if not db_name or db_name == 'none':
         st.error("No se ha especificado el nombre de la base de datos.")
@@ -3278,55 +3278,26 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df['Haber'] = 0.0
         df['Saldo Final'] = 0.0
 
-        # Identificar qué códigos son padres (tienen cuentas hijas que dependen de ellos)
-        codigos_todos = set(df['codigo_limpio'].dropna())
-        codigos_padres = set()
-        for c in codigos_todos:
-            partes = c.split('.')
-            while len(partes) > 1:
-                partes.pop()
-                codigos_padres.add('.'.join(partes))
+        # ACUMULACIÓN JERÁRQUICA PROFESIONAL POR PREFIJOS (100% PRECISA)
+        # Cada cuenta (sea padre o auxiliar) acumula la suma estricta de todas las cuentas 
+        # del diccionario de saldos cuyo código sea igual o comience con su código + '.'
+        for idx, row in df.iterrows():
+            c_code = str(row['codigo_limpio'])
+            
+            si_acc = 0.0
+            deb_acc = 0.0
+            hab_acc = 0.0
+            
+            for leaf_code, vals in saldos_dict.items():
+                if leaf_code == c_code or leaf_code.startswith(c_code + '.'):
+                    si_acc += vals['Saldo Inicial']
+                    deb_acc += vals['Debe']
+                    hab_acc += vals['Haber']
+            
+            df.loc[idx, 'Saldo Inicial'] = si_acc
+            df.loc[idx, 'Debe'] = deb_acc
+            df.loc[idx, 'Haber'] = hab_acc
 
-        # 1. Inyectar saldos iniciales y movimientos EXCLUSIVAMENTE en cuentas de movimiento (hojas)
-        for idx, row_df in df.iterrows():
-            c_cod = row_df['codigo_limpio']
-            # Si la cuenta es un padre, no se le inyecta saldo directo para evitar duplicidad o cifras fantasmas
-            if c_cod in codigos_padres:
-                continue 
-                
-            if c_cod in saldos_dict:
-                df.loc[idx, 'Saldo Inicial'] = saldos_dict[c_cod]['Saldo Inicial']
-                df.loc[idx, 'Debe'] = saldos_dict[c_cod]['Debe']
-                df.loc[idx, 'Haber'] = saldos_dict[c_cod]['Haber']
-
-        # 2. ACUMULACIÓN JERÁRQUICA ASCENDENTE PURA Y ESTRICTA DESDE LAS HOJAS
-        # 2. ACUMULACIÓN JERÁRQUICA ASCENDENTE EN CASCADA (SIN BREAK)
-        df['nivel_num'] = pd.to_numeric(df['nivel'], errors='coerce').fillna(1)
-        niveles_ordenados = sorted(df['nivel_num'].unique(), reverse=True)
-        indices_por_codigo = {row['codigo_limpio']: idx for idx, row in df.iterrows()}
-
-        for n in niveles_ordenados:
-            filas_nivel = df[df['nivel_num'] == n]
-            for idx_fila, fila in filas_nivel.iterrows():
-                c_actual = str(fila['codigo_limpio'])
-                si_val = float(fila['Saldo Inicial'])
-                deb_val = float(fila['Debe'])
-                hab_val = float(fila['Haber'])
-
-                if si_val == 0.0 and deb_val == 0.0 and hab_val == 0.0:
-                    continue
-
-                # Propagar hacia arriba en cascada por todos los niveles superiores hasta la raíz
-                partes = c_actual.split('.')
-                while len(partes) > 1:
-                    partes.pop()
-                    p_str = '.'.join(partes)
-                    if p_str in indices_por_codigo:
-                        idx_padre = indices_por_codigo[p_str]
-                        df.loc[idx_padre, 'Saldo Inicial'] += si_val
-                        df.loc[idx_padre, 'Debe'] += deb_val
-                        df.loc[idx_padre, 'Haber'] += hab_val
-                        # NOTA: Sin break para que siga subiendo al siguiente nivel padre (abuelo, bisabuelo, etc.)
         # --- APLICACIÓN DE NATURALEZA CONTABLE AL SALDO FINAL ---
         df['Tipo_1'] = df['codigo_limpio'].str[0]
         es_contra_activo = df['codigo_limpio'].str.startswith('1.2')
@@ -3337,10 +3308,11 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df['Saldo Final'] = 0.0
         # Cuentas deudoras: Inicial + Debe - Haber
         df.loc[es_deudor, 'Saldo Final'] = df['Saldo Inicial'] + df['Debe'] - df['Haber']
-        # Cuentas acreedoras: Inicial + Haber - Debe (para que sume correctamente el movimiento del haber)
+        # Cuentas acreedoras: Inicial + Haber - Debe
         df.loc[es_acreedor, 'Saldo Final'] = df['Saldo Inicial'] + df['Haber'] - df['Debe']
 
         # 3. Fila Total Global
+        df['nivel_num'] = pd.to_numeric(df['nivel'], errors='coerce').fillna(1)
         df_nivel_1 = df[df['nivel_num'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
