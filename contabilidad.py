@@ -12603,7 +12603,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 if st.form_submit_button("Registrar Nuevo Saldo"):
                     if guardar_saldo_mensual(conn, banco_input, m_input, a_input, val_ini, val_fin, db_name=db_actual):
                         st.success(f"✅ Saldo de **{banco_input}** para **{m_input} {a_input}** guardado con éxito.")
-                        st.rerun()
 
             # Eliminación segura
             with st.expander("🗑️ Eliminar un registro"):
