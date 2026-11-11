@@ -3141,8 +3141,10 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
         cols_ac = [row[0].lower() for row in cursor.fetchall()]
         col_c_ac = next((c for c in cols_ac if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_ac[0])
 
-        # 1. Saldo inicial para cuentas de Balance (1, 2, 3): Acumulado histórico completo
-        sql_si_balance = f"""
+        # SALDO INICIAL ESTÁNDAR: 
+        # Solo las cuentas de Balance (1, 2, 3) arrastran saldo inicial histórico y de apertura.
+        # Las cuentas de Resultado (4-8) nacen en 0,00 cada período tal como exige la norma contable.
+        sql_si = f"""
             SELECT plan_cuentas, SUM(val) as val FROM (
                 SELECT `{col_c_si}` as plan_cuentas, SUM(debe) - SUM(haber) as val 
                 FROM `{db_name}`.saldos_iniciales 
@@ -3156,37 +3158,11 @@ def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
             ) as hist_balance
             GROUP BY plan_cuentas
         """
-
-        # 2. Saldo inicial para cuentas de Resultado (4, 5, 6, 7, 8): 
-        sql_si_resultado = f"""
-            SELECT `{col_c_ac}` as plan_cuentas, SUM(debe) - SUM(haber) as val 
-            FROM `{db_name}`.asientos_contables 
-            WHERE fecha < %s 
-              AND fecha >= DATE_FORMAT(%s, '%%Y-01-01')
-              AND SUBSTRING(`{col_c_ac}`, 1, 1) IN ('4', '5', '6', '7', '8') 
-            GROUP BY `{col_c_ac}`
-        """
         
         sql_mo_d = f"SELECT `{col_c_ac}` as cuenta_id, SUM(debe) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
         sql_mo_h = f"SELECT `{col_c_ac}` as cuenta_id, SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
 
-        # Ejecutamos las consultas de saldo inicial por separado (pasando f_i dos veces para la consulta 2)
-        df_si_bal = ejecutar_consulta(sql_si_balance, conn, params=(f_i,))
-        df_si_res = ejecutar_consulta(sql_si_resultado, conn, params=(f_i, f_i))
-        
-        frames_si = [f for f in [df_si_bal, df_si_res] if f is not None and not f.empty]
-        df_si = pd.concat(frames_si, ignore_index=True) if frames_si else pd.DataFrame()
-
-        # 🛡️ CORTAFUEGOS LÓGICO DE PANDAS: 
-        # Forzamos a 0.0 el saldo inicial de cualquier cuenta de resultado (4-8) para garantizar 
-        # que mayo arranque totalmente limpio sin arrastrar registros fantasmas de la base de datos.
-        if not df_si.empty:
-            col_codigo_si = next((c for c in df_si.columns if 'código' in c or 'codigo' in c or 'plan' in c or 'cuentas' in c), df_si.columns[0])
-            col_valor_si = next((c for c in df_si.columns if c != col_codigo_si), df_si.columns[-1])
-            
-            es_resultado = df_si[col_codigo_si].astype(str).str.startswith(('4', '5', '6', '7', '8'))
-            df_si.loc[es_resultado, col_valor_si] = 0.0
-
+        df_si = ejecutar_consulta(sql_si, conn, params=(f_i,))
         df_debe = ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f))
         df_haber = ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
 
