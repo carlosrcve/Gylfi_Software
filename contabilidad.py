@@ -3327,25 +3327,39 @@ def generar_balance_profesional(db_name, f_i, f_f, sucursal):
         df.loc[es_acreedor, 'Saldo Final'] = df['Saldo Inicial'] + df['Haber'] - df['Debe']
 
         # 3. Fila Total Global
-        df_nivel_1 = df[df['nivel_num'] == 1]
+        ddf_nivel_1 = df[df['nivel_num'] == 1]
         
         total_debe = float(df_nivel_1['Debe'].sum())
         total_haber = float(df_nivel_1['Haber'].sum())
-        total_saldo_inicial_neto = float(df_nivel_1['Saldo Inicial'].sum())
         
-        totales_n1 = {}
+        totales_n1_si = {}
+        totales_n1_fin = {}
         for _, r_n1 in df_nivel_1.iterrows():
             t_1 = str(r_n1['codigo_limpio']).strip()[0]
-            totales_n1[t_1] = float(r_n1['Saldo Final'])
+            totales_n1_si[t_1] = float(r_n1['Saldo Inicial'])
+            totales_n1_fin[t_1] = float(r_n1['Saldo Final'])
 
-        val_activo = totales_n1.get('1', 0.0)
-        val_pasivo = totales_n1.get('2', 0.0)
-        val_patrimonio = totales_n1.get('3', 0.0)
-        val_ingresos = totales_n1.get('4', 0.0)
-        val_costos = totales_n1.get('5', 0.0)
-        val_gastos = totales_n1.get('6', 0.0)
-        val_otros_ing = totales_n1.get('7', 0.0)
-        val_egresos = totales_n1.get('8', 0.0)
+        # Extracción de saldos iniciales por tipo para la ecuación patrimonial inicial (= 0)
+        s_activo = totales_n1_si.get('1', 0.0)
+        s_pasivo = totales_n1_si.get('2', 0.0)
+        s_patrimonio = totales_n1_si.get('3', 0.0)
+        s_ingresos = totales_n1_si.get('4', 0.0)
+        s_costos = totales_n1_si.get('5', 0.0)
+        s_gastos = totales_n1.get('6', 0.0)
+        s_otros_ing = totales_n1_si.get('7', 0.0)
+        s_egresos = totales_n1.get('8', 0.0)
+
+        total_saldo_inicial_neto = s_activo - s_pasivo - s_patrimonio - (((s_ingresos - s_costos - s_gastos) + s_otros_ing) - s_egresos)
+
+        # Extracción de saldos finales para el total general
+        val_activo = totales_n1_fin.get('1', 0.0)
+        val_pasivo = totales_n1_fin.get('2', 0.0)
+        val_patrimonio = totales_n1_fin.get('3', 0.0)
+        val_ingresos = totales_n1_fin.get('4', 0.0)
+        val_costos = totales_n1_fin.get('5', 0.0)
+        val_gastos = totales_n1_fin.get('6', 0.0)
+        val_otros_ing = totales_n1_fin.get('7', 0.0)
+        val_egresos = totales_n1_fin.get('8', 0.0)
 
         neto_excel = val_activo - val_pasivo - val_patrimonio - (((val_ingresos - val_costos - val_gastos) + val_otros_ing) - val_egresos)
 
