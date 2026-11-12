@@ -23,4 +23,4 @@ qrcode==7.4.2
 pytesseract>=0.3.10
 Pillow>=9.0.0
 streamlit-paste-button==0.1.2
-
+streamlit-mic-recorder
