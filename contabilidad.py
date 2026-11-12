@@ -15964,9 +15964,10 @@ elif opcion_menu == "📝 Asientos Contables":
         except Exception as ex_alt:
             st.warning(f"Aviso de migración de tabla: {ex_alt}")
 
-        # Directorio base persistente
+        # Directorio base persistente con ruta absoluta
         DIRECTORIO_SUBIDAS = "documentos_clientes"
-        dir_empresa = os.path.join(DIRECTORIO_SUBIDAS, str(db_actual))
+        dir_base_absoluto = os.path.abspath(DIRECTORIO_SUBIDAS)
+        dir_empresa = os.path.join(dir_base_absoluto, str(db_actual))
         os.makedirs(dir_empresa, exist_ok=True)
 
         # --- FUNCIONES CON CACHÉ PARA OPTIMIZAR EL RENDIMIENTO ---
@@ -16032,6 +16033,9 @@ elif opcion_menu == "📝 Asientos Contables":
                     if not carpeta_limpia:
                         carpeta_limpia = "General"
                     
+                    # Obtener la ruta absoluta real del directorio base en el servidor
+                    dir_base_absoluto = os.path.abspath(DIRECTORIO_SUBIDAS)
+                    dir_empresa = os.path.join(dir_base_absoluto, str(db_actual))
                     dir_carpeta_fisica = os.path.join(dir_empresa, carpeta_limpia)
                     os.makedirs(dir_carpeta_fisica, exist_ok=True)
 
@@ -16042,6 +16046,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                 for archivo in archivos_subidos:
                                     timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
                                     nombre_limpio = f"{timestamp_str}_{archivo.name}"
+                                    
+                                    # Esto ya será una ruta absoluta garantizada
                                     ruta_completa = os.path.join(dir_carpeta_fisica, nombre_limpio)
                                     
                                     with open(ruta_completa, "wb") as f:
@@ -16084,7 +16090,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         cols[1].text(f"📂 {row['categoria']}")
                         cols[2].text(str(row['fecha_subida'])[:10])
                         
-                        # Verificación física del archivo
+                        # Verificación física del archivo con ruta absoluta
                         archivo_existe = False
                         if row['ruta_archivo'] and os.path.exists(row['ruta_archivo']):
                             archivo_existe = True
