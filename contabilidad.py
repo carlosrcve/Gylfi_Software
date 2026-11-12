@@ -8495,18 +8495,16 @@ def extraer_con_lupas(imagen_pil):
     return datos, img_cv
 
 def modulo_escaneo_facturas_manuales(conn, db_actual):
-    st.subheader("📸 Escáner Inteligente de Facturas a Bolígrafo (EasyOCR + OpenCV)")
-    st.markdown("Sube la foto, pégala desde WhatsApp (`Ctrl + V`), o llena los campos manualmente consultando la factura original.")
+    st.subheader("📸 Registro Rápido de Facturas a Bolígrafo (Soporte Visual)")
+    st.markdown("Sube la foto, pégala desde WhatsApp (`Ctrl + V`), y registra los datos con la imagen de referencia al lado.")
 
-    # --- INICIALIZAR ESTADOS DE SESIÓN PARA LOS CAMPOS ---
+    # --- INICIALIZAR ESTADOS DE SESIÓN ---
     if "ocr_procesado" not in st.session_state:
         st.session_state.ocr_procesado = False
-    if "datos_ocr" not in st.session_state:
-        st.session_state.datos_ocr = {}
 
     campos_defaults = {
         "input_rif": "",
-        "input_nombre": "",
+        "input_nombre": "JOSÉ RODRÍGUEZ COLMENARES", # Proveedor frecuente por defecto
         "input_factura": "",
         "input_control": "",
         "input_fecha": datetime.now().strftime('%d/%m/%Y'),
@@ -8550,9 +8548,7 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
             archivo_subido = st.file_uploader("Respaldo: Sube tu archivo aquí", type=["png", "jpg", "jpeg"], key="uploader_respaldo_paste")
 
     if archivo_subido is None:
-        st.info("ℹ️ Adjunta o pega una foto del talonario arriba para habilitar el formulario de análisis automático.")
-        st.session_state.ocr_procesado = False
-        st.session_state.datos_ocr = {}
+        st.info("ℹ️ Adjunta o pega una foto del talonario arriba para habilitar el formulario de registro.")
         return
 
     if not isinstance(archivo_subido, Image.Image):
@@ -8560,54 +8556,17 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
     else:
         img = archivo_subido
 
-    if not st.session_state.ocr_procesado:
-        with st.spinner("🤖 Leyendo escritura a bolígrafo con EasyOCR..."):
-            datos_extraidos, img_procesada = extraer_con_lupas(img)
-            st.session_state.datos_ocr = datos_extraidos
-            st.session_state.img_proc = img_procesada
-            
-            st.session_state.input_rif = datos_extraidos.get("rif", "")
-            st.session_state.input_nombre = datos_extraidos.get("nombre", "")
-            st.session_state.input_factura = datos_extraidos.get("factura", "")
-            st.session_state.input_control = datos_extraidos.get("control", "")
-            st.session_state.input_base = str(datos_extraidos.get("base", "0.00"))
-            st.session_state.input_iva = str(datos_extraidos.get("iva", "0.00"))
-            
-            st.session_state.ocr_procesado = True
-
     col_izq, col_der = st.columns([1, 1.2])
 
     with col_izq:
-        st.image(img, caption="Factura Original", use_container_width=True)
+        st.image(img, caption="Factura de Referencia (Visual)", use_container_width=True)
         
-        # Visor de lupas para calibrar
-        if "debug_lupa_fac" in st.session_state:
-            with st.expander("🔍 Ver qué capturaron las Lupas (Calibración)"):
-                st.image(st.session_state.debug_lupa_fac, caption="Lupa 1: Buscando Número de Factura")
-                st.image(st.session_state.debug_lupa_rif, caption="Lupa 2: Buscando RIF")
-
-        
-        if st.button("🔄 Escanear otra factura", key="btn_reiniciar_escaneo"):
-            st.session_state.ocr_procesado = False
-            st.session_state.datos_ocr = {}
+        if st.button("🔄 Cargar otra factura", key="btn_reiniciar_escaneo"):
             st.rerun()
 
     with col_der:
-        st.markdown("### 📝 Campos Autocompletados por IA")
+        st.markdown("### 📝 Datos de la Factura (Registro Ágil)")
         
-        d_check = st.session_state.get("datos_ocr", {})
-        if not d_check.get("rif") and not d_check.get("factura"):
-            st.warning(
-                "⚠️ **Aviso de Escaneo:** Cuando el script no logra detectar con exactitud matemática los patrones o coordenadas de los datos, "
-                "el diccionario devuelve valores vacíos y los campos quedan libres para llenado manual.\n\n"
-                "💡 **Consejos para mejorar la lectura automática:**\n"
-                "* Asegúrate de tomar la foto de la factura con **mayor claridad, enfoque y buena iluminación**.\n"
-                "* Si el problema persiste, es recomendable utilizar un **escáner de alta precisión** o enderezar la imagen antes de pegarla desde WhatsApp para que el motor de EasyOCR pueda extraer la información de forma exitosa."
-            )
-
-        if "qr_generado_bytes" not in st.session_state:
-            st.session_state.qr_generado_bytes = None
-
         rif_prov = st.text_input("RIF del Proveedor", key="input_rif")
         nombre_prov = st.text_input("Nombre del Proveedor", key="input_nombre")
         
@@ -8649,7 +8608,7 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
         monto_total = val_b + val_i
         st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
 
-        # --- BOTÓN DE GUARDADO FINAL ---
+        # --- BOTÓN DE GUARDADO FINAL EN MYSQL ---
         if st.button("💾 Guardar y Registrar en MySQL", type="primary", key="btn_guardar_factura_mysql"):
             if not nro_factura or not rif_prov:
                 st.error("⚠️ Faltan campos obligatorios (Número de Factura y RIF).")
@@ -8671,7 +8630,7 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                         ))
                         conn.commit()
 
-                    st.success("¡Factura leída y registrada en MySQL con éxito!")
+                    st.success("¡Factura registrada en MySQL con éxito!")
 
                     if "QR" in modo_emision:
                         info_qr = (
