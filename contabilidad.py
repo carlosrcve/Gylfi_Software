@@ -15967,7 +15967,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     """)
                     if (cur_alt.fetchone()[0] or 0) == 0:
                         cur_alt.execute("ALTER TABLE documentos_cloud ADD COLUMN archivo_binario LONGBLOB AFTER nombre_archivo")
-                        cur_alt.commit()
+                        conn_alt.commit()
 
                     # 3. Asegurar columna tipo_mime
                     cur_alt.execute("""
@@ -16004,7 +16004,6 @@ elif opcion_menu == "📝 Asientos Contables":
             try:
                 conn = conectar_db(empresa)
                 if conn:
-                    # Solo traemos los metadatos y el ID (el LONGBLOB se descarga solo al presionar el botón para optimizar memoria)
                     query_select = "SELECT id, carpeta, categoria, nombre_archivo, tipo_mime, fecha_subida FROM documentos_cloud WHERE empresa_db = %s ORDER BY carpeta ASC, fecha_subida DESC"
                     df_docs = ejecutar_consulta(query_select, conn, params=(str(empresa),))
                     conn.close()
@@ -16092,36 +16091,51 @@ elif opcion_menu == "📝 Asientos Contables":
                         cols[1].text(f"📂 {row['categoria']}")
                         cols[2].text(str(row['fecha_subida'])[:10])
                         
-                        # Botón para descargar consultando el binario directamente de MySQL al hacer clic
-                        if cols[3].button("⬇️ Descargar", key=f"down_{row['id']}"):
+                        doc_id = row['id']
+                        key_data = f"dl_data_{doc_id}"
+                        key_mime = f"dl_mime_{doc_id}"
+                        
+                        # 1. Si se hizo clic en preparar descarga, consultamos MySQL y guardamos en sesión
+                        if cols[3].button("⬇️ Descargar", key=f"btn_dl_{doc_id}"):
                             try:
                                 conn_dl = conectar_db(db_actual)
                                 if conn_dl:
                                     with conn_dl.cursor() as cursor_dl:
-                                        cursor_dl.execute("SELECT archivo_binario, tipo_mime FROM documentos_cloud WHERE id = %s", (row['id'],))
+                                        cursor_dl.execute("SELECT archivo_binario, tipo_mime FROM documentos_cloud WHERE id = %s", (doc_id,))
                                         res_dl = cursor_dl.fetchone()
                                     conn_dl.close()
                                     
                                     if res_dl and res_dl[0]:
-                                        bin_data = res_dl[0]
-                                        mime_type = res_dl[1] or 'application/octet-stream'
-                                        st.download_button(
-                                            label=f"📥 Confirmar Descarga: {row['nombre_archivo']}",
-                                            data=bin_data,
-                                            file_name=row['nombre_archivo'],
-                                            mime=mime_type,
-                                            key=f"confirm_down_{row['id']}"
-                                        )
+                                        st.session_state[key_data] = res_dl[0]
+                                        st.session_state[key_mime] = res_dl[1] or 'application/octet-stream'
+                                        st.rerun()
                             except Exception as ex_dl:
                                 cols[3].error(f"Error: {ex_dl}")
 
+                        # 2. Si el archivo ya está listo en sesión, mostramos el botón oficial de descarga directa
+                        if key_data in st.session_state:
+                            cols[3].download_button(
+                                label=f"📥 Guardar Archivo",
+                                data=st.session_state[key_data],
+                                file_name=row['nombre_archivo'],
+                                mime=st.session_state[key_mime],
+                                key=f"final_dl_{doc_id}",
+                                type="primary"
+                            )
+
                         # Botón de eliminar registro de MySQL
-                        if cols[4].button("🗑️", key=f"del_{row['id']}", help="Eliminar de la base de datos"):
+                        if cols[4].button("🗑️", key=f"del_{doc_id}", help="Eliminar de la base de datos"):
                             try:
+                                # Limpiar sesión si existía
+                                if key_data in st.session_state:
+                                    del st.session_state[key_data]
+                                if key_mime in st.session_state:
+                                    del st.session_state[key_mime]
+
                                 conn_del = conectar_db(db_actual)
                                 if conn_del:
                                     with conn_del.cursor() as cursor_del:
-                                        cursor_del.execute("DELETE FROM documentos_cloud WHERE id = %s", (row['id'],))
+                                        cursor_del.execute("DELETE FROM documentos_cloud WHERE id = %s", (doc_id,))
                                         conn_del.commit()
                                     conn_del.close()
                                     
@@ -16129,7 +16143,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.success("🗑️ Archivo eliminado de la base de datos.")
                                 st.rerun()
                             except Exception as ex_del:
-                                st.error(f"❌ Error al eliminar: {ex_del}")
+                                cols[4].error(f"❌ Error: {ex_del}")
         else:
             st.info("ℹ️ No hay documentos subidos para esta empresa todavía. Crea una carpeta arriba y sube tus archivos.")
 
