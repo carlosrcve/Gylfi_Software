@@ -8590,9 +8590,11 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
         d_check = st.session_state.get("datos_ocr", {})
         if not d_check.get("rif") and not d_check.get("factura"):
             st.warning(
-                "⚠️ Cuando el script no logra detectar con exactitud matemática los patrones o coordenadas de esos datos, "
-                "el diccionario devuelve valores vacíos y los campos quedan libres para que tú los llenes manualmente de forma rápida "
-                "consultando la factura original."
+                "⚠️ **Aviso de Escaneo:** Cuando el script no logra detectar con exactitud matemática los patrones o coordenadas de los datos, "
+                "el diccionario devuelve valores vacíos y los campos quedan libres para llenado manual.\n\n"
+                "💡 **Consejos para mejorar la lectura automática:**\n"
+                "* Asegúrate de tomar la foto de la factura con **mayor claridad, enfoque y buena iluminación**.\n"
+                "* Si el problema persiste, es recomendable utilizar un **escáner de alta precisión** o enderezar la imagen antes de pegarla desde WhatsApp para que el motor de EasyOCR pueda extraer la información de forma exitosa."
             )
 
         if "qr_generado_bytes" not in st.session_state:
