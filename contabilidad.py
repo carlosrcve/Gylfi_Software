@@ -16601,7 +16601,7 @@ elif sub_opcion == "Estado de Resultados":
         st.stop()
 
     # 3. INTERFAZ DEL REPORTE
-    st.subheader(f"📈 Estado de Resultados: {EMPRESA}")
+    st.subheader(f"📈 Estado de Resultados (Mensual): {EMPRESA}")
     
     # --- BLINDAJE LOCAL DE FECHAS ---
     from datetime import date as d_type, datetime as dt_type
@@ -16627,11 +16627,8 @@ elif sub_opcion == "Estado de Resultados":
     def obtener_estado_resultados_cached(db_name, fecha_desde, fecha_hasta, sucursal_sel):
         df_datos = pd.DataFrame()
         try:
-            # 💡 Convertir las fechas a texto YYYY-MM-DD
             f_i_str = fecha_desde.strftime('%Y-%m-%d') if hasattr(fecha_desde, 'strftime') else str(fecha_desde)
             f_f_str = fecha_hasta.strftime('%Y-%m-%d') if hasattr(fecha_hasta, 'strftime') else str(fecha_hasta)
-            
-            # 💡 CORRECCIÓN CRÍTICA: Se pasa db_name (string) directamente en lugar de 'conn'
             df_datos = generar_balance_profesional(db_name, f_i_str, f_f_str, sucursal_sel)
         except Exception as err:
             st.error(f"❌ Error al consultar estado de resultados: {err}")
@@ -16641,15 +16638,26 @@ elif sub_opcion == "Estado de Resultados":
     df_datos = obtener_estado_resultados_cached(db_actual, f_er_desde, f_er_hasta, sucursal)
     
     if df_datos is not None and not df_datos.empty:
-        # Limpiamos el código para asegurarnos de evaluar el primer dígito correctamente
+        # Limpiamos el código para evaluar el primer dígito correctamente
         df_datos['codigo_limpio'] = df_datos['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True)
         
-        # 1. Filtramos cuentas de resultados (4 al 8) usando el código limpio
+        # 1. Filtramos cuentas de resultados (4 al 8)
         df_er = df_datos[df_datos['codigo_limpio'].str.startswith(('4', '5', '6', '7', '8'))].copy()
         
         if df_er.empty:
             st.warning("⚠️ No se encontraron registros para las cuentas de Resultados (4, 5, 6, 7, 8) en el período seleccionado.")
         else:
+            # --- CÁLCULO ESTRICTAMENTE MENSUAL (SOLO MOVIMIENTO DEL PERÍODO, SIN ACUMULADO ANTERIOR) ---
+            df_er['Debe'] = pd.to_numeric(df_er['Debe'], errors='coerce').fillna(0.0)
+            df_er['Haber'] = pd.to_numeric(df_er['Haber'], errors='coerce').fillna(0.0)
+            
+            es_acreedora_er = df_er['codigo_limpio'].str.startswith(('4', '7'))
+            df_er['Resultado Mensual'] = 0.0
+            df_er.loc[es_acreedora_er, 'Resultado Mensual'] = df_er['Haber'] - df_er['Debe']
+            df_er.loc[~es_acreedora_er, 'Resultado Mensual'] = df_er['Debe'] - df_er['Haber']
+            
+            # Sobrescribimos 'Saldo Final' con el monto mensual para que estilo_balance y las exportaciones funcionen igual
+            df_er['Saldo Final'] = df_er['Resultado Mensual']
             df_er['Cuenta'] = df_er.apply(lambda x: f"{'    ' * (int(x['nivel'])-1)}{x['nombre']}", axis=1)
             
             # 2. RENDERIZADO EN PANTALLA
@@ -16661,7 +16669,7 @@ elif sub_opcion == "Estado de Resultados":
                 hide_index=True
             )
             
-            # 3. CÁLCULO DE UTILIDAD / PÉRDIDA GLOBAL (Cuentas 4 a 8)
+            # 3. CÁLCULO DE UTILIDAD / PÉRDIDA MENSUAL (Cuentas 4 a 8)
             df_n1 = df_er[df_er['nivel'] == 1]
             if df_n1.empty:
                 df_n1 = df_er[df_er['codigo_limpio'].str.len() == 1]
@@ -16672,15 +16680,15 @@ elif sub_opcion == "Estado de Resultados":
             otros_ing = df_n1[df_n1['codigo_limpio'].str.startswith('7')]['Saldo Final'].sum()
             otros_egr = df_n1[df_n1['codigo_limpio'].str.startswith('8')]['Saldo Final'].sum()
 
-            utilidad = abs(ing) + abs(otros_ing) - (abs(cos) + abs(gas) + abs(otros_egr))
+            utilidad = (ing + otros_ing) - (cos + gas + otros_egr)
             
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Ingresos Totales", f"Bs. {abs(ing):,.2f}")
+                st.metric("Ingresos del Mes", f"Bs. {(ing + otros_ing):,.2f}")
             with col2:
-                st.metric("Costos y Gastos", f"Bs. {(abs(cos) + abs(gas) + abs(otros_egr)):,.2f}")
+                st.metric("Costos y Gastos del Mes", f"Bs. {(cos + gas + otros_egr):,.2f}")
             with col3:
-                st.metric("Utilidad / Pérdida", f"Bs. {formato_contable(utilidad)}", 
+                st.metric("Utilidad / Pérdida del Mes", f"Bs. {formato_contable(utilidad)}", 
                             delta=f"{formato_contable(utilidad)}",
                             delta_color="normal" if utilidad >= 0 else "inverse")
 
@@ -16710,18 +16718,19 @@ elif sub_opcion == "Estado de Resultados":
 
             tasa = st.session_state.tasa_bcv if st.session_state.tasa_bcv > 0 else 1.0
 
-            # Cálculos en USD
-            ing_usd, cos_usd, gas_usd, util_usd = [x / tasa for x in [abs(ing), abs(cos), abs(gas), utilidad]]
-            costos_gastos_usd = cos_usd + gas_usd
+            # Cálculos en USD (Mensuales)
+            ing_total_mes = ing + otros_ing
+            egresos_total_mes = cos + gas + otros_egr
+            ing_usd, egresos_usd, util_usd = [x / tasa for x in [ing_total_mes, egresos_total_mes, utilidad]]
 
             # 5. VISUALIZACIÓN EN USD
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.metric("Ingresos (USD)", f"$ {formato_contable(ing_usd)}")
+                st.metric("Ingresos Mes (USD)", f"$ {formato_contable(ing_usd)}")
             with c2:
-                st.metric("Costos/Gastos (USD)", f"$ {formato_contable(costos_gastos_usd)}")
+                st.metric("Costos/Gastos Mes (USD)", f"$ {formato_contable(egresos_usd)}")
             with c3:
-                st.metric("Utilidad (USD)", f"$ {formato_contable(util_usd)}", 
+                st.metric("Utilidad Mes (USD)", f"$ {formato_contable(util_usd)}", 
                             delta=f"{formato_contable(util_usd)} USD",
                             delta_color="normal" if utilidad >= 0 else "inverse")
 
@@ -16759,21 +16768,21 @@ elif sub_opcion == "Estado de Resultados":
             # --- EXCEL ---
             output_er = io.BytesIO()
             df_excel = df_er[['codigo', 'Cuenta', 'Saldo Final']].copy()
-            df_excel.columns = ['Código', 'Cuenta / Descripción', 'Saldo Final (Bs.)']
+            df_excel.columns = ['Código', 'Cuenta / Descripción', 'Monto Mensual (Bs.)']
 
             with pd.ExcelWriter(output_er, engine='xlsxwriter') as writer:
-                df_excel.to_excel(writer, index=False, sheet_name='Estado_Resultados')
+                df_excel.to_excel(writer, index=False, sheet_name='Estado_Resultados_Mensual')
             
             col_ex.download_button(
                 label="📥 Descargar Excel",
                 data=output_er.getvalue(),
-                file_name=f"Estado_Resultados_{EMPRESA}.xlsx",
+                file_name=f"Estado_Resultados_Mensual_{EMPRESA}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
 
             # --- PDF ---
-            if col_pdf.button("📄 Generar PDF Profesional", width='stretch', type="primary"):
+            if col_pdf.button("📄 Generar PDF Profesional", use_container_width=True, type="primary"):
                 try:
                     from fpdf import FPDF
                     from datetime import datetime
@@ -16786,7 +16795,7 @@ elif sub_opcion == "Estado de Resultados":
                             self.cell(0, 5, f"Fecha: {datetime.now().strftime('%d/%m/%Y')}", ln=1, align='R')
                             self.ln(10)
                             self.set_font('Arial', 'B', 12)
-                            self.cell(0, 5, "ESTADO DE RESULTADOS", ln=1, align='C')
+                            self.cell(0, 5, "ESTADO DE RESULTADOS (MENSUAL)", ln=1, align='C')
                             self.set_font('Arial', '', 9)
                             self.cell(0, 5, f"Periodo: {f_er_desde.strftime('%d/%m/%Y')} al {f_er_hasta.strftime('%d/%m/%Y')}", ln=1, align='C')
                             self.ln(5)
@@ -16803,13 +16812,13 @@ elif sub_opcion == "Estado de Resultados":
                         indent = "    " * (int(row['nivel']) - 1)
                         pdf.cell(30, 7, str(row['codigo']), 1)
                         pdf.cell(110, 7, f"{indent}{row['nombre']}"[:60], 1)
-                        pdf.cell(50, 7, f"{abs(row['Saldo Final']):,.2f}", 1, 1, 'R')
+                        pdf.cell(50, 7, f"{row['Saldo Final']:,.2f}", 1, 1, 'R')
 
                     # TOTALES EN PDF
                     pdf.set_fill_color(0, 0, 0)
                     pdf.set_text_color(255, 255, 255)
                     pdf.set_font("Arial", 'B', 10)
-                    texto_res = "UTILIDAD NETA DEL EJERCICIO" if utilidad >= 0 else "PÉRDIDA NETA DEL EJERCICIO"
+                    texto_res = "UTILIDAD NETA DEL MES" if utilidad >= 0 else "PÉRDIDA NETA DEL MES"
                     pdf.cell(140, 10, texto_res, 1, 0, 'R', True)
                     pdf.cell(50, 10, f"{utilidad:,.2f}", 1, 1, 'R', True)
 
@@ -16818,9 +16827,9 @@ elif sub_opcion == "Estado de Resultados":
                     st.download_button(
                         label="⬇️ Descargar PDF Ahora",
                         data=pdf_bytes,
-                        file_name=f"Estado_Resultados_{EMPRESA}.pdf",
+                        file_name=f"Estado_Resultados_Mensual_{EMPRESA}.pdf",
                         mime="application/pdf",
-                        width='stretch'
+                        use_container_width=True
                     )
                 except Exception as e_pdf:
                     st.error(f"Error PDF: {e_pdf}")
