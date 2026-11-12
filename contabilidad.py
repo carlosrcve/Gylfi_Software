@@ -8498,13 +8498,10 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
     st.subheader("📸 Registro Rápido de Facturas a Bolígrafo (Soporte Visual)")
     st.markdown("Sube la foto, pégala desde WhatsApp (`Ctrl + V`), y registra los datos con la imagen de referencia al lado.")
 
-    # --- INICIALIZAR ESTADOS DE SESIÓN ---
-    if "ocr_procesado" not in st.session_state:
-        st.session_state.ocr_procesado = False
-
+    # --- INICIALIZAR ESTADOS DE SESIÓN CON VALORES DINÁMICOS ---
     campos_defaults = {
         "input_rif": "",
-        "input_nombre": "JOSÉ RODRÍGUEZ COLMENARES", # Proveedor frecuente por defecto
+        "input_nombre": "JOSÉ RODRÍGUEZ COLMENARES",
         "input_factura": "",
         "input_control": "",
         "input_fecha": datetime.now().strftime('%d/%m/%Y'),
@@ -8512,6 +8509,7 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
         "input_iva": "0.00",
         "input_domicilio": ""
     }
+    
     for k, v in campos_defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -8562,11 +8560,14 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
         st.image(img, caption="Factura de Referencia (Visual)", use_container_width=True)
         
         if st.button("🔄 Cargar otra factura", key="btn_reiniciar_escaneo"):
+            for k in campos_defaults.keys():
+                st.session_state[k] = campos_defaults[k]
             st.rerun()
 
     with col_der:
         st.markdown("### 📝 Datos de la Factura (Registro Ágil)")
         
+        # Uso directo de los keys en st.session_state para mantener la reactividad limpia
         rif_prov = st.text_input("RIF del Proveedor", key="input_rif")
         nombre_prov = st.text_input("Nombre del Proveedor", key="input_nombre")
         
