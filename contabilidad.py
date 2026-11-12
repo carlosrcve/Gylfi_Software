@@ -8798,6 +8798,9 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
             file_name=f"QR_{st.session_state.nro_factura_cache}.png",
             mime="image/png"
         )
+
+
+        
 import io
 from datetime import date
 from reportlab.lib import colors
