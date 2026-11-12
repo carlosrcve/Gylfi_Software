@@ -8437,14 +8437,6 @@ def limpiar_y_extraer_factura(imagen_pil):
     else:
         gray = img_cv
 
-    denoised = cv2.fastNlMeansDenoising(gray, h=10, templateWindowSize=7, searchWindowSize=21)
-    
-    thresh = cv2.adaptiveThreshold(
-        denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-        cv2.THRESH_BINARY, 21, 15
-    )
-
-    texto_detectado = ""
     datos = {
         "factura": "",
         "control": "",
@@ -8456,34 +8448,38 @@ def limpiar_y_extraer_factura(imagen_pil):
     }
 
     if EASYOCR_DISPONIBLE:
-        resultados = reader.readtext(thresh)
-        textos_encontrados = [res[1] for res in resultados]
-        texto_detectado = " ".join(textos_encontrados)
-        
-        # --- DEPURACIÓN TEMPORAL: Muestra lo que lee EasyOCR en tu Streamlit ---
-        st.write("🔍 **Texto crudo detectado por EasyOCR:**", texto_detectado)
+        try:
+            # Le pasamos directamente la imagen en escala de grises al lector de EasyOCR
+            resultados = reader.readtext(gray)
+            textos_encontrados = [res[1] for res in resultados]
+            texto_detectado = " ".join(textos_encontrados)
+            
+            # Imprimimos en pantalla para verificar que el OCR está leyendo
+            st.success(f"🔍 OCR Leyó {len(textos_encontrados)} bloques de texto.")
+            st.write("📝 **Texto detectado:**", texto_detectado)
 
-        # 1. Buscar Número de Factura
-        match_fac = re.search(r'\b0*\d{4,6}\b', texto_detectado)
-        if match_fac:
-            datos["factura"] = match_fac.group(0).zfill(4)
+            # 1. Buscar Número de Factura (ej: 0006)
+            match_fac = re.search(r'\b0*\d{4,6}\b', texto_detectado)
+            if match_fac:
+                datos["factura"] = match_fac.group(0).zfill(4)
 
-        # 2. Buscar RIF flexible
-        match_rif = re.search(r'([JGVEP]-?\d{7,9}-?\d?)', texto_detectado, re.IGNORECASE)
-        if match_rif:
-            datos["rif"] = match_rif.group(1).upper()
+            # 2. Buscar RIF
+            match_rif = re.search(r'([JGVEP]-?\d{7,9}-?\d?)', texto_detectado, re.IGNORECASE)
+            if match_rif:
+                datos["rif"] = match_rif.group(1).upper()
 
-        # 3. Buscar Montos
-        patrones_montos = re.findall(r'\b\d{1,3}(?:\.\d{3})*,\d{2}\b', texto_detectado)
-        if len(patrones_montos) >= 1:
-            try:
+            # 3. Buscar Montos
+            patrones_montos = re.findall(r'\b\d{1,3}(?:\.\d{3})*,\d{2}\b', texto_detectado)
+            if len(patrones_montos) >= 1:
                 base_limpia = patrones_montos[-1].replace('.', '').replace(',', '.')
                 datos["base"] = float(base_limpia)
                 datos["iva"] = round(datos["base"] * 0.16, 2)
-            except:
-                pass
+        except Exception as e:
+            st.error(f"⚠️ Error en EasyOCR: {e}")
+    else:
+        st.warning("⚠️ EasyOCR no está disponible en este entorno.")
     
-    return datos, thresh
+    return datos, gray
 
 
 def modulo_escaneo_facturas_manuales(conn, db_actual):
