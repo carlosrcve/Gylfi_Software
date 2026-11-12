@@ -16001,8 +16001,8 @@ elif opcion_menu == "📝 Asientos Contables":
             try:
                 conn = conectar_db(empresa)
                 if conn:
-                    # Omitimos traer 'archivo_binario' en la lista general para que la tabla vuele de rápida
-                    query_select = "SELECT id, carpeta, categoria, nombre_archivo, tipo_mime, fecha_subida FROM documentos_cloud WHERE empresa_db = %s ORDER BY carpeta ASC, fecha_subida DESC"
+                    # Traemos el binario directamente para que la descarga sea instantánea sin consultas repetidas
+                    query_select = "SELECT id, carpeta, categoria, nombre_archivo, tipo_mime, archivo_binario, fecha_subida FROM documentos_cloud WHERE empresa_db = %s ORDER BY carpeta ASC, fecha_subida DESC"
                     df_docs = ejecutar_consulta(query_select, conn, params=(str(empresa),))
                     conn.close()
             except Exception:
@@ -16060,7 +16060,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                 
                                 conn_doc.commit()
                             conn_doc.close()
-                            # Limpieza quirúrgica de caché sin afectar el resto de la app
+                            
+                            # Limpieza quirúrgica de caché
                             obtener_documentos_cached.clear()
                             obtener_carpetas_cached.clear()
                             st.success(f"✅ ¡{len(archivos_subidos)} archivo(s) guardados exitosamente!")
@@ -16092,28 +16093,11 @@ elif opcion_menu == "📝 Asientos Contables":
                         cols[2].text(str(row['fecha_subida'])[:10])
                         
                         doc_id = row['id']
-                        
-                        # CONSULTA BAJO DEMANDA: Solo se conecta a MySQL a buscar el binario exacto 
-                        # en el preciso instante en que el usuario hace clic en descargar.
-                        def obtener_binario_individual(id_reg):
-                            b_data, m_type = None, 'application/octet-stream'
-                            try:
-                                conn_ind = conectar_db(db_actual)
-                                if conn_ind:
-                                    with conn_ind.cursor() as cur_ind:
-                                        cur_ind.execute("SELECT archivo_binario, tipo_mime FROM documentos_cloud WHERE id = %s", (id_reg,))
-                                        res_ind = cur_ind.fetchone()
-                                        if res_ind and res_ind[0]:
-                                            b_data = res_ind[0]
-                                            m_type = res_ind[1] or 'application/octet-stream'
-                                    conn_ind.close()
-                            except Exception:
-                                pass
-                            return b_data, m_type
+                        bin_contenido = row['archivo_binario']
+                        tipo_m = row['tipo_mime'] if pd.notna(row['tipo_mime']) else 'application/octet-stream'
 
-                        # Botón de descarga directa instantánea
-                        bin_contenido, tipo_m = obtener_binario_individual(doc_id)
-                        if bin_contenido:
+                        # Botón de descarga directa ultra rápida (sin consultas extras)
+                        if bin_contenido is not None:
                             cols[3].download_button(
                                 label="⬇️ Descargar",
                                 data=bin_contenido,
@@ -16124,7 +16108,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         else:
                             cols[3].warning("Sin archivo")
 
-                        # Botón de eliminar de alta velocidad (sin reiniciar toda la app)
+                        # Botón de eliminar optimizado y veloz
                         if cols[4].button("🗑️", key=f"del_{doc_id}", help="Eliminar de la base de datos"):
                             try:
                                 conn_del = conectar_db(db_actual)
@@ -16134,7 +16118,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                         conn_del.commit()
                                     conn_del.close()
                                     
-                                # Limpieza específica y rápida
                                 obtener_documentos_cached.clear()
                                 obtener_carpetas_cached.clear()
                                 st.success("🗑️ Archivo eliminado.")
