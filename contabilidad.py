@@ -16416,7 +16416,6 @@ elif sub_opcion == "Balance General":
             # Asegurar formato string YYYY-MM-DD
             f_corte_str = fecha_corte.strftime('%Y-%m-%d') if hasattr(fecha_corte, 'strftime') else str(fecha_corte)
             
-            # 💡 CORRECCIÓN: Se pasa db_name (string) en lugar de conn para no romper generar_balance_profesional
             df_datos = generar_balance_profesional(db_name, "2000-01-01", f_corte_str, sucursal_sel)
         except Exception as e:
             st.error(f"❌ Error consultando datos del balance: {e}")
@@ -16442,8 +16441,13 @@ elif sub_opcion == "Balance General":
 
         df_bg['es_hoja'] = df_bg['codigo'].apply(es_hoja)
 
-        # 3. Cálculo de Totales
-        act = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('1')]['Saldo Final'].abs().sum()
+        # 3. Cálculo de Totales (Respetando naturaleza acreedora de Contra-Activos como 1.2.1.02)
+        df_activos_hoja = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('1')].copy()
+        es_contra_activo = df_activos_hoja['codigo'].astype(str).str.startswith('1.2.1.02')
+        
+        act_positivos = df_activos_hoja[~es_contra_activo]['Saldo Final'].abs().sum()
+        contra_activos = df_activos_hoja[es_contra_activo]['Saldo Final'].abs().sum()
+        act = act_positivos - contra_activos
         
         pas_n1 = df_bg[(df_bg['nivel'] == 1) & (df_bg['codigo'].astype(str).str.startswith('2'))]['Saldo Final']
         pas = abs(pas_n1.values[0]) if not pas_n1.empty else df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('2')]['Saldo Final'].abs().sum()
@@ -16457,10 +16461,9 @@ elif sub_opcion == "Balance General":
             use_container_width=True, height=500, hide_index=True
         )
         
-        # 5. Obtención o cálculo automático de la utilidad para el cierre del Balance
-        utilidad_ejercicio = st.session_state.get('utilidad_ejercicio', 0.0)
-        
-        if utilidad_ejercicio == 0.0 and not df_datos.empty:
+        # 5. Cálculo directo de la utilidad al corte (sin arrastrar caché de otro reporte)
+        utilidad_ejercicio = 0.0
+        if not df_datos.empty:
             df_n1_er = df_datos[df_datos['nivel'] == 1].copy()
             if df_n1_er.empty:
                 df_n1_er = df_datos[df_datos['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True).str.len() == 1]
@@ -16474,7 +16477,6 @@ elif sub_opcion == "Balance General":
             otros_egr_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('8')]['Saldo Final'].sum()
             
             utilidad_ejercicio = abs(ing_b) + abs(otros_ing_b) - (abs(cos_b) + abs(gas_b) + abs(otros_egr_b))
-            st.session_state['utilidad_ejercicio'] = utilidad_ejercicio
 
         patrimonio_ajustado = abs(pat) + utilidad_ejercicio
         descuadre = act - (pas + patrimonio_ajustado)
@@ -16551,7 +16553,7 @@ elif sub_opcion == "Balance General":
                 pdf.set_fill_color(0, 0, 0)
                 pdf.set_text_color(255, 255, 255)
                 pdf.set_font("Arial", 'B', 9)
-                total_verificacion = act - (abs(pas) + abs(pat))
+                total_verificacion = act - (abs(pas) + patrimonio_ajustado)
                 pdf.cell(140, 10, "TOTAL ECUACIÓN PATRIMONIAL (ACT - PAS - PAT)", 1, 0, 'R', True)
                 pdf.cell(50, 10, f"{total_verificacion:,.2f}", 1, 1, 'R', True)
 
@@ -16568,7 +16570,6 @@ elif sub_opcion == "Balance General":
                 st.error(f"Error al generar el PDF: {e_pdf}")
     else:
         st.info("No se encontraron datos para generar el balance.")
-
 
 # G. ESTADOS FINANCIEROS -> ESTADO DE RESULTADOS
 elif sub_opcion == "Estado de Resultados":
