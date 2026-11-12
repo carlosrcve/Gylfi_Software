@@ -8459,44 +8459,39 @@ def limpiar_y_extraer_factura(imagen_pil):
             resultados = reader.readtext(gray)
             st.success(f"🔍 OCR analizó {len(resultados)} bloques de texto individualmente.")
 
-            # Recorremos bloque por bloque para extraer con precisión quirúrgica
             for bbox, texto, conf in resultados:
                 t_limpio = texto.strip()
                 
-                # 1. Buscar Número de Factura (ej: 0006)
+                # 1. Buscar Número de Factura (busca bloques de dígitos cortos)
                 if not datos["factura"]:
                     if re.match(r'^0*\d{1,4}$', t_limpio) and len(t_limpio) <= 6:
-                        if int(t_limpio) < 9999: # Evita confundirlo con montos grandes
+                        if int(t_limpio) < 9999:
                             datos["factura"] = t_limpio.zfill(4)
 
-                # 2. Buscar RIF del Proveedor (ej: V-149899452)
+                # 2. Buscar RIF (incluso vertical o con espacios)
                 if not datos["rif"]:
-                    match_rif = re.search(r'([JGVEP]-?\d{7,9}-?\d?)', t_limpio, re.IGNORECASE)
+                    match_rif = re.search(r'([JGVEP]\s*-?\s*\d{6,9}\s*-?\s*\d?)', t_limpio, re.IGNORECASE)
                     if match_rif:
-                        datos["rif"] = match_rif.group(1).upper()
+                        posible_rif = match_rif.group(1).replace(" ", "").upper()
+                        if len(posible_rif) >= 7: # Validar que sea un RIF real
+                            datos["rif"] = posible_rif
 
-                # 3. Buscar Montos (formato venezolano con puntos y comas)
+                # 3. Buscar Montos (captura formato venezolano de miles y decimales)
                 match_monto = re.search(r'\b(\d{1,3}(?:\.\d{3})*,\d{2})\b', t_limpio)
                 if match_monto:
                     monto_str = match_monto.group(1)
                     try:
                         monto_val = float(monto_str.replace('.', '').replace(',', '.'))
-                        if monto_val > 10.0: # Filtramos números pequeños que no sean montos
-                            montos_detectados.append(monto_val)
+                        montos_detectados.append(monto_val)
                     except:
                         pass
 
-            # Asignación inteligente de montos encontrados
+            # Asignación de montos encontrados (tomamos el mayor como Total/Base)
             if montos_detectados:
-                # Ordenamos de menor a mayor o tomamos los valores lógicos de base e IVA
-                montos_unicos = sorted(list(set(montos_detectados)))
-                if len(montos_unicos) >= 2:
-                    datos["base"] = montos_unicos[0] # Usualmente la base menor
-                    datos["iva"] = round(datos["base"] * 0.16, 2)
-                elif len(montos_unicos) == 1:
-                    datos["base"] = montos_unicos[0]
-                    datos["iva"] = round(datos["base"] * 0.16, 2)
-
+                monto_max = max(montos_detectados)
+                datos["base"] = monto_max
+                datos["iva"] = round(datos["base"] * 0.16, 2)
+                
         except Exception as e:
             st.error(f"⚠️ Error en lectura por bloques: {e}")
     
