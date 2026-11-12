@@ -8486,6 +8486,217 @@ def limpiar_y_extraer_factura(imagen_pil):
     return datos, thresh
 
 
+def modulo_escaneo_facturas_manuales(conn, db_actual):
+    st.subheader("📸 Escáner Inteligente de Facturas a Bolígrafo (EasyOCR + OpenCV)")
+    st.markdown("Sube la foto, pégala desde WhatsApp (`Ctrl + V`), o llena los campos manualmente consultando la factura original.")
+
+    # --- INICIALIZAR ESTADOS DE SESIÓN PARA LOS CAMPOS ---
+    if "ocr_procesado" not in st.session_state:
+        st.session_state.ocr_procesado = False
+    if "datos_ocr" not in st.session_state:
+        st.session_state.datos_ocr = {}
+
+    campos_defaults = {
+        "input_rif": "",
+        "input_nombre": "",
+        "input_factura": "",
+        "input_control": "",
+        "input_fecha": datetime.now().strftime('%d/%m/%Y'),
+        "input_base": "0.00",
+        "input_iva": "0.00",
+        "input_domicilio": ""
+    }
+    for k, v in campos_defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+    # --- SELECTOR DE MÉTODO DE ENTRADA FLEXIBLE ---
+    metodo_subida = st.radio(
+        "Método de entrada de imagen", 
+        ["📁 Subir o Arrastrar Archivo", "📋 Pegar Portapapeles (WhatsApp / Capturas)"], 
+        horizontal=True,
+        key="radio_metodo_escaneo"
+    )
+
+    archivo_subido = None
+
+    if metodo_subida == "📁 Subir o Arrastrar Archivo":
+        archivo_subido = st.file_uploader(
+            "Seleccionar o arrastrar imagen de factura",
+            type=["png", "jpg", "jpeg"],
+            help="Sube o arrastra la foto de la factura directamente desde tu PC.",
+            key="uploader_factura_pc"
+        )
+    else:
+        st.info("💡 Haz clic en el botón de abajo y presiona **Ctrl + V** para pegar la factura copiada desde WhatsApp Web.")
+        try:
+            from streamlit_paste_button import paste_image_button
+            paste_result = paste_image_button(
+                label="📋 Haz clic aquí y presiona Ctrl+V", 
+                key="paste_btn_portapapeles_general"
+            )
+            if paste_result and paste_result.image_data is not None:
+                archivo_subido = paste_result.image_data 
+        except ImportError:
+            st.warning("⚠️ Ejecuta en tu terminal: `pip install streamlit-paste-button`")
+            archivo_subido = st.file_uploader("Respaldo: Sube tu archivo aquí", type=["png", "jpg", "jpeg"], key="uploader_respaldo_paste")
+
+    if archivo_subido is None:
+        st.info("ℹ️ Adjunta o pega una foto del talonario arriba para habilitar el formulario de análisis automático.")
+        st.session_state.ocr_procesado = False
+        st.session_state.datos_ocr = {}
+        return
+
+    if not isinstance(archivo_subido, Image.Image):
+        img = Image.open(archivo_subido)
+    else:
+        img = archivo_subido
+
+    if not st.session_state.ocr_procesado:
+        with st.spinner("🤖 Leyendo escritura a bolígrafo con EasyOCR..."):
+            datos_extraidos, img_procesada = limpiar_y_extraer_factura(img)
+            st.session_state.datos_ocr = datos_extraidos
+            st.session_state.img_proc = img_procesada
+            
+            st.session_state.input_rif = datos_extraidos.get("rif", "")
+            st.session_state.input_nombre = datos_extraidos.get("nombre", "")
+            st.session_state.input_factura = datos_extraidos.get("factura", "")
+            st.session_state.input_control = datos_extraidos.get("control", "")
+            st.session_state.input_base = str(datos_extraidos.get("base", "0.00"))
+            st.session_state.input_iva = str(datos_extraidos.get("iva", "0.00"))
+            
+            st.session_state.ocr_procesado = True
+
+    col_izq, col_der = st.columns([1, 1.2])
+
+    with col_izq:
+        st.image(img, caption="Factura Original", use_container_width=True)
+        if "img_proc" in st.session_state:
+            with st.expander("🛠️ Vista Optimizada OpenCV"):
+                st.image(st.session_state.img_proc, caption="Procesada para lectura", use_container_width=True)
+        
+        if st.button("🔄 Escanear otra factura", key="btn_reiniciar_escaneo"):
+            st.session_state.ocr_procesado = False
+            st.session_state.datos_ocr = {}
+            st.rerun()
+
+    with col_der:
+        st.markdown("### 📝 Campos Autocompletados por IA")
+        
+        d_check = st.session_state.get("datos_ocr", {})
+        if not d_check.get("rif") and not d_check.get("factura"):
+            st.warning(
+                "⚠️ **Aviso de Escaneo:** Cuando el script no logra detectar con exactitud matemática los patrones o coordenadas de los datos, "
+                "el diccionario devuelve valores vacíos y los campos quedan libres para llenado manual.\n\n"
+                "💡 **Consejos para mejorar la lectura automática:**\n"
+                "* Asegúrate de tomar la foto de la factura con **mayor claridad, enfoque y buena iluminación**.\n"
+                "* Si el problema persiste, es recomendable utilizar un **escáner de alta precisión** o enderezar la imagen antes de pegarla desde WhatsApp para que el motor de EasyOCR pueda extraer la información de forma exitosa."
+            )
+
+        if "qr_generado_bytes" not in st.session_state:
+            st.session_state.qr_generado_bytes = None
+
+        rif_prov = st.text_input("RIF del Proveedor", key="input_rif")
+        nombre_prov = st.text_input("Nombre del Proveedor", key="input_nombre")
+        
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            nro_factura = st.text_input("Número de Factura", key="input_factura")
+        with col_f2:
+            nro_control = st.text_input("Número de Control", key="input_control")
+            
+        fecha_str = st.text_input("Fecha de la Factura (DD/MM/AAAA)", key="input_fecha")
+        
+        col_b, col_i = st.columns(2)
+        with col_b:
+            base_imp_str = st.text_input("Base Imponible Bs.", key="input_base")
+        with col_i:
+            monto_iva_str = st.text_input("IVA (16%) Bs.", key="input_iva")
+
+        domicilio = st.text_area("Dirección Fiscal", key="input_domicilio")
+
+        modo_emision = st.radio(
+            "Comprobante posterior:",
+            [
+                "📱 Generar Código QR de Control Interno",
+                "📄 Emitir Facturación Digital de Control Interno"
+            ],
+            key="radio_modo_emision_fac"
+        )
+
+        try:
+            val_b = float(str(base_imp_str).replace(',', '.')) if base_imp_str else 0.00
+        except:
+            val_b = 0.00
+            
+        try:
+            val_i = float(str(monto_iva_str).replace(',', '.')) if monto_iva_str else round(val_b * 0.16, 2)
+        except:
+            val_i = round(val_b * 0.16, 2)
+
+        monto_total = val_b + val_i
+        st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
+
+        # --- BOTÓN DE GUARDADO FINAL ---
+        if st.button("💾 Guardar y Registrar en MySQL", type="primary", key="btn_guardar_factura_mysql"):
+            if not nro_factura or not rif_prov:
+                st.error("⚠️ Faltan campos obligatorios (Número de Factura y RIF).")
+            elif not conn:
+                st.error("⚠️ Sin conexión a la base de datos.")
+            else:
+                try:
+                    fecha_fac_final = datetime.strptime(fecha_str.strip(), '%d/%m/%Y').date()
+
+                    with conn.cursor() as cursor:
+                        sql = """
+                            INSERT INTO facturas_escaneadas 
+                            (rif_proveedor, nombre_proveedor, domicilio_fiscal, nro_factura, nro_control, fecha_factura, base_imponible, iva, monto_exento, monto_total)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """
+                        cursor.execute(sql, (
+                            rif_prov, nombre_prov, domicilio, nro_factura, nro_control, 
+                            fecha_fac_final, val_b, val_i, 0.00, monto_total
+                        ))
+                        conn.commit()
+
+                    st.success("¡Factura leída y registrada en MySQL con éxito!")
+
+                    if "QR" in modo_emision:
+                        info_qr = (
+                            f"GYLFI SOFTWARE - CONTROL INTERNO\n"
+                            f"Factura: {nro_factura} | Control: {nro_control}\n"
+                            f"Fecha: {fecha_fac_final.strftime('%d/%m/%Y')}\n"
+                            f"Proveedor: {nombre_prov} ({rif_prov})\n"
+                            f"Total: {monto_total:,.2f} Bs."
+                        )
+                        qr = qrcode.QRCode(version=1, box_size=10, border=4)
+                        qr.add_data(info_qr)
+                        qr.make(fit=True)
+                        img_qr = qr.make_image(fill_color="black", back_color="white")
+                        buffer = BytesIO()
+                        img_qr.save(buffer, format="PNG")
+                        
+                        st.session_state.qr_generado_bytes = buffer.getvalue()
+                        st.session_state.nro_factura_cache = nro_factura
+                        st.session_state.modo_resultado = "QR"
+                    else:
+                        st.session_state.modo_resultado = "FACTURA"
+
+                except Exception as e:
+                    st.error(f"❌ Error al guardar en MySQL: {e}")
+
+    if st.session_state.get("modo_resultado") == "QR" and st.session_state.get("qr_generado_bytes"):
+        st.markdown("---")
+        st.markdown("### 📱 Código QR de Control Interno")
+        st.image(st.session_state.qr_generado_bytes, width=200)
+        st.download_button(
+            label="📥 Descargar QR",
+            data=st.session_state.qr_generado_bytes,
+            file_name=f"QR_{st.session_state.nro_factura_cache}.png",
+            mime="image/png"
+        )
+
+
         
 import io
 from datetime import date
