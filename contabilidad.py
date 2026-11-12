@@ -8492,40 +8492,39 @@ def limpiar_y_extraer_factura(imagen_pil):
 
 def modulo_escaneo_facturas_manuales(conn, db_actual):
     st.subheader("📸 Escáner Inteligente de Facturas a Bolígrafo (EasyOCR + OpenCV)")
-    st.markdown("Sube la foto del talonario o **pégala directamente (`Ctrl + V`)** desde WhatsApp para comenzar el análisis automático.")
+    st.markdown("Sube la foto del talonario, arrástrala, o **pégala directamente (`Ctrl + V`)** desde WhatsApp o tu escritorio.")
 
-    # --- NUEVO: SOPORTE PARA PEGAR DESDE EL PORTAPAPELES (WHATSAPP) ---
-    # Nota: Asegúrate de tener instalado el paquete: pip install streamlit-image-paste o similar,
-    # O podemos usar un selector híbrido. Aquí te muestro cómo integrarlo con st.file_uploader.
-    
-    # Opción limpia: Usamos un selector de pestañas o columnas para Adjuntar vs Pegar
-    metodo_subida = st.radio("Método de entrada de imagen", ["📁 Subir archivo desde PC", "📋 Pegar imagen del portapapeles (WhatsApp)"], horizontal=True)
+    # --- SELECTOR DE MÉTODO DE ENTRADA FLEXIBLE ---
+    metodo_subida = st.radio(
+        "Método de entrada de imagen", 
+        ["📁 Subir o Arrastrar Archivo", "📋 Pegar Imagen (Portapapeles / Escritorio / WhatsApp)"], 
+        horizontal=True,
+        key="radio_metodo_escaneo"
+    )
 
     archivo_subido = None
 
-    if metodo_subida == "📁 Subir archivo desde PC":
+    if metodo_subida == "📁 Subir o Arrastrar Archivo":
         archivo_subido = st.file_uploader(
             "Seleccionar o arrastrar imagen de factura",
             type=["png", "jpg", "jpeg"],
-            help="Sube la foto de la factura física."
+            help="Sube la foto de la factura física desde tu PC.",
+            key="uploader_factura_pc"
         )
     else:
-        st.info("💡 Haz clic dentro del recuadro de abajo y presiona **Ctrl + V** para pegar la imagen que copiaste desde WhatsApp Web.")
+        st.info("💡 **Tip:** Copia cualquier imagen de factura (desde WhatsApp Web, una carpeta de tu PC o el portapapeles) con `Ctrl + C`, haz clic en el botón de abajo y presiona **Ctrl + V**.")
         
-        # Usamos un componente de portapapeles de imagen compatible con Streamlit
-        # (Requiere instalar: pip install streamlit-paste-button)
         try:
             from streamlit_paste_button import paste_image_button
             paste_result = paste_image_button(
-                label="📋 Haz clic aquí y presiona Ctrl+V para pegar", 
-                key="paste_btn_whatsapp"
+                label="📋 Haz clic aquí y presiona Ctrl+V para pegar imagen", 
+                key="paste_btn_portapapeles_general"
             )
             if paste_result and paste_result.image_data is not None:
-                archivo_subido = paste_result.image_data # Esto ya es un objeto de imagen compatible con PIL
+                archivo_subido = paste_result.image_data # Objeto PIL Image listo para procesar
         except ImportError:
             st.warning("⚠️ Para habilitar el botón de pegar, ejecuta en tu terminal: `pip install streamlit-paste-button`")
-            # Fallback por si no está instalado el paquete aún
-            archivo_subido = st.file_uploader("O pega o sube aquí de respaldo", type=["png", "jpg", "jpeg"])
+            archivo_subido = st.file_uploader("Respaldo: Sube tu archivo aquí", type=["png", "jpg", "jpeg"], key="uploader_respaldo_paste")
 
     if "ocr_procesado" not in st.session_state:
         st.session_state.ocr_procesado = False
@@ -8534,13 +8533,12 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
 
     # SI NO HAY ARCHIVO SUBIDO O PEGADO, SE OCULTA TODO EL RESTO
     if archivo_subido is None:
-        st.info("💡 Adjunta o pega una foto del talonario arriba para habilitar el formulario de registro automáticamente.")
+        st.info("ℹ️ Adjunta o pega una foto del talonario arriba para habilitar el formulario de análisis automático.")
         st.session_state.ocr_procesado = False
         st.session_state.datos_ocr = {}
         return
 
     # A PARTIR DE AQUÍ SÓLO SE MUESTRA CUANDO EL USUARIO YA SUBIÓ O PEGÓ LA IMAGEN
-    # Si viene de paste_image_button ya es PIL Image, si viene de file_uploader abrimos con Image.open
     if not isinstance(archivo_subido, Image.Image):
         img = Image.open(archivo_subido)
     else:
@@ -8561,8 +8559,9 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
             with st.expander("🛠️ Vista Optimizada OpenCV"):
                 st.image(st.session_state.img_proc, caption="Procesada para lectura", use_container_width=True)
         
-        if st.button("🔄 Escanear otra factura"):
+        if st.button("🔄 Escanear otra factura", key="btn_reiniciar_escaneo"):
             st.session_state.ocr_procesado = False
+            st.session_state.datos_ocr = {}
             st.rerun()
 
     with col_der:
@@ -8594,7 +8593,8 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                 [
                     "📱 Generar Código QR de Control Interno",
                     "📄 Emitir Facturación Digital de Control Interno"
-                ]
+                ],
+                key="radio_modo_emision_fac"
             )
 
             try:
