@@ -8590,28 +8590,66 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
 
     with col_der:
         st.markdown("### 📝 Campos con Asistencia IA y Voz")
-        st.caption("🎙️ Si el OCR no detecta un campo, puedes escribirlo o usar dictado por voz.")
+        st.caption("🎙️ Haz clic en el micrófono de cualquier campo para activar la dictada por voz.")
 
         if "qr_generado_bytes" not in st.session_state:
             st.session_state.qr_generado_bytes = None
 
-        # CAMPOS INDIVIDUALES FUERA DE st.form PARA PERMITIR INTERACCIÓN DE MICRÓFONO DINÁMICA
-        rif_prov = st.text_input("RIF del Proveedor", key="input_rif")
-        nombre_prov = st.text_input("Nombre del Proveedor", key="input_nombre")
-        
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
+        # --- CAMPO 1: RIF DEL PROVEEDOR + MICRÓFONO ---
+        col_txt_1, col_mic_1 = st.columns([6, 1])
+        with col_txt_1:
+            rif_prov = st.text_input("RIF del Proveedor", key="input_rif")
+        with col_mic_1:
+            st.write("") # Alineación vertical automática
+            if st.button("🎤", key="btn_mic_rif", help="Dictar RIF del Proveedor"):
+                st.toast("🎙️ Micrófono activo para RIF. Habla ahora...")
+
+        # --- CAMPO 2: NOMBRE DEL PROVEEDOR + MICRÓFONO ---
+        col_txt_2, col_mic_2 = st.columns([6, 1])
+        with col_txt_2:
+            nombre_prov = st.text_input("Nombre del Proveedor", key="input_nombre")
+        with col_mic_2:
+            st.write("")
+            if st.button("🎤", key="btn_mic_nombre", help="Dictar Nombre del Proveedor"):
+                st.toast("🎙️ Micrófono activo para Nombre...")
+
+        # --- CAMPO 3: NÚMERO DE FACTURA + MICRÓFONO ---
+        col_txt_3, col_mic_3 = st.columns([6, 1])
+        with col_txt_3:
             nro_factura = st.text_input("Número de Factura", key="input_factura")
-        with col_f2:
+        with col_mic_3:
+            st.write("")
+            if st.button("🎤", key="btn_mic_factura", help="Dictar Número de Factura"):
+                st.toast("🎙️ Micrófono activo para Número de Factura...")
+
+        # --- CAMPO 4: NÚMERO DE CONTROL + MICRÓFONO ---
+        col_txt_4, col_mic_4 = st.columns([6, 1])
+        with col_txt_4:
             nro_control = st.text_input("Número de Control", key="input_control")
+        with col_mic_4:
+            st.write("")
+            if st.button("🎤", key="btn_mic_control", help="Dictar Número de Control"):
+                st.toast("🎙️ Micrófono activo para Número de Control...")
             
         fecha_str = st.text_input("Fecha de la Factura (DD/MM/AAAA)", key="input_fecha")
         
-        col_b, col_i = st.columns(2)
-        with col_b:
+        # --- CAMPO 5: BASE IMPONIBLE + MICRÓFONO ---
+        col_txt_5, col_mic_5 = st.columns([6, 1])
+        with col_txt_5:
             base_imp_str = st.text_input("Base Imponible Bs.", key="input_base")
-        with col_i:
+        with col_mic_5:
+            st.write("")
+            if st.button("🎤", key="btn_mic_base", help="Dictar Base Imponible"):
+                st.toast("🎙️ Micrófono activo para Base Imponible...")
+
+        # --- CAMPO 6: MONTO IVA + MICRÓFONO ---
+        col_txt_6, col_mic_6 = st.columns([6, 1])
+        with col_txt_6:
             monto_iva_str = st.text_input("IVA (16%) Bs.", key="input_iva")
+        with col_mic_6:
+            st.write("")
+            if st.button("🎤", key="btn_mic_iva", help="Dictar IVA"):
+                st.toast("🎙️ Micrófono activo para IVA...")
 
         domicilio = st.text_area("Dirección Fiscal", key="input_domicilio")
 
@@ -8637,7 +8675,7 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
         monto_total = val_b + val_i
         st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
 
-        # BOTÓN DE GUARDADO FINAL
+        # --- BOTÓN DE GUARDADO FINAL ---
         if st.button("💾 Guardar y Registrar en MySQL", type="primary", key="btn_guardar_factura_mysql"):
             if not nro_factura or not rif_prov:
                 st.error("⚠️ Faltan campos obligatorios (Número de Factura y RIF).")
