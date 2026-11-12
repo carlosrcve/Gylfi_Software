@@ -8492,28 +8492,59 @@ def limpiar_y_extraer_factura(imagen_pil):
 
 def modulo_escaneo_facturas_manuales(conn, db_actual):
     st.subheader("📸 Escáner Inteligente de Facturas a Bolígrafo (EasyOCR + OpenCV)")
-    st.markdown("Sube la foto del talonario para comenzar el análisis automático.")
+    st.markdown("Sube la foto del talonario o **pégala directamente (`Ctrl + V`)** desde WhatsApp para comenzar el análisis automático.")
 
-    archivo_subido = st.file_uploader(
-        "Seleccionar o arrastrar imagen de factura",
-        type=["png", "jpg", "jpeg"],
-        help="Sube la foto de la factura física."
-    )
+    # --- NUEVO: SOPORTE PARA PEGAR DESDE EL PORTAPAPELES (WHATSAPP) ---
+    # Nota: Asegúrate de tener instalado el paquete: pip install streamlit-image-paste o similar,
+    # O podemos usar un selector híbrido. Aquí te muestro cómo integrarlo con st.file_uploader.
+    
+    # Opción limpia: Usamos un selector de pestañas o columnas para Adjuntar vs Pegar
+    metodo_subida = st.radio("Método de entrada de imagen", ["📁 Subir archivo desde PC", "📋 Pegar imagen del portapapeles (WhatsApp)"], horizontal=True)
+
+    archivo_subido = None
+
+    if metodo_subida == "📁 Subir archivo desde PC":
+        archivo_subido = st.file_uploader(
+            "Seleccionar o arrastrar imagen de factura",
+            type=["png", "jpg", "jpeg"],
+            help="Sube la foto de la factura física."
+        )
+    else:
+        st.info("💡 Haz clic dentro del recuadro de abajo y presiona **Ctrl + V** para pegar la imagen que copiaste desde WhatsApp Web.")
+        
+        # Usamos un componente de portapapeles de imagen compatible con Streamlit
+        # (Requiere instalar: pip install streamlit-paste-button)
+        try:
+            from streamlit_paste_button import paste_image_button
+            paste_result = paste_image_button(
+                label="📋 Haz clic aquí y presiona Ctrl+V para pegar", 
+                key="paste_btn_whatsapp"
+            )
+            if paste_result and paste_result.image_data is not None:
+                archivo_subido = paste_result.image_data # Esto ya es un objeto de imagen compatible con PIL
+        except ImportError:
+            st.warning("⚠️ Para habilitar el botón de pegar, ejecuta en tu terminal: `pip install streamlit-paste-button`")
+            # Fallback por si no está instalado el paquete aún
+            archivo_subido = st.file_uploader("O pega o sube aquí de respaldo", type=["png", "jpg", "jpeg"])
 
     if "ocr_procesado" not in st.session_state:
         st.session_state.ocr_procesado = False
     if "datos_ocr" not in st.session_state:
         st.session_state.datos_ocr = {}
 
-    # SI NO HAY ARCHIVO SUBIDO, SE OCULTA TODO EL RESTO Y SOLO QUEDA EL UPLOADER
+    # SI NO HAY ARCHIVO SUBIDO O PEGADO, SE OCULTA TODO EL RESTO
     if archivo_subido is None:
-        st.info("💡 Sube una foto del talonario arriba para habilitar el formulario de registro automáticamente.")
+        st.info("💡 Adjunta o pega una foto del talonario arriba para habilitar el formulario de registro automáticamente.")
         st.session_state.ocr_procesado = False
         st.session_state.datos_ocr = {}
         return
 
-    # A PARTIR DE AQUÍ SÓLO SE MUESTRA CUANDO EL USUARIO YA SUBIó LA IMAGEN
-    img = Image.open(archivo_subido)
+    # A PARTIR DE AQUÍ SÓLO SE MUESTRA CUANDO EL USUARIO YA SUBIÓ O PEGÓ LA IMAGEN
+    # Si viene de paste_image_button ya es PIL Image, si viene de file_uploader abrimos con Image.open
+    if not isinstance(archivo_subido, Image.Image):
+        img = Image.open(archivo_subido)
+    else:
+        img = archivo_subido
 
     if not st.session_state.ocr_procesado:
         with st.spinner("🤖 Leyendo escritura a bolígrafo con EasyOCR..."):
