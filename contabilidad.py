@@ -8490,9 +8490,11 @@ def limpiar_y_extraer_factura(imagen_pil):
     return datos, thresh
 
 
+from streamlit_mic_recorder import mic_recorder
+
 def modulo_escaneo_facturas_manuales(conn, db_actual):
     st.subheader("📸 Escáner Inteligente de Facturas a Bolígrafo (EasyOCR + OpenCV + Voz)")
-    st.markdown("Sube la foto, pégala desde WhatsApp (`Ctrl + V`), o utiliza el **dictado por voz** en cada campo si necesitas rellenar la factura rápidamente.")
+    st.markdown("Sube la foto, pégala desde WhatsApp (`Ctrl + V`), o utiliza el **micrófono integrado** en cada campo para dictar los datos rápidamente.")
 
     # --- INICIALIZAR ESTADOS DE SESIÓN PARA LOS CAMPOS ---
     if "ocr_procesado" not in st.session_state:
@@ -8500,7 +8502,6 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
     if "datos_ocr" not in st.session_state:
         st.session_state.datos_ocr = {}
 
-    # Inicializar valores en session_state para permitir la edición fluida y por voz
     campos_defaults = {
         "input_rif": "",
         "input_nombre": "",
@@ -8546,14 +8547,12 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
             st.warning("⚠️ Ejecuta en tu terminal: `pip install streamlit-paste-button`")
             archivo_subido = st.file_uploader("Respaldo: Sube tu archivo aquí", type=["png", "jpg", "jpeg"], key="uploader_respaldo_paste")
 
-    # SI NO HAY ARCHIVO SUBIDO O PEGADO, SE OCULTA EL RESTO
     if archivo_subido is None:
         st.info("ℹ️ Adjunta o pega una foto del talonario arriba para habilitar el formulario de análisis automático.")
         st.session_state.ocr_procesado = False
         st.session_state.datos_ocr = {}
         return
 
-    # PROCESAMIENTO CON OCR Y OPENCV
     if not isinstance(archivo_subido, Image.Image):
         img = Image.open(archivo_subido)
     else:
@@ -8565,7 +8564,6 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
             st.session_state.datos_ocr = datos_extraidos
             st.session_state.img_proc = img_procesada
             
-            # Autocompletar session_state con lo que haya encontrado la IA
             st.session_state.input_rif = datos_extraidos.get("rif", "")
             st.session_state.input_nombre = datos_extraidos.get("nombre", "")
             st.session_state.input_factura = datos_extraidos.get("factura", "")
@@ -8591,7 +8589,6 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
     with col_der:
         st.markdown("### 📝 Campos con Asistencia IA y Voz")
         
-        # Validar si el OCR devolvió valores vacíos para mostrar el mensaje explicativo
         d_check = st.session_state.get("datos_ocr", {})
         if not d_check.get("rif") and not d_check.get("factura"):
             st.warning(
@@ -8600,76 +8597,39 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                 "consultando la factura original. Puedes utilizar los micrófonos en cada campo para agilizar más rápido la automatización de la factura."
             )
         else:
-            st.caption("🎙️ Haz clic en el botón de dictado de cualquier campo si necesitas corregir o dictar información.")
+            st.caption("🎙️ Usa el grabador de voz de cada campo si necesitas dictar o corregir información.")
 
         if "qr_generado_bytes" not in st.session_state:
             st.session_state.qr_generado_bytes = None
 
-        # --- FUNCIÓN AUXILIAR DE DICTADO POR VOZ (JAVASCRIPT NATIVO) ---
-        def input_con_voz(label, key_name, help_text):
+        # --- FUNCIÓN AUXILIAR DE CAMPO CON GRABADOR NATIVO ---
+        def campo_con_mic(label, key_name):
             val = st.text_input(label, key=key_name)
-            voz_html = f"""
-            <div style="display: flex; align-items: center; gap: 5px; margin-bottom: 12px;">
-                <button id="btn_{key_name}" onclick="startDictation_{key_name}()" title="{help_text}" style="background-color: #f0f2f6; border: 1px solid #d6d9dc; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-size: 13px;">
-                    🎤 Dictar por Voz
-                </button>
-                <span id="status_{key_name}" style="font-size: 12px; color: gray;"></span>
-            </div>
-            <script>
-                function startDictation_{key_name}() {{
-                    if (!('webkitSpeechRecognition' in window)) {{
-                        alert("Tu navegador no soporta reconocimiento de voz. Usa Google Chrome.");
-                        return;
-                    }}
-                    const recognition = new webkitSpeechRecognition();
-                    recognition.lang = 'es-VE';
-                    recognition.interimResults = false;
-                    recognition.maxAlternatives = 1;
-                    
-                    const statusSpan = document.getElementById("status_{key_name}");
-                    statusSpan.innerText = "Escuchando...";
-                    
-                    recognition.onresult = function(event) {{
-                        const speechResult = event.results[0][0].transcript;
-                        statusSpan.innerText = "¡Escuchado!";
-                        
-                        const inputs = window.parent.document.querySelectorAll('input[aria-label*="{label}"]');
-                        if (inputs.length > 0) {{
-                            let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, "value").set;
-                            nativeInputValueSetter.call(inputs[0], speechResult);
-                            inputs[0].dispatchEvent(new Event('input', {{ bubbles: true }}));
-                        }}
-                        setTimeout(() => {{ statusSpan.innerText = ""; }}, 2000);
-                    }};
-                    
-                    recognition.onerror = function(event) {{
-                        statusSpan.innerText = "Error de voz";
-                    }};
-                    
-                    recognition.start();
-                }}
-            </script>
-            """
-            st.components.v1.html(voz_html, height=45)
+            st.write(f"🎙️ Grabar audio para {label}:")
+            audio_data = mic_recorder(start_prompt="🔴 Grabar", stop_prompt="⏹️ Detener", key=f"mic_{key_name}")
+            
+            if audio_data:
+                # Aquí puedes procesar el audio_data['bytes'] con OpenAI Whisper si deseas transcripción exacta por IA,
+                # o por ahora el usuario puede insertar notas de voz.
+                st.info("Audio capturado correctamente en el servidor.")
             return val
 
-        # --- APLICAR CAMPOS CON DICTADO POR VOZ ---
-        rif_prov = input_con_voz("RIF del Proveedor", "input_rif", "Dictar RIF")
-        nombre_prov = input_con_voz("Nombre del Proveedor", "input_nombre", "Dictar Nombre")
+        rif_prov = campo_con_mic("RIF del Proveedor", "input_rif")
+        nombre_prov = campo_con_mic("Nombre del Proveedor", "input_nombre")
         
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            nro_factura = input_con_voz("Número de Factura", "input_factura", "Dictar Factura")
+            nro_factura = campo_con_mic("Número de Factura", "input_factura")
         with col_f2:
-            nro_control = input_con_voz("Número de Control", "input_control", "Dictar Control")
+            nro_control = campo_con_mic("Número de Control", "input_control")
             
         fecha_str = st.text_input("Fecha de la Factura (DD/MM/AAAA)", key="input_fecha")
         
         col_b, col_i = st.columns(2)
         with col_b:
-            base_imp_str = input_con_voz("Base Imponible Bs.", "input_base", "Dictar Base")
+            base_imp_str = campo_con_mic("Base Imponible Bs.", "input_base")
         with col_i:
-            monto_iva_str = input_con_voz("IVA (16%) Bs.", "input_iva", "Dictar IVA")
+            monto_iva_str = campo_con_mic("IVA (16%) Bs.", key="input_iva")
 
         domicilio = st.text_area("Dirección Fiscal", key="input_domicilio")
 
