@@ -15947,7 +15947,6 @@ elif opcion_menu == "📝 Asientos Contables":
             conn_alt = conectar_db(db_actual)
             if conn_alt:
                 with conn_alt.cursor() as cur_alt:
-                    # 1. Asegurar columna carpeta
                     cur_alt.execute("""
                         SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
                         WHERE TABLE_SCHEMA = DATABASE() 
@@ -15958,7 +15957,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         cur_alt.execute("ALTER TABLE documentos_cloud ADD COLUMN carpeta VARCHAR(150) DEFAULT 'General' AFTER empresa_db")
                         conn_alt.commit()
 
-                    # 2. Asegurar columna archivo_binario (LONGBLOB)
                     cur_alt.execute("""
                         SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
                         WHERE TABLE_SCHEMA = DATABASE() 
@@ -15969,7 +15967,6 @@ elif opcion_menu == "📝 Asientos Contables":
                         cur_alt.execute("ALTER TABLE documentos_cloud ADD COLUMN archivo_binario LONGBLOB AFTER nombre_archivo")
                         conn_alt.commit()
 
-                    # 3. Asegurar columna tipo_mime
                     cur_alt.execute("""
                         SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
                         WHERE TABLE_SCHEMA = DATABASE() 
@@ -15983,7 +15980,7 @@ elif opcion_menu == "📝 Asientos Contables":
         except Exception as ex_alt:
             st.warning(f"Aviso de migración de tabla: {ex_alt}")
 
-        # --- FUNCIONES CON CACHÉ ---
+        # --- FUNCIONES CON CACHÉ OPTIMIZADAS ---
         @st.cache_data(ttl=60, show_spinner=False)
         def obtener_carpetas_cached(empresa):
             carpetas = ["General"]
@@ -16004,6 +16001,7 @@ elif opcion_menu == "📝 Asientos Contables":
             try:
                 conn = conectar_db(empresa)
                 if conn:
+                    # Omitimos traer 'archivo_binario' en la lista general para que la tabla vuele de rápida
                     query_select = "SELECT id, carpeta, categoria, nombre_archivo, tipo_mime, fecha_subida FROM documentos_cloud WHERE empresa_db = %s ORDER BY carpeta ASC, fecha_subida DESC"
                     df_docs = ejecutar_consulta(query_select, conn, params=(str(empresa),))
                     conn.close()
@@ -16062,8 +16060,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                 
                                 conn_doc.commit()
                             conn_doc.close()
-                            st.cache_data.clear()
-                            st.success(f"✅ ¡{len(archivos_subidos)} archivo(s) guardados exitosamente en MySQL dentro de la carpeta '{carpeta_limpia}'!")
+                            # Limpieza quirúrgica de caché sin afectar el resto de la app
+                            obtener_documentos_cached.clear()
+                            obtener_carpetas_cached.clear()
+                            st.success(f"✅ ¡{len(archivos_subidos)} archivo(s) guardados exitosamente!")
                             st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error al guardar en la base de datos: {e}")
@@ -16092,46 +16092,41 @@ elif opcion_menu == "📝 Asientos Contables":
                         cols[2].text(str(row['fecha_subida'])[:10])
                         
                         doc_id = row['id']
-                        key_data = f"dl_data_{doc_id}"
-                        key_mime = f"dl_mime_{doc_id}"
                         
-                        # 1. Si se hizo clic en preparar descarga, consultamos MySQL y guardamos en sesión
-                        if cols[3].button("⬇️ Descargar", key=f"btn_dl_{doc_id}"):
+                        # CONSULTA BAJO DEMANDA: Solo se conecta a MySQL a buscar el binario exacto 
+                        # en el preciso instante en que el usuario hace clic en descargar.
+                        def obtener_binario_individual(id_reg):
+                            b_data, m_type = None, 'application/octet-stream'
                             try:
-                                conn_dl = conectar_db(db_actual)
-                                if conn_dl:
-                                    with conn_dl.cursor() as cursor_dl:
-                                        cursor_dl.execute("SELECT archivo_binario, tipo_mime FROM documentos_cloud WHERE id = %s", (doc_id,))
-                                        res_dl = cursor_dl.fetchone()
-                                    conn_dl.close()
-                                    
-                                    if res_dl and res_dl[0]:
-                                        st.session_state[key_data] = res_dl[0]
-                                        st.session_state[key_mime] = res_dl[1] or 'application/octet-stream'
-                                        st.rerun()
-                            except Exception as ex_dl:
-                                cols[3].error(f"Error: {ex_dl}")
+                                conn_ind = conectar_db(db_actual)
+                                if conn_ind:
+                                    with conn_ind.cursor() as cur_ind:
+                                        cur_ind.execute("SELECT archivo_binario, tipo_mime FROM documentos_cloud WHERE id = %s", (id_reg,))
+                                        res_ind = cur_ind.fetchone()
+                                        if res_ind and res_ind[0]:
+                                            b_data = res_ind[0]
+                                            m_type = res_ind[1] or 'application/octet-stream'
+                                    conn_ind.close()
+                            except Exception:
+                                pass
+                            return b_data, m_type
 
-                        # 2. Si el archivo ya está listo en sesión, mostramos el botón oficial de descarga directa
-                        if key_data in st.session_state:
+                        # Botón de descarga directa instantánea
+                        bin_contenido, tipo_m = obtener_binario_individual(doc_id)
+                        if bin_contenido:
                             cols[3].download_button(
-                                label=f"📥 Guardar Archivo",
-                                data=st.session_state[key_data],
+                                label="⬇️ Descargar",
+                                data=bin_contenido,
                                 file_name=row['nombre_archivo'],
-                                mime=st.session_state[key_mime],
-                                key=f"final_dl_{doc_id}",
-                                type="primary"
+                                mime=tipo_m,
+                                key=f"dl_directo_{doc_id}"
                             )
+                        else:
+                            cols[3].warning("Sin archivo")
 
-                        # Botón de eliminar registro de MySQL
+                        # Botón de eliminar de alta velocidad (sin reiniciar toda la app)
                         if cols[4].button("🗑️", key=f"del_{doc_id}", help="Eliminar de la base de datos"):
                             try:
-                                # Limpiar sesión si existía
-                                if key_data in st.session_state:
-                                    del st.session_state[key_data]
-                                if key_mime in st.session_state:
-                                    del st.session_state[key_mime]
-
                                 conn_del = conectar_db(db_actual)
                                 if conn_del:
                                     with conn_del.cursor() as cursor_del:
@@ -16139,8 +16134,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                         conn_del.commit()
                                     conn_del.close()
                                     
-                                st.cache_data.clear()
-                                st.success("🗑️ Archivo eliminado de la base de datos.")
+                                # Limpieza específica y rápida
+                                obtener_documentos_cached.clear()
+                                obtener_carpetas_cached.clear()
+                                st.success("🗑️ Archivo eliminado.")
                                 st.rerun()
                             except Exception as ex_del:
                                 cols[4].error(f"❌ Error: {ex_del}")
