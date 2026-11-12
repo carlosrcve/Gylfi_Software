@@ -16389,71 +16389,51 @@ elif sub_opcion == "Balance General":
             st.stop()
 
     # 3. INTERFAZ Y PROCESAMIENTO
-    st.subheader(f"📊 Balance General (Movimiento Mensual): {empresa_data.get('nombre', EMPRESA)}")
+    st.subheader(f"📊 Balance General: {empresa_data.get('nombre', EMPRESA)}")
     
-    # --- BLINDAJE LOCAL DE FECHAS MENSUALES ---
+    # --- BLINDAJE LOCAL DE FECHA ---
     from datetime import date as d_type, datetime as dt_type
 
-    def obtener_fecha_segura_bg(key_sesion):
-        val = st.session_state.get(key_sesion)
-        if val is not None:
-            try:
-                if hasattr(val, 'year') and hasattr(val, 'month'):
-                    return val
-                elif isinstance(val, str):
-                    return dt_type.strptime(val, "%Y-%m-%d").date()
-            except Exception:
-                pass
-        return d_type.today()
-
-    col_f1, col_f2 = st.columns(2)
-    f_bg_desde = col_f1.date_input("Desde", obtener_fecha_segura_bg('f_inicio_global'), key="bg_desde")
-    f_bg_hasta = col_f2.date_input("Hasta", obtener_fecha_segura_bg('f_fin_global'), key="bg_hasta")
+    fecha_inicial_input = d_type.today()
+    val_global = st.session_state.get('f_fin_global')
     
-    # --- FUNCIÓN CON CACHÉ PARA CONSULTAR EL RANGO MENSUAL ---
+    if val_global is not None:
+        try:
+            if hasattr(val_global, 'year') and hasattr(val_global, 'month'):
+                fecha_inicial_input = val_global
+            elif isinstance(val_global, str):
+                fecha_inicial_input = dt_type.strptime(val_global, "%Y-%m-%d").date()
+        except Exception:
+            fecha_inicial_input = d_type.today()
+
+    f_corte = st.date_input("Fecha de Corte", value=fecha_inicial_input, key="bg_corte")
+    
+    # --- FUNCIÓN CON CACHÉ CORREGIDA PARA OPTIMIZAR EL BALANCE GENERAL ---
     @st.cache_data(ttl=60, show_spinner=False)
-    def obtener_balance_general_mensual_cached(db_name, fecha_desde, fecha_hasta, sucursal_sel):
+    def obtener_balance_general_cached(db_name, fecha_corte, sucursal_sel):
         df_datos = pd.DataFrame()
         try:
-            f_i_str = fecha_desde.strftime('%Y-%m-%d') if hasattr(fecha_desde, 'strftime') else str(fecha_desde)
-            f_f_str = fecha_hasta.strftime('%Y-%m-%d') if hasattr(fecha_hasta, 'strftime') else str(fecha_hasta)
+            # Asegurar formato string YYYY-MM-DD
+            f_corte_str = fecha_corte.strftime('%Y-%m-%d') if hasattr(fecha_corte, 'strftime') else str(fecha_corte)
             
-            df_datos = generar_balance_profesional(db_name, f_i_str, f_f_str, sucursal_sel)
+            df_datos = generar_balance_profesional(db_name, "2000-01-01", f_corte_str, sucursal_sel)
         except Exception as e:
             st.error(f"❌ Error consultando datos del balance: {e}")
             df_datos = pd.DataFrame()
             
         return df_datos
 
-    df_datos = obtener_balance_general_mensual_cached(db_actual, f_bg_desde, f_bg_hasta, sucursal)
+    df_datos = obtener_balance_general_cached(db_actual, f_corte, sucursal)
     
     if df_datos is not None and not df_datos.empty:
-        # Limpiamos código y aseguramos columnas numéricas de movimiento mensual
-        df_datos['codigo_limpio'] = df_datos['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True)
-        df_datos['Debe'] = pd.to_numeric(df_datos['Debe'], errors='coerce').fillna(0.0)
-        df_datos['Haber'] = pd.to_numeric(df_datos['Haber'], errors='coerce').fillna(0.0)
-
-        # Calculamos la variación neta exclusivamente del mes (ignorando Saldo Inicial acumulado)
-        # Activos (1), Costos (5), Gastos (6), Otros Egresos (8) -> Debe - Haber (excepto Contra-Activos 1.2.1.02)
-        # Pasivos (2), Patrimonio (3), Ingresos (4), Otros Ingresos (7) -> Haber - Debe
-        es_contra_activo_all = df_datos['codigo'].astype(str).str.startswith('1.2.1.02')
-        es_naturaleza_deudora = df_datos['codigo_limpio'].str.startswith(('1', '5', '6', '8')) & (~es_contra_activo_all)
-        
-        df_datos['Movimiento Mensual'] = 0.0
-        df_datos.loc[es_naturaleza_deudora, 'Movimiento Mensual'] = df_datos['Debe'] - df_datos['Haber']
-        df_datos.loc[~es_naturaleza_deudora, 'Movimiento Mensual'] = df_datos['Haber'] - df_datos['Debe']
-        
-        # Sobrescribimos 'Saldo Final' con el movimiento mensual para mantener compatibilidad visual
-        df_datos['Saldo Final'] = df_datos['Movimiento Mensual']
-
-        # 1. Preparación y Agrupación de Cuentas de Balance (1, 2, 3)
+        # 1. Preparación y Agrupación inicial de los datos
         df_bg = df_datos[df_datos['codigo'].astype(str).str.startswith(('1', '2', '3'))].copy()
         df_bg = df_bg.groupby(['codigo', 'nombre', 'nivel'])['Saldo Final'].sum().reset_index()
         
         # Creamos la columna 'Cuenta' con sangría visual para el reporte
         df_bg['Cuenta'] = df_bg.apply(lambda x: f"{'    ' * (int(x['nivel'])-1)}{x['nombre']}", axis=1)
 
-        # 2. Lógica para identificar cuentas finales (hojas) y obtener totales reales del mes
+        # 2. Lógica para identificar cuentas finales (hojas) y obtener totales reales
         todos_los_codigos = df_bg['codigo'].astype(str).unique()
         
         def es_hoja(codigo):
@@ -16461,17 +16441,18 @@ elif sub_opcion == "Balance General":
 
         df_bg['es_hoja'] = df_bg['codigo'].apply(es_hoja)
 
-        # 3. Cálculo de Totales Mensuales (Respetando signos reales de variación: + aumento, - disminución)
+        # 3. Cálculo de Totales (Respetando naturaleza acreedora de Contra-Activos como 1.2.1.02)
         df_activos_hoja = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('1')].copy()
         es_contra_activo = df_activos_hoja['codigo'].astype(str).str.startswith('1.2.1.02')
         
-        # Los activos normales suman su variación neta; los contra-activos (depreciación del mes) restan su variación neta
-        act_positivos = df_activos_hoja[~es_contra_activo]['Saldo Final'].sum()
-        contra_activos = df_activos_hoja[es_contra_activo]['Saldo Final'].sum()
+        act_positivos = df_activos_hoja[~es_contra_activo]['Saldo Final'].abs().sum()
+        contra_activos = df_activos_hoja[es_contra_activo]['Saldo Final'].abs().sum()
         act = act_positivos - contra_activos
         
-        pas = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('2')]['Saldo Final'].sum()
-        pat = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('3')]['Saldo Final'].sum()
+        pas_n1 = df_bg[(df_bg['nivel'] == 1) & (df_bg['codigo'].astype(str).str.startswith('2'))]['Saldo Final']
+        pas = abs(pas_n1.values[0]) if not pas_n1.empty else df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('2')]['Saldo Final'].abs().sum()
+
+        pat = df_bg[df_bg['es_hoja'] & df_bg['codigo'].astype(str).str.startswith('3')]['Saldo Final'].abs().sum()
 
         # 4. Renderizado del Reporte
         st.dataframe(
@@ -16480,35 +16461,38 @@ elif sub_opcion == "Balance General":
             use_container_width=True, height=500, hide_index=True
         )
         
-        # 5. Cálculo directo de la utilidad mensual (Cuentas 4 a 8 del mes)
+        # 5. Cálculo directo de la utilidad al corte (sin arrastrar caché de otro reporte)
         utilidad_ejercicio = 0.0
-        df_n1_er = df_datos[df_datos['nivel'] == 1].copy()
-        if df_n1_er.empty:
-            df_n1_er = df_datos[df_datos['codigo_limpio'].str.len() == 1]
-        
-        ing_b = df_n1_er[df_n1_er['codigo_limpio'].str.startswith('4')]['Saldo Final'].sum()
-        cos_b = df_n1_er[df_n1_er['codigo_limpio'].str.startswith('5')]['Saldo Final'].sum()
-        gas_b = df_n1_er[df_n1_er['codigo_limpio'].str.startswith('6')]['Saldo Final'].sum()
-        otros_ing_b = df_n1_er[df_n1_er['codigo_limpio'].str.startswith('7')]['Saldo Final'].sum()
-        otros_egr_b = df_n1_er[df_n1_er['codigo_limpio'].str.startswith('8')]['Saldo Final'].sum()
-        
-        utilidad_ejercicio = (ing_b + otros_ing_b) - (cos_b + gas_b + otros_egr_b)
+        if not df_datos.empty:
+            df_n1_er = df_datos[df_datos['nivel'] == 1].copy()
+            if df_n1_er.empty:
+                df_n1_er = df_datos[df_datos['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True).str.len() == 1]
+            
+            df_n1_er['c_limpio'] = df_n1_er['codigo'].astype(str).str.strip().str.replace(r'[^0-9]', '', regex=True)
+            
+            ing_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('4')]['Saldo Final'].sum()
+            cos_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('5')]['Saldo Final'].sum()
+            gas_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('6')]['Saldo Final'].sum()
+            otros_ing_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('7')]['Saldo Final'].sum()
+            otros_egr_b = df_n1_er[df_n1_er['c_limpio'].str.startswith('8')]['Saldo Final'].sum()
+            
+            utilidad_ejercicio = abs(ing_b) + abs(otros_ing_b) - (abs(cos_b) + abs(gas_b) + abs(otros_egr_b))
 
-        patrimonio_ajustado = pat + utilidad_ejercicio
+        patrimonio_ajustado = abs(pat) + utilidad_ejercicio
         descuadre = act - (pas + patrimonio_ajustado)
         
         st.divider()
         
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("VAR. ACTIVOS (MES)", formato_contable(act))
-        c2.metric("VAR. PASIVOS (MES)", formato_contable(pas))
-        c3.metric("VAR. PATRIMONIO (MES)", formato_contable(pat))
-        c4.metric("UTILIDAD DEL MES", formato_contable(utilidad_ejercicio), 
+        c1.metric("ACTIVOS", formato_contable(act))
+        c2.metric("PASIVOS", formato_contable(pas))
+        c3.metric("PATRIMONIO", formato_contable(abs(pat)))
+        c4.metric("UTILIDAD EJERCICIO", formato_contable(utilidad_ejercicio), 
                     delta=f"{formato_contable(utilidad_ejercicio)}",
                     delta_color="normal" if utilidad_ejercicio >= 0 else "inverse")
 
         if abs(descuadre) < 0.01:
-            st.success("✅ ¡Balance Mensual Cuadrado Perfectamente!")
+            st.success("✅ ¡Balance General Cuadrado Perfectamente!")
         else:
             st.error(f"❌ Descuadre contable detectado: {formato_contable(descuadre)}")
 
@@ -16518,15 +16502,13 @@ elif sub_opcion == "Balance General":
 
         # --- EXCEL ---
         output_bg = io.BytesIO()
-        df_excel = df_bg[['codigo', 'Cuenta', 'Saldo Final']].copy()
-        df_excel.columns = ['Código', 'Cuenta / Descripción', 'Movimiento Mensual (Bs.)']
         with pd.ExcelWriter(output_bg, engine='xlsxwriter') as writer:
-            df_excel.to_excel(writer, index=False, sheet_name='Balance_General_Mensual')
+            df_bg.to_excel(writer, index=False, sheet_name='Balance_General')
         
         col_ex.download_button(
             label="📥 Descargar Excel",
             data=output_bg.getvalue(),
-            file_name=f"Balance_General_Mensual_{EMPRESA}.xlsx",
+            file_name=f"Balance_General_{EMPRESA}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
@@ -16545,9 +16527,9 @@ elif sub_opcion == "Balance General":
                         self.cell(0, 5, f"Fecha: {datetime.now().strftime('%d/%m/%Y')}", ln=1, align='R')
                         self.ln(10)
                         self.set_font('Arial', 'B', 12)
-                        self.cell(0, 5, "BALANCE GENERAL (MOVIMIENTO MENSUAL)", ln=1, align='C')
+                        self.cell(0, 5, "BALANCE GENERAL", ln=1, align='C')
                         self.set_font('Arial', '', 9)
-                        self.cell(0, 5, f"Periodo: {f_bg_desde.strftime('%d/%m/%Y')} al {f_bg_hasta.strftime('%d/%m/%Y')}", ln=1, align='C')
+                        self.cell(0, 5, f"Al Corte: {f_corte.strftime('%d/%m/%Y')}", ln=1, align='C')
                         self.ln(5)
                         self.set_fill_color(230, 230, 230)
                         self.set_font('Arial', 'B', 9)
@@ -16566,13 +16548,13 @@ elif sub_opcion == "Balance General":
 
                     pdf.cell(30, 7, cod_str, 1)
                     pdf.cell(110, 7, nombre_str, 1)
-                    pdf.cell(50, 7, f"{row['Saldo Final']:,.2f}", 1, 1, 'R')
+                    pdf.cell(50, 7, f"{abs(row['Saldo Final']):,.2f}", 1, 1, 'R')
 
                 pdf.set_fill_color(0, 0, 0)
                 pdf.set_text_color(255, 255, 255)
                 pdf.set_font("Arial", 'B', 9)
-                total_verificacion = act - (pas + patrimonio_ajustado)
-                pdf.cell(140, 10, "TOTAL ECUACIÓN PATRIMONIAL MENSUAL (ACT - PAS - PAT)", 1, 0, 'R', True)
+                total_verificacion = act - (abs(pas) + patrimonio_ajustado)
+                pdf.cell(140, 10, "TOTAL ECUACIÓN PATRIMONIAL (ACT - PAS - PAT)", 1, 0, 'R', True)
                 pdf.cell(50, 10, f"{total_verificacion:,.2f}", 1, 1, 'R', True)
 
                 pdf_bytes = bytes(pdf.output())
@@ -16580,16 +16562,15 @@ elif sub_opcion == "Balance General":
                 st.download_button(
                     label="⬇️ Descargar PDF Ahora",
                     data=pdf_bytes,
-                    file_name=f"Balance_General_Mensual_{EMPRESA}.pdf",
+                    file_name=f"Balance_General_{EMPRESA}.pdf",
                     mime="application/pdf",
                     use_container_width=True
                 )
             except Exception as e_pdf:
                 st.error(f"Error al generar el PDF: {e_pdf}")
     else:
-        st.info("No se encontraron movimientos para generar el balance en este rango de fechas.")
+        st.info("No se encontraron datos para generar el balance.")
 
-        
 # G. ESTADOS FINANCIEROS -> ESTADO DE RESULTADOS
 elif sub_opcion == "Estado de Resultados":
     # 1. OBTENCIÓN DE DATOS DE SESIÓN Y SEGURIDAD
