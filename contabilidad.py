@@ -8491,29 +8491,49 @@ def limpiar_y_extraer_factura(imagen_pil):
 
 
 def modulo_escaneo_facturas_manuales(conn, db_actual):
-    st.subheader("📸 Escáner Inteligente de Facturas a Bolígrafo (EasyOCR + OpenCV)")
-    st.markdown("Sube la foto del talonario, arrástrala, o **pégala directamente (`Ctrl + V`)** desde WhatsApp o tu escritorio.")
+    st.subheader("📸 Escáner Inteligente de Facturas a Bolígrafo (EasyOCR + OpenCV + Voz)")
+    st.markdown("Sube la foto, pégala desde WhatsApp (`Ctrl + V`), o utiliza el **dictado por voz** si necesitas rellenar algún campo manualmente.")
+
+    # --- INICIALIZAR ESTADOS DE SESIÓN PARA LOS CAMPOS ---
+    if "ocr_procesado" not in st.session_state:
+        st.session_state.ocr_procesado = False
+    if "datos_ocr" not in st.session_state:
+        st.session_state.datos_ocr = {}
+
+    # Inicializar valores en session_state para permitir la edición fluida y por voz
+    campos_defaults = {
+        "input_rif": "",
+        "input_nombre": "",
+        "input_factura": "",
+        "input_control": "",
+        "input_fecha": datetime.now().strftime('%d/%m/%Y'),
+        "input_base": "0.00",
+        "input_iva": "0.00",
+        "input_domicilio": ""
+    }
+    for k, v in campos_defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
     # --- SELECTOR DE MÉTODO DE ENTRADA FLEXIBLE ---
     metodo_subida = st.radio(
         "Método de entrada de imagen", 
-        ["📁 Subir o Arrastrar Archivo (Ideal Escritorio)", "📋 Pegar Portapapeles (WhatsApp / Capturas)"], 
+        ["📁 Subir o Arrastrar Archivo", "📋 Pegar Portapapeles (WhatsApp / Capturas)"], 
         horizontal=True,
         key="radio_metodo_escaneo"
     )
 
     archivo_subido = None
 
-    if metodo_subida == "📁 Subir o Arrastrar Archivo (Ideal Escritorio)":
+    if metodo_subida == "📁 Subir o Arrastrar Archivo":
         archivo_subido = st.file_uploader(
             "Seleccionar o arrastrar imagen de factura",
             type=["png", "jpg", "jpeg"],
-            help="Sube o arrastra la foto de la factura directamente desde el escritorio o carpeta de tu PC.",
+            help="Sube o arrastra la foto de la factura directamente desde tu PC.",
             key="uploader_factura_pc"
         )
     else:
-        st.info("💡 Haz clic en el botón de abajo y presiona **Ctrl + V** para pegar imágenes capturadas o copiadas desde WhatsApp Web.")
-        
+        st.info("💡 Haz clic en el botón de abajo y presiona **Ctrl + V** para pegar la factura copiada desde WhatsApp Web.")
         try:
             from streamlit_paste_button import paste_image_button
             paste_result = paste_image_button(
@@ -8526,19 +8546,14 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
             st.warning("⚠️ Ejecuta en tu terminal: `pip install streamlit-paste-button`")
             archivo_subido = st.file_uploader("Respaldo: Sube tu archivo aquí", type=["png", "jpg", "jpeg"], key="uploader_respaldo_paste")
 
-    if "ocr_procesado" not in st.session_state:
-        st.session_state.ocr_procesado = False
-    if "datos_ocr" not in st.session_state:
-        st.session_state.datos_ocr = {}
-
-    # SI NO HAY ARCHIVO SUBIDO O PEGADO, SE OCULTA TODO EL RESTO
+    # SI NO HAY ARCHIVO SUBIDO O PEGADO, SE OCULTA EL RESTO
     if archivo_subido is None:
         st.info("ℹ️ Adjunta o pega una foto del talonario arriba para habilitar el formulario de análisis automático.")
         st.session_state.ocr_procesado = False
         st.session_state.datos_ocr = {}
         return
 
-    # A PARTIR DE AQUÍ SÓLO SE MUESTRA CUANDO EL USUARIO YA SUBIÓ O PEGÓ LA IMAGEN
+    # PROCESAMIENTO CON OCR Y OPENCV
     if not isinstance(archivo_subido, Image.Image):
         img = Image.open(archivo_subido)
     else:
@@ -8549,6 +8564,15 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
             datos_extraidos, img_procesada = limpiar_y_extraer_factura(img)
             st.session_state.datos_ocr = datos_extraidos
             st.session_state.img_proc = img_procesada
+            
+            # Autocompletar session_state con lo que haya encontrado la IA
+            st.session_state.input_rif = datos_extraidos.get("rif", "")
+            st.session_state.input_nombre = datos_extraidos.get("nombre", "")
+            st.session_state.input_factura = datos_extraidos.get("factura", "")
+            st.session_state.input_control = datos_extraidos.get("control", "")
+            st.session_state.input_base = str(datos_extraidos.get("base", "0.00"))
+            st.session_state.input_iva = str(datos_extraidos.get("iva", "0.00"))
+            
             st.session_state.ocr_procesado = True
 
     col_izq, col_der = st.columns([1, 1.2])
@@ -8565,99 +8589,101 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
             st.rerun()
 
     with col_der:
-        st.markdown("### 📝 Campos Autocompletados por IA")
-        d = st.session_state.get("datos_ocr", {})
+        st.markdown("### 📝 Campos con Asistencia IA y Voz")
+        st.caption("🎙️ Si el OCR no detecta un campo, puedes escribirlo o usar dictado por voz.")
 
         if "qr_generado_bytes" not in st.session_state:
             st.session_state.qr_generado_bytes = None
 
-        with st.form("form_factura_manual_ia"):
-            rif_prov = st.text_input("RIF del Proveedor", value=d.get("rif", ""))
-            nombre_prov = st.text_input("Nombre del Proveedor", value=d.get("nombre", ""))
+        # CAMPOS INDIVIDUALES FUERA DE st.form PARA PERMITIR INTERACCIÓN DE MICRÓFONO DINÁMICA
+        rif_prov = st.text_input("RIF del Proveedor", key="input_rif")
+        nombre_prov = st.text_input("Nombre del Proveedor", key="input_nombre")
+        
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            nro_factura = st.text_input("Número de Factura", key="input_factura")
+        with col_f2:
+            nro_control = st.text_input("Número de Control", key="input_control")
             
-            nro_factura = st.text_input("Número de Factura", value=d.get("factura", ""))
-            nro_control = st.text_input("Número de Control", value=d.get("control", ""))
+        fecha_str = st.text_input("Fecha de la Factura (DD/MM/AAAA)", key="input_fecha")
+        
+        col_b, col_i = st.columns(2)
+        with col_b:
+            base_imp_str = st.text_input("Base Imponible Bs.", key="input_base")
+        with col_i:
+            monto_iva_str = st.text_input("IVA (16%) Bs.", key="input_iva")
+
+        domicilio = st.text_area("Dirección Fiscal", key="input_domicilio")
+
+        modo_emision = st.radio(
+            "Comprobante posterior:",
+            [
+                "📱 Generar Código QR de Control Interno",
+                "📄 Emitir Facturación Digital de Control Interno"
+            ],
+            key="radio_modo_emision_fac"
+        )
+
+        try:
+            val_b = float(str(base_imp_str).replace(',', '.')) if base_imp_str else 0.00
+        except:
+            val_b = 0.00
             
-            fecha_str = st.text_input("Fecha de la Factura (DD/MM/AAAA)", value=datetime.now().strftime('%d/%m/%Y'))
-            
-            col_b, col_i = st.columns(2)
-            with col_b:
-                base_imp_str = st.text_input("Base Imponible Bs.", value=str(d.get("base", "0.00")))
-            with col_i:
-                monto_iva_str = st.text_input("IVA (16%) Bs.", value=str(d.get("iva", "0.00")))
+        try:
+            val_i = float(str(monto_iva_str).replace(',', '.')) if monto_iva_str else round(val_b * 0.16, 2)
+        except:
+            val_i = round(val_b * 0.16, 2)
 
-            domicilio = st.text_area("Dirección Fiscal", value="")
+        monto_total = val_b + val_i
+        st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
 
-            modo_emision = st.radio(
-                "Comprobante posterior:",
-                [
-                    "📱 Generar Código QR de Control Interno",
-                    "📄 Emitir Facturación Digital de Control Interno"
-                ],
-                key="radio_modo_emision_fac"
-            )
+        # BOTÓN DE GUARDADO FINAL
+        if st.button("💾 Guardar y Registrar en MySQL", type="primary", key="btn_guardar_factura_mysql"):
+            if not nro_factura or not rif_prov:
+                st.error("⚠️ Faltan campos obligatorios (Número de Factura y RIF).")
+            elif not conn:
+                st.error("⚠️ Sin conexión a la base de datos.")
+            else:
+                try:
+                    fecha_fac_final = datetime.strptime(fecha_str.strip(), '%d/%m/%Y').date()
 
-            try:
-                val_b = float(str(base_imp_str).replace(',', '.')) if base_imp_str else 0.00
-            except:
-                val_b = 0.00
-                
-            try:
-                val_i = float(str(monto_iva_str).replace(',', '.')) if monto_iva_str else round(val_b * 0.16, 2)
-            except:
-                val_i = round(val_b * 0.16, 2)
+                    with conn.cursor() as cursor:
+                        sql = """
+                            INSERT INTO facturas_escaneadas 
+                            (rif_proveedor, nombre_proveedor, domicilio_fiscal, nro_factura, nro_control, fecha_factura, base_imponible, iva, monto_exento, monto_total)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """
+                        cursor.execute(sql, (
+                            rif_prov, nombre_prov, domicilio, nro_factura, nro_control, 
+                            fecha_fac_final, val_b, val_i, 0.00, monto_total
+                        ))
+                        conn.commit()
 
-            monto_total = val_b + val_i
-            st.info(f"💰 **Monto Total Calculado:** {monto_total:,.2f} Bs.")
+                    st.success("¡Factura leída y registrada en MySQL con éxito!")
 
-            submitted = st.form_submit_button("💾 Guardar y Registrar en MySQL", type="primary")
+                    if "QR" in modo_emision:
+                        info_qr = (
+                            f"GYLFI SOFTWARE - CONTROL INTERNO\n"
+                            f"Factura: {nro_factura} | Control: {nro_control}\n"
+                            f"Fecha: {fecha_fac_final.strftime('%d/%m/%Y')}\n"
+                            f"Proveedor: {nombre_prov} ({rif_prov})\n"
+                            f"Total: {monto_total:,.2f} Bs."
+                        )
+                        qr = qrcode.QRCode(version=1, box_size=10, border=4)
+                        qr.add_data(info_qr)
+                        qr.make(fit=True)
+                        img_qr = qr.make_image(fill_color="black", back_color="white")
+                        buffer = BytesIO()
+                        img_qr.save(buffer, format="PNG")
+                        
+                        st.session_state.qr_generado_bytes = buffer.getvalue()
+                        st.session_state.nro_factura_cache = nro_factura
+                        st.session_state.modo_resultado = "QR"
+                    else:
+                        st.session_state.modo_resultado = "FACTURA"
 
-            if submitted:
-                if not nro_factura or not rif_prov:
-                    st.error("⚠️ Faltan campos obligatorios.")
-                elif not conn:
-                    st.error("⚠️ Sin conexión a la base de datos.")
-                else:
-                    try:
-                        fecha_fac_final = datetime.strptime(fecha_str.strip(), '%d/%m/%Y').date()
-
-                        with conn.cursor() as cursor:
-                            sql = """
-                                INSERT INTO facturas_escaneadas 
-                                (rif_proveedor, nombre_proveedor, domicilio_fiscal, nro_factura, nro_control, fecha_factura, base_imponible, iva, monto_exento, monto_total)
-                                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            """
-                            cursor.execute(sql, (
-                                rif_prov, nombre_prov, domicilio, nro_factura, nro_control, 
-                                fecha_fac_final, val_b, val_i, 0.00, monto_total
-                            ))
-                            conn.commit()
-
-                        st.success("¡Factura leída y registrada en MySQL con éxito!")
-
-                        if "QR" in modo_emision:
-                            info_qr = (
-                                f"GYLFI SOFTWARE - CONTROL INTERNO\n"
-                                f"Factura: {nro_factura} | Control: {nro_control}\n"
-                                f"Fecha: {fecha_fac_final.strftime('%d/%m/%Y')}\n"
-                                f"Proveedor: {nombre_prov} ({rif_prov})\n"
-                                f"Total: {monto_total:,.2f} Bs."
-                            )
-                            qr = qrcode.QRCode(version=1, box_size=10, border=4)
-                            qr.add_data(info_qr)
-                            qr.make(fit=True)
-                            img_qr = qr.make_image(fill_color="black", back_color="white")
-                            buffer = BytesIO()
-                            img_qr.save(buffer, format="PNG")
-                            
-                            st.session_state.qr_generado_bytes = buffer.getvalue()
-                            st.session_state.nro_factura_cache = nro_factura
-                            st.session_state.modo_resultado = "QR"
-                        else:
-                            st.session_state.modo_resultado = "FACTURA"
-
-                    except Exception as e:
-                        st.error(f"❌ Error al guardar en MySQL: {e}")
+                except Exception as e:
+                    st.error(f"❌ Error al guardar en MySQL: {e}")
 
     if st.session_state.get("modo_resultado") == "QR" and st.session_state.get("qr_generado_bytes"):
         st.markdown("---")
