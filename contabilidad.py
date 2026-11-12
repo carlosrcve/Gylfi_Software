@@ -8442,7 +8442,7 @@ def extraer_con_lupas(imagen_pil):
         "factura": "",
         "control": "",
         "rif": "",
-        "nombre": "JOSÉ RODRÍGUEZ COLMENARES", # Proveedor fijo de este formato
+        "nombre": "",
         "base": 0.0,
         "iva": 0.0,
         "total": 0.0
@@ -8450,10 +8450,12 @@ def extraer_con_lupas(imagen_pil):
 
     montos_detectados = []
 
+    lupa_factura = img_cv[0:int(h*0.3), 0:int(w*0.4)]
+    lupa_rif = img_cv[int(h*0.3):h, 0:int(w*0.6)]
+    lupa_montos = img_cv[int(h*0.2):int(h*0.7), int(w*0.4):w]
+
     if EASYOCR_DISPONIBLE:
         try:
-            # --- LUPA 1: ZONA SUPERIOR IZQUIERDA (Número de Factura 0006/0009) ---
-            lupa_factura = img_cv[0:int(h*0.25), 0:int(w*0.35)]
             res_fac = reader.readtext(lupa_factura)
             for _, texto, _ in res_fac:
                 t = texto.strip()
@@ -8461,8 +8463,6 @@ def extraer_con_lupas(imagen_pil):
                     datos["factura"] = t.zfill(4)
                     break
 
-            # --- LUPA 2: ZONA INFERIOR / LATERAL (RIF del Proveedor) ---
-            lupa_rif = img_cv[int(h*0.4):h, int(w*0.1):int(w*0.5)]
             res_rif = reader.readtext(lupa_rif)
             for _, texto, _ in res_rif:
                 match_rif = re.search(r'([JGVEP]-?\d{6,9}-?\d?)', texto, re.IGNORECASE)
@@ -8472,28 +8472,25 @@ def extraer_con_lupas(imagen_pil):
                         datos["rif"] = posible_rif
                         break
 
-            # --- LUPA 3: ZONA DE TOTALES Y MONTOS (Columna derecha de la tabla) ---
-            lupa_montos = img_cv[int(h*0.2):int(h*0.7), int(w*0.5):w]
             res_montos = reader.readtext(lupa_montos)
             for _, texto, _ in res_montos:
                 match_monto = re.search(r'\b(\d{1,3}(?:\.\d{3})*,\d{2})\b', texto)
                 if match_monto:
-                    monto_str = match_monto.group(1)
                     try:
-                        monto_val = float(monto_str.replace('.', '').replace(',', '.'))
+                        monto_val = float(match_monto.group(1).replace('.', '').replace(',', '.'))
                         montos_detectados.append(monto_val)
                     except:
                         pass
 
             if montos_detectados:
-                monto_max = max(montos_detectados)
-                datos["base"] = monto_max
+                datos["base"] = max(montos_detectados)
                 datos["iva"] = round(datos["base"] * 0.16, 2)
 
-            st.success("🔍 ¡Lupas de precisión aplicadas con éxito en el talonario!")
-
         except Exception as e:
-            st.error(f"⚠️ Error usando las lupas de recorte: {e}")
+            st.error(f"⚠️ Error en lupas: {e}")
+
+    st.session_state.debug_lupa_fac = lupa_factura
+    st.session_state.debug_lupa_rif = lupa_rif
 
     return datos, img_cv
 
@@ -8582,9 +8579,13 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
 
     with col_izq:
         st.image(img, caption="Factura Original", use_container_width=True)
-        if "img_proc" in st.session_state:
-            with st.expander("🛠️ Vista Optimizada OpenCV"):
-                st.image(st.session_state.img_proc, caption="Procesada para lectura", use_container_width=True)
+        
+        # Visor de lupas para calibrar
+        if "debug_lupa_fac" in st.session_state:
+            with st.expander("🔍 Ver qué capturaron las Lupas (Calibración)"):
+                st.image(st.session_state.debug_lupa_fac, caption="Lupa 1: Buscando Número de Factura")
+                st.image(st.session_state.debug_lupa_rif, caption="Lupa 2: Buscando RIF")
+
         
         if st.button("🔄 Escanear otra factura", key="btn_reiniciar_escaneo"):
             st.session_state.ocr_procesado = False
