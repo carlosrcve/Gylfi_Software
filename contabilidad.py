@@ -8416,17 +8416,22 @@ import qrcode
 import cv2
 import numpy as np
 
-# Intentamos importar easyocr (motor de IA local para texto y manuscritos)
+# --- CARGA SEGURA DE EASYOCR ---
+EASYOCR_DISPONIBLE = False
+reader = None
+
 try:
     import easyocr
-    # Inicializamos el lector en español e inglés (se ejecuta una sola vez en caché)
     @st.cache_resource
     def cargar_lector_ocr():
         return easyocr.Reader(['es'], gpu=False)
     
-    reader = cargar_lector_ocr()
+    with st.spinner("🤖 Cargando modelo de Inteligencia Artificial (EasyOCR)... Por favor espera un momento."):
+        reader = cargar_lector_ocr()
     EASYOCR_DISPONIBLE = True
-except ImportError:
+except Exception as e:
+    # Esto te mostrará el error exacto en pantalla si falta una librería o torch falla
+    st.error(f"⚠️ Aviso de IA: No se pudo inicializar EasyOCR automáticamente ({e}). El módulo funcionará con llenado manual asistido.")
     EASYOCR_DISPONIBLE = False
 
 def limpiar_y_extraer_factura(imagen_pil):
