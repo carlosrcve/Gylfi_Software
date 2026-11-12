@@ -8600,66 +8600,76 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
                 "consultando la factura original. Puedes utilizar los micrófonos en cada campo para agilizar más rápido la automatización de la factura."
             )
         else:
-            st.caption("🎙️ Haz clic en el micrófono de cualquier campo si necesitas dictar o corregir la información.")
+            st.caption("🎙️ Haz clic en el botón de dictado de cualquier campo si necesitas corregir o dictar información.")
 
         if "qr_generado_bytes" not in st.session_state:
             st.session_state.qr_generado_bytes = None
 
-        # --- CAMPO 1: RIF DEL PROVEEDOR + MICRÓFONO ---
-        col_txt_1, col_mic_1 = st.columns([6, 1])
-        with col_txt_1:
-            rif_prov = st.text_input("RIF del Proveedor", key="input_rif")
-        with col_mic_1:
-            st.write("") # Alineación vertical automática
-            if st.button("🎤", key="btn_mic_rif", help="Dictar RIF del Proveedor"):
-                st.toast("🎙️ Micrófono activo para RIF. Habla ahora...")
+        # --- FUNCIÓN AUXILIAR DE DICTADO POR VOZ (JAVASCRIPT NATIVO) ---
+        def input_con_voz(label, key_name, help_text):
+            val = st.text_input(label, key=key_name)
+            voz_html = f"""
+            <div style="display: flex; align-items: center; gap: 5px; margin-bottom: 12px;">
+                <button id="btn_{key_name}" onclick="startDictation_{key_name}()" title="{help_text}" style="background-color: #f0f2f6; border: 1px solid #d6d9dc; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-size: 13px;">
+                    🎤 Dictar por Voz
+                </button>
+                <span id="status_{key_name}" style="font-size: 12px; color: gray;"></span>
+            </div>
+            <script>
+                function startDictation_{key_name}() {{
+                    if (!('webkitSpeechRecognition' in window)) {{
+                        alert("Tu navegador no soporta reconocimiento de voz. Usa Google Chrome.");
+                        return;
+                    }}
+                    const recognition = new webkitSpeechRecognition();
+                    recognition.lang = 'es-VE';
+                    recognition.interimResults = false;
+                    recognition.maxAlternatives = 1;
+                    
+                    const statusSpan = document.getElementById("status_{key_name}");
+                    statusSpan.innerText = "Escuchando...";
+                    
+                    recognition.onresult = function(event) {{
+                        const speechResult = event.results[0][0].transcript;
+                        statusSpan.innerText = "¡Escuchado!";
+                        
+                        const inputs = window.parent.document.querySelectorAll('input[aria-label*="{label}"]');
+                        if (inputs.length > 0) {{
+                            let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, "value").set;
+                            nativeInputValueSetter.call(inputs[0], speechResult);
+                            inputs[0].dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        }}
+                        setTimeout(() => {{ statusSpan.innerText = ""; }}, 2000);
+                    }};
+                    
+                    recognition.onerror = function(event) {{
+                        statusSpan.innerText = "Error de voz";
+                    }};
+                    
+                    recognition.start();
+                }}
+            </script>
+            """
+            st.components.v1.html(voz_html, height=45)
+            return val
 
-        # --- CAMPO 2: NOMBRE DEL PROVEEDOR + MICRÓFONO ---
-        col_txt_2, col_mic_2 = st.columns([6, 1])
-        with col_txt_2:
-            nombre_prov = st.text_input("Nombre del Proveedor", key="input_nombre")
-        with col_mic_2:
-            st.write("")
-            if st.button("🎤", key="btn_mic_nombre", help="Dictar Nombre del Proveedor"):
-                st.toast("🎙️ Micrófono activo para Nombre...")
-
-        # --- CAMPO 3: NÚMERO DE FACTURA + MICRÓFONO ---
-        col_txt_3, col_mic_3 = st.columns([6, 1])
-        with col_txt_3:
-            nro_factura = st.text_input("Número de Factura", key="input_factura")
-        with col_mic_3:
-            st.write("")
-            if st.button("🎤", key="btn_mic_factura", help="Dictar Número de Factura"):
-                st.toast("🎙️ Micrófono activo para Número de Factura...")
-
-        # --- CAMPO 4: NÚMERO DE CONTROL + MICRÓFONO ---
-        col_txt_4, col_mic_4 = st.columns([6, 1])
-        with col_txt_4:
-            nro_control = st.text_input("Número de Control", key="input_control")
-        with col_mic_4:
-            st.write("")
-            if st.button("🎤", key="btn_mic_control", help="Dictar Número de Control"):
-                st.toast("🎙️ Micrófono activo para Número de Control...")
+        # --- APLICAR CAMPOS CON DICTADO POR VOZ ---
+        rif_prov = input_con_voz("RIF del Proveedor", "input_rif", "Dictar RIF")
+        nombre_prov = input_con_voz("Nombre del Proveedor", "input_nombre", "Dictar Nombre")
+        
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            nro_factura = input_con_voz("Número de Factura", "input_factura", "Dictar Factura")
+        with col_f2:
+            nro_control = input_con_voz("Número de Control", "input_control", "Dictar Control")
             
         fecha_str = st.text_input("Fecha de la Factura (DD/MM/AAAA)", key="input_fecha")
         
-        # --- CAMPO 5: BASE IMPONIBLE + MICRÓFONO ---
-        col_txt_5, col_mic_5 = st.columns([6, 1])
-        with col_txt_5:
-            base_imp_str = st.text_input("Base Imponible Bs.", key="input_base")
-        with col_mic_5:
-            st.write("")
-            if st.button("🎤", key="btn_mic_base", help="Dictar Base Imponible"):
-                st.toast("🎙️ Micrófono activo para Base Imponible...")
-
-        # --- CAMPO 6: MONTO IVA + MICRÓFONO ---
-        col_txt_6, col_mic_6 = st.columns([6, 1])
-        with col_txt_6:
-            monto_iva_str = st.text_input("IVA (16%) Bs.", key="input_iva")
-        with col_mic_6:
-            st.write("")
-            if st.button("🎤", key="btn_mic_iva", help="Dictar IVA"):
-                st.toast("🎙️ Micrófono activo para IVA...")
+        col_b, col_i = st.columns(2)
+        with col_b:
+            base_imp_str = input_con_voz("Base Imponible Bs.", "input_base", "Dictar Base")
+        with col_i:
+            monto_iva_str = input_con_voz("IVA (16%) Bs.", "input_iva", "Dictar IVA")
 
         domicilio = st.text_area("Dirección Fiscal", key="input_domicilio")
 
