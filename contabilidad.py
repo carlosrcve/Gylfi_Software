@@ -16084,21 +16084,26 @@ elif opcion_menu == "📝 Asientos Contables":
                         cols[1].text(f"📂 {row['categoria']}")
                         cols[2].text(str(row['fecha_subida'])[:10])
                         
-                        if os.path.exists(row['ruta_archivo']):
+                        # Verificación física del archivo
+                        archivo_existe = False
+                        if row['ruta_archivo'] and os.path.exists(row['ruta_archivo']):
+                            archivo_existe = True
+
+                        if archivo_existe:
                             with open(row['ruta_archivo'], "rb") as file_to_download:
                                 cols[3].download_button(
-                                    label="⬇️",
+                                    label="⬇️ Descargar",
                                     data=file_to_download,
                                     file_name=row['nombre_archivo'],
                                     mime="application/octet-stream",
                                     key=f"down_{row['id']}"
                                 )
                         else:
-                            cols[3].text("⚠️ No hallado")
+                            cols[3].warning("⚠️ Archivo huérfano (No en disco)")
                             
-                        if cols[4].button("🗑️", key=f"del_{row['id']}"):
+                        if cols[4].button("🗑️", key=f"del_{row['id']}", help="Eliminar registro o archivo"):
                             try:
-                                if os.path.exists(row['ruta_archivo']):
+                                if archivo_existe:
                                     os.remove(row['ruta_archivo'])
                                 
                                 conn_del = conectar_db(db_actual)
@@ -16109,7 +16114,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     conn_del.close()
                                     
                                 st.cache_data.clear()
-                                st.success("🗑️ Archivo eliminado con éxito.")
+                                st.success("🗑️ Registro eliminado con éxito.")
                                 st.rerun()
                             except Exception as ex_del:
                                 st.error(f"❌ Error al eliminar: {ex_del}")
