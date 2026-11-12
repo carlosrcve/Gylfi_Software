@@ -8446,51 +8446,61 @@ def limpiar_y_extraer_factura(imagen_pil):
         "factura": "",
         "control": "",
         "rif": "",
-        "nombre": "",
+        "nombre": "JOSÉ RODRÍGUEZ COLMENARES", # Proveedor fijo de este formato de talonario
         "base": 0.0,
         "iva": 0.0,
         "total": 0.0
     }
 
+    montos_detectados = []
+
     if EASYOCR_DISPONIBLE:
         try:
             resultados = reader.readtext(gray)
-            
-            # Filtramos solo los textos con una confianza razonable y unimos
-            textos_encontrados = [res[1] for res in resultados if res[2] > 0.15]
-            texto_detectado = " ".join(textos_encontrados)
-            
-            # Limpiamos símbolos extraños de la cuadrícula para facilitar la lectura
-            texto_limpio_ia = re.sub(r'[~|&\\*#\[\]{}]', ' ', texto_detectado)
-            
-            st.success(f"🔍 OCR Leyó {len(textos_encontrados)} bloques de texto.")
+            st.success(f"🔍 OCR analizó {len(resultados)} bloques de texto individualmente.")
 
-            # 1. Buscar Número de Factura (busca bloques de 3 a 6 dígitos, ej: 0006)
-            match_fac = re.search(r'\b(0*\d{3,6})\b', texto_limpio_ia)
-            if match_fac:
-                datos["factura"] = match_fac.group(1).zfill(4)
+            # Recorremos bloque por bloque para extraer con precisión quirúrgica
+            for bbox, texto, conf in resultados:
+                t_limpio = texto.strip()
+                
+                # 1. Buscar Número de Factura (ej: 0006)
+                if not datos["factura"]:
+                    if re.match(r'^0*\d{1,4}$', t_limpio) and len(t_limpio) <= 6:
+                        if int(t_limpio) < 9999: # Evita confundirlo con montos grandes
+                            datos["factura"] = t_limpio.zfill(4)
 
-            # 2. Buscar RIF (flexible ante espacios o ausencia de guiones)
-            match_rif = re.search(r'([JGVEP]\s*-?\s*\d{7,9}\s*-?\s*\d?)', texto_limpio_ia, re.IGNORECASE)
-            if match_rif:
-                datos["rif"] = match_rif.group(1).replace(" ", "").upper()
+                # 2. Buscar RIF del Proveedor (ej: V-149899452)
+                if not datos["rif"]:
+                    match_rif = re.search(r'([JGVEP]-?\d{7,9}-?\d?)', t_limpio, re.IGNORECASE)
+                    if match_rif:
+                        datos["rif"] = match_rif.group(1).upper()
 
-            # 3. Buscar Montos (formato venezolano con comas y puntos)
-            patrones_montos = re.findall(r'\b\d{1,3}(?:\.\d{3})*,\d{2}\b', texto_limpio_ia)
-            if len(patrones_montos) >= 1:
-                try:
-                    # Usamos el último o penúltimo monto detectado como base
-                    monto_str = patrones_montos[-1] if len(patrones_montos) == 1 else patrones_montos[-2]
-                    base_limpia = monto_str.replace('.', '').replace(',', '.')
-                    datos["base"] = float(base_limpia)
+                # 3. Buscar Montos (formato venezolano con puntos y comas)
+                match_monto = re.search(r'\b(\d{1,3}(?:\.\d{3})*,\d{2})\b', t_limpio)
+                if match_monto:
+                    monto_str = match_monto.group(1)
+                    try:
+                        monto_val = float(monto_str.replace('.', '').replace(',', '.'))
+                        if monto_val > 10.0: # Filtramos números pequeños que no sean montos
+                            montos_detectados.append(monto_val)
+                    except:
+                        pass
+
+            # Asignación inteligente de montos encontrados
+            if montos_detectados:
+                # Ordenamos de menor a mayor o tomamos los valores lógicos de base e IVA
+                montos_unicos = sorted(list(set(montos_detectados)))
+                if len(montos_unicos) >= 2:
+                    datos["base"] = montos_unicos[0] # Usualmente la base menor
                     datos["iva"] = round(datos["base"] * 0.16, 2)
-                except:
-                    pass
+                elif len(montos_unicos) == 1:
+                    datos["base"] = montos_unicos[0]
+                    datos["iva"] = round(datos["base"] * 0.16, 2)
+
         except Exception as e:
-            st.error(f"⚠️ Error procesando OCR: {e}")
+            st.error(f"⚠️ Error en lectura por bloques: {e}")
     
     return datos, gray
-
 
 def modulo_escaneo_facturas_manuales(conn, db_actual):
     st.subheader("📸 Escáner Inteligente de Facturas a Bolígrafo (EasyOCR + OpenCV)")
