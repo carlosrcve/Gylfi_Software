@@ -8497,33 +8497,33 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
     # --- SELECTOR DE MÉTODO DE ENTRADA FLEXIBLE ---
     metodo_subida = st.radio(
         "Método de entrada de imagen", 
-        ["📁 Subir o Arrastrar Archivo", "📋 Pegar Imagen (Portapapeles / Escritorio / WhatsApp)"], 
+        ["📁 Subir o Arrastrar Archivo (Ideal Escritorio)", "📋 Pegar Portapapeles (WhatsApp / Capturas)"], 
         horizontal=True,
         key="radio_metodo_escaneo"
     )
 
     archivo_subido = None
 
-    if metodo_subida == "📁 Subir o Arrastrar Archivo":
+    if metodo_subida == "📁 Subir o Arrastrar Archivo (Ideal Escritorio)":
         archivo_subido = st.file_uploader(
             "Seleccionar o arrastrar imagen de factura",
             type=["png", "jpg", "jpeg"],
-            help="Sube la foto de la factura física desde tu PC.",
+            help="Sube o arrastra la foto de la factura directamente desde el escritorio o carpeta de tu PC.",
             key="uploader_factura_pc"
         )
     else:
-        st.info("💡 **Tip:** Copia cualquier imagen de factura (desde WhatsApp Web, una carpeta de tu PC o el portapapeles) con `Ctrl + C`, haz clic en el botón de abajo y presiona **Ctrl + V**.")
+        st.info("💡 Haz clic en el botón de abajo y presiona **Ctrl + V** para pegar imágenes capturadas o copiadas desde WhatsApp Web.")
         
         try:
             from streamlit_paste_button import paste_image_button
             paste_result = paste_image_button(
-                label="📋 Haz clic aquí y presiona Ctrl+V para pegar imagen", 
+                label="📋 Haz clic aquí y presiona Ctrl+V", 
                 key="paste_btn_portapapeles_general"
             )
             if paste_result and paste_result.image_data is not None:
-                archivo_subido = paste_result.image_data # Objeto PIL Image listo para procesar
+                archivo_subido = paste_result.image_data 
         except ImportError:
-            st.warning("⚠️ Para habilitar el botón de pegar, ejecuta en tu terminal: `pip install streamlit-paste-button`")
+            st.warning("⚠️ Ejecuta en tu terminal: `pip install streamlit-paste-button`")
             archivo_subido = st.file_uploader("Respaldo: Sube tu archivo aquí", type=["png", "jpg", "jpeg"], key="uploader_respaldo_paste")
 
     if "ocr_procesado" not in st.session_state:
