@@ -8431,7 +8431,7 @@ except ImportError:
 
 def limpiar_y_extraer_factura(imagen_pil):
     """
-    Limpia la imagen con OpenCV y extrae el texto usando EasyOCR (soporta bolígrafo/manuscrito).
+    Limpia la imagen con OpenCV y extrae el texto usando EasyOCR (adaptado a facturas manuales).
     """
     img_cv = np.array(imagen_pil)
     
@@ -8462,27 +8462,39 @@ def limpiar_y_extraer_factura(imagen_pil):
     }
 
     if EASYOCR_DISPONIBLE:
-        # EasyOCR lee la imagen procesada y devuelve una lista de tuplas: (coordenadas, texto, confianza)
         resultados = reader.readtext(thresh)
         textos_encontrados = [res[1] for res in resultados]
         texto_detectado = " ".join(textos_encontrados)
 
-        # 1. Buscar Número de Factura
-        match_fac = re.search(r'(?:00\d{4}|\b\d{6}\b)', texto_detectado)
+        # 1. Buscar Número de Factura (ahora acepta de 4 a 6 dígitos, ej: 0006)
+        match_fac = re.search(r'\b0*\d{4,6}\b', texto_detectado)
         if match_fac:
-            datos["factura"] = match_fac.group(0)
+            datos["factura"] = match_fac.group(0).zfill(4) # Formatea con ceros a la izquierda si es necesario
 
-        # 2. Buscar RIF (Ej: J-30746972-0)
-        match_rif = re.search(r'([JGVEP]-\d{8}-\d)', texto_detectado, re.IGNORECASE)
+        # 2. Buscar RIF flexible (acepta con o sin guiones, ej: V-149899452 o J-30746972-0)
+        match_rif = re.search(r'([JGVEP]-?\d{7,9}-?\d?)', texto_detectado, re.IGNORECASE)
         if match_rif:
             datos["rif"] = match_rif.group(1).upper()
 
-        # 3. Buscar Montos (Patrones con comas y puntos decimales)
+        # 3. Extraer Nombre o Razón Social si aparece la etiqueta
+        match_nombre = re.search(r'(?:Nombre|Raz[oó]n\s*Social)[:\s]*(.*?)(?=Domicilio|C\.I|Tel[eé]fono|$)', texto_detectado, re.IGNORECASE)
+        if match_nombre:
+            datos["nombre"] = match_nombre.group(1).strip().title()
+
+        # 4. Buscar Montos (Filtramos los montos en formato venezolano con comas y puntos)
         patrones_montos = re.findall(r'\b\d{1,3}(?:\.\d{3})*,\d{2}\b', texto_detectado)
-        if len(patrones_montos) >= 1:
+        if len(patrones_montos) >= 2:
             try:
-                monto_limpio = patrones_montos[-1].replace('.', '').replace(',', '.')
-                datos["base"] = float(monto_limpio)
+                # Por lo general, el penúltimo suele ser la base imponible y el último el total
+                base_limpia = patrones_montos[-2].replace('.', '').replace(',', '.')
+                datos["base"] = float(base_limpia)
+                datos["iva"] = round(datos["base"] * 0.16, 2)
+            except:
+                pass
+        elif len(patrones_montos) == 1:
+            try:
+                base_limpia = patrones_montos[0].replace('.', '').replace(',', '.')
+                datos["base"] = float(base_limpia)
                 datos["iva"] = round(datos["base"] * 0.16, 2)
             except:
                 pass
