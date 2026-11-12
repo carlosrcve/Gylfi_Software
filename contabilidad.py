@@ -15932,45 +15932,58 @@ elif opcion_menu == "📝 Asientos Contables":
                 st.info(f"ℹ️ No se han encontrado asientos de cierre registrados para el año **{ano_sel}** en la empresa `{db_actual}`.")
 
     elif sub_opcion == "Gestor Documental":
-        st.subheader("📁 Gestor Documental en la Nube")
-        st.markdown("Crea carpetas personalizadas y administra comprobantes, facturas o archivos organizados.")
+        st.subheader("📁 Gestor Documental en la Nube (Almacenamiento MySQL)")
+        st.markdown("Crea carpetas personalizadas y administra comprobantes, facturas o archivos guardados directamente en la base de datos.")
 
         db_actual = st.session_state.get('DB_ACTUAL')
         if not db_actual or db_actual == 'none':
             st.warning("⚠️ Por favor, selecciona un Cliente/Empresa primero.")
             st.stop()
 
-        import os
         from datetime import datetime
 
-        # --- BLINDAJE Y AUTO-CREACIÓN DE LA COLUMNA CARPETA ---
+        # --- BLINDAJE Y AUTO-MIGRACIÓN DE LA TABLA A BLOB ---
         try:
             conn_alt = conectar_db(db_actual)
             if conn_alt:
                 with conn_alt.cursor() as cur_alt:
+                    # 1. Asegurar columna carpeta
                     cur_alt.execute("""
                         SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
                         WHERE TABLE_SCHEMA = DATABASE() 
                         AND TABLE_NAME = 'documentos_cloud' 
                         AND COLUMN_NAME = 'carpeta'
                     """)
-                    resultado = cur_alt.fetchone()
-                    existe = resultado[0] if resultado else 0
-                    
-                    if existe == 0:
+                    if (cur_alt.fetchone()[0] or 0) == 0:
                         cur_alt.execute("ALTER TABLE documentos_cloud ADD COLUMN carpeta VARCHAR(150) DEFAULT 'General' AFTER empresa_db")
+                        conn_alt.commit()
+
+                    # 2. Asegurar columna archivo_binario (LONGBLOB)
+                    cur_alt.execute("""
+                        SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+                        WHERE TABLE_SCHEMA = DATABASE() 
+                        AND TABLE_NAME = 'documentos_cloud' 
+                        AND COLUMN_NAME = 'archivo_binario'
+                    """)
+                    if (cur_alt.fetchone()[0] or 0) == 0:
+                        cur_alt.execute("ALTER TABLE documentos_cloud ADD COLUMN archivo_binario LONGBLOB AFTER nombre_archivo")
+                        cur_alt.commit()
+
+                    # 3. Asegurar columna tipo_mime
+                    cur_alt.execute("""
+                        SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+                        WHERE TABLE_SCHEMA = DATABASE() 
+                        AND TABLE_NAME = 'documentos_cloud' 
+                        AND COLUMN_NAME = 'tipo_mime'
+                    """)
+                    if (cur_alt.fetchone()[0] or 0) == 0:
+                        cur_alt.execute("ALTER TABLE documentos_cloud ADD COLUMN tipo_mime VARCHAR(100) DEFAULT 'application/octet-stream' AFTER archivo_binario")
                         conn_alt.commit()
                 conn_alt.close()
         except Exception as ex_alt:
             st.warning(f"Aviso de migración de tabla: {ex_alt}")
 
-        # Directorio base persistente con ruta absoluta
-        DIRECTORIO_SUBIDAS = "documentos_clientes"
-        dir_base_absoluto = os.path.abspath(DIRECTORIO_SUBIDAS)
-        dir_empresa = os.path.join(dir_base_absoluto, str(db_actual))
-        os.makedirs(dir_empresa, exist_ok=True)
-
-        # --- FUNCIONES CON CACHÉ PARA OPTIMIZAR EL RENDIMIENTO ---
+        # --- FUNCIONES CON CACHÉ ---
         @st.cache_data(ttl=60, show_spinner=False)
         def obtener_carpetas_cached(empresa):
             carpetas = ["General"]
@@ -15991,7 +16004,8 @@ elif opcion_menu == "📝 Asientos Contables":
             try:
                 conn = conectar_db(empresa)
                 if conn:
-                    query_select = "SELECT id, carpeta, categoria, nombre_archivo, ruta_archivo, fecha_subida FROM documentos_cloud WHERE empresa_db = %s ORDER BY carpeta ASC, fecha_subida DESC"
+                    # Solo traemos los metadatos y el ID (el LONGBLOB se descarga solo al presionar el botón para optimizar memoria)
+                    query_select = "SELECT id, carpeta, categoria, nombre_archivo, tipo_mime, fecha_subida FROM documentos_cloud WHERE empresa_db = %s ORDER BY carpeta ASC, fecha_subida DESC"
                     df_docs = ejecutar_consulta(query_select, conn, params=(str(empresa),))
                     conn.close()
             except Exception:
@@ -16000,8 +16014,8 @@ elif opcion_menu == "📝 Asientos Contables":
 
         carpetas_existentes = obtener_carpetas_cached(db_actual)
 
-        # --- FORMULARIO DE SUBIDA CON CREACIÓN DE CARPETAS ---
-        with st.expander("📤 Subir Archivos a una Carpeta", expanded=True):
+        # --- FORMULARIO DE SUBIDA BINARIA ---
+        with st.expander("📤 Subir Archivos a MySQL", expanded=True):
             col_c1, col_c2 = st.columns(2)
             
             with col_c1:
@@ -16021,58 +16035,46 @@ elif opcion_menu == "📝 Asientos Contables":
                 
             with col_c2:
                 archivos_subidos = st.file_uploader(
-                    "Selecciona los archivos (Puedes subir varios a la vez)", 
+                    "Selecciona los archivos (PDF, Excel, Word, Imágenes, TXT)", 
                     type=["pdf", "docx", "xlsx", "xls", "png", "jpg", "jpeg", "txt"], 
                     accept_multiple_files=True,
                     key="uploader_docs_cloud"
                 )
 
-            if st.button("💾 Guardar en la Carpeta", type="primary", key="btn_guardar_docs_cloud"):
+            if st.button("💾 Guardar en Base de Datos", type="primary", key="btn_guardar_docs_cloud"):
                 if archivos_subidos:
                     carpeta_limpia = "".join([c for c in carpeta_activa if c.isalnum() or c in (' ', '_', '-')]).strip()
                     if not carpeta_limpia:
                         carpeta_limpia = "General"
-                    
-                    # Obtener la ruta absoluta real del directorio base en el servidor
-                    dir_base_absoluto = os.path.abspath(DIRECTORIO_SUBIDAS)
-                    dir_empresa = os.path.join(dir_base_absoluto, str(db_actual))
-                    dir_carpeta_fisica = os.path.join(dir_empresa, carpeta_limpia)
-                    os.makedirs(dir_carpeta_fisica, exist_ok=True)
 
                     try:
                         conn_doc = conectar_db(db_actual)
                         if conn_doc:
                             with conn_doc.cursor() as cursor:
                                 for archivo in archivos_subidos:
-                                    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                    nombre_limpio = f"{timestamp_str}_{archivo.name}"
-                                    
-                                    # Esto ya será una ruta absoluta garantizada
-                                    ruta_completa = os.path.join(dir_carpeta_fisica, nombre_limpio)
-                                    
-                                    with open(ruta_completa, "wb") as f:
-                                        f.write(archivo.getbuffer())
+                                    contenido_binario = archivo.read()
+                                    tipo_mime_archivo = archivo.type if hasattr(archivo, 'type') else 'application/octet-stream'
                                     
                                     query_insert = """
-                                        INSERT INTO documentos_cloud (empresa_db, carpeta, categoria, nombre_archivo, ruta_archivo) 
-                                        VALUES (%s, %s, %s, %s, %s)
+                                        INSERT INTO documentos_cloud (empresa_db, carpeta, categoria, nombre_archivo, archivo_binario, tipo_mime) 
+                                        VALUES (%s, %s, %s, %s, %s, %s)
                                     """
-                                    cursor.execute(query_insert, (str(db_actual), carpeta_limpia, categoria, archivo.name, ruta_completa))
+                                    cursor.execute(query_insert, (str(db_actual), carpeta_limpia, categoria, archivo.name, contenido_binario, tipo_mime_archivo))
                                 
                                 conn_doc.commit()
                             conn_doc.close()
                             st.cache_data.clear()
-                            st.success(f"✅ ¡{len(archivos_subidos)} archivo(s) guardados con éxito en la carpeta '{carpeta_limpia}'!")
+                            st.success(f"✅ ¡{len(archivos_subidos)} archivo(s) guardados exitosamente en MySQL dentro de la carpeta '{carpeta_limpia}'!")
                             st.rerun()
                     except Exception as e:
-                        st.error(f"❌ Error al guardar los documentos: {e}")
+                        st.error(f"❌ Error al guardar en la base de datos: {e}")
                 else:
                     st.warning("⚠️ Debes seleccionar al menos un archivo antes de guardar.")
 
         st.divider()
 
-        # --- LISTADO AGRUPADO POR CARPETAS ---
-        st.markdown("### 🗂️ Documentos y Carpetas Almacenadas")
+        # --- LISTADO Y DESCARGA DIRECTA DESDE MYSQL ---
+        st.markdown("### 🗂️ Documentos Almacenados en la Nube")
         
         df_docs = obtener_documentos_cached(db_actual)
         
@@ -16090,28 +16092,32 @@ elif opcion_menu == "📝 Asientos Contables":
                         cols[1].text(f"📂 {row['categoria']}")
                         cols[2].text(str(row['fecha_subida'])[:10])
                         
-                        # Verificación física del archivo con ruta absoluta
-                        archivo_existe = False
-                        if row['ruta_archivo'] and os.path.exists(row['ruta_archivo']):
-                            archivo_existe = True
-
-                        if archivo_existe:
-                            with open(row['ruta_archivo'], "rb") as file_to_download:
-                                cols[3].download_button(
-                                    label="⬇️ Descargar",
-                                    data=file_to_download,
-                                    file_name=row['nombre_archivo'],
-                                    mime="application/octet-stream",
-                                    key=f"down_{row['id']}"
-                                )
-                        else:
-                            cols[3].warning("⚠️ Archivo huérfano (No en disco)")
-                            
-                        if cols[4].button("🗑️", key=f"del_{row['id']}", help="Eliminar registro o archivo"):
+                        # Botón para descargar consultando el binario directamente de MySQL al hacer clic
+                        if cols[3].button("⬇️ Descargar", key=f"down_{row['id']}"):
                             try:
-                                if archivo_existe:
-                                    os.remove(row['ruta_archivo'])
-                                
+                                conn_dl = conectar_db(db_actual)
+                                if conn_dl:
+                                    with conn_dl.cursor() as cursor_dl:
+                                        cursor_dl.execute("SELECT archivo_binario, tipo_mime FROM documentos_cloud WHERE id = %s", (row['id'],))
+                                        res_dl = cursor_dl.fetchone()
+                                    conn_dl.close()
+                                    
+                                    if res_dl and res_dl[0]:
+                                        bin_data = res_dl[0]
+                                        mime_type = res_dl[1] or 'application/octet-stream'
+                                        st.download_button(
+                                            label=f"📥 Confirmar Descarga: {row['nombre_archivo']}",
+                                            data=bin_data,
+                                            file_name=row['nombre_archivo'],
+                                            mime=mime_type,
+                                            key=f"confirm_down_{row['id']}"
+                                        )
+                            except Exception as ex_dl:
+                                cols[3].error(f"Error: {ex_dl}")
+
+                        # Botón de eliminar registro de MySQL
+                        if cols[4].button("🗑️", key=f"del_{row['id']}", help="Eliminar de la base de datos"):
+                            try:
                                 conn_del = conectar_db(db_actual)
                                 if conn_del:
                                     with conn_del.cursor() as cursor_del:
@@ -16120,7 +16126,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     conn_del.close()
                                     
                                 st.cache_data.clear()
-                                st.success("🗑️ Registro eliminado con éxito.")
+                                st.success("🗑️ Archivo eliminado de la base de datos.")
                                 st.rerun()
                             except Exception as ex_del:
                                 st.error(f"❌ Error al eliminar: {ex_del}")
