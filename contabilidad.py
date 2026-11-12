@@ -8490,11 +8490,9 @@ def limpiar_y_extraer_factura(imagen_pil):
     return datos, thresh
 
 
-from streamlit_mic_recorder import mic_recorder
-
 def modulo_escaneo_facturas_manuales(conn, db_actual):
     st.subheader("📸 Escáner Inteligente de Facturas a Bolígrafo (EasyOCR + OpenCV + Voz)")
-    st.markdown("Sube la foto, pégala desde WhatsApp (`Ctrl + V`), o utiliza el **micrófono integrado** en cada campo para dictar los datos rápidamente.")
+    st.markdown("Sube la foto, pégala desde WhatsApp (`Ctrl + V`), o utiliza el **dictado por voz inteligente** para rellenar los datos rápidamente.")
 
     # --- INICIALIZAR ESTADOS DE SESIÓN PARA LOS CAMPOS ---
     if "ocr_procesado" not in st.session_state:
@@ -8587,49 +8585,136 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
             st.rerun()
 
     with col_der:
-        st.markdown("### 📝 Campos con Asistencia IA y Voz")
+        st.markdown("### 📝 Campos con Asistencia IA y Voz Inteligente")
         
         d_check = st.session_state.get("datos_ocr", {})
         if not d_check.get("rif") and not d_check.get("factura"):
             st.warning(
                 "⚠️ Cuando el script no logra detectar con exactitud matemática los patrones o coordenadas de esos datos, "
                 "el diccionario devuelve valores vacíos y los campos quedan libres para que tú los llenes manualmente de forma rápida "
-                "consultando la factura original. Puedes utilizar los micrófonos en cada campo para agilizar más rápido la automatización de la factura."
+                "consultando la factura original. Utiliza el dictado por voz inteligente de abajo para rellenar todo automáticamente de forma fluida."
             )
         else:
-            st.caption("🎙️ Usa el grabador de voz de cada campo si necesitas dictar o corregir información.")
+            st.caption("🎙️ Utiliza el dictado por voz inteligente si necesitas dictar o corregir información.")
 
         if "qr_generado_bytes" not in st.session_state:
             st.session_state.qr_generado_bytes = None
 
-        # --- FUNCIÓN AUXILIAR DE CAMPO CON GRABADOR NATIVO ---
-        def campo_con_mic(label, key_name):
-            val = st.text_input(label, key=key_name)
-            st.write(f"🎙️ Grabar audio para {label}:")
-            audio_data = mic_recorder(start_prompt="🔴 Grabar", stop_prompt="⏹️ Detener", key=f"mic_{key_name}")
+        # =========================================================
+        # COMPONENTE DE DICTADO POR VOZ (ESTILO MÓDULO PROVEEDORES)
+        # =========================================================
+        with st.container(border=True):
+            st.markdown("#### 🎙️ Dictado por Voz Inteligente para Factura")
+            st.caption("Presiona el micrófono y habla de corrido (ej: *'RIF J407469720 Nombre Forros J.K. Factura 1178 Control 1178 Base 204955.3 IVA 32792.84'*).")
             
-            if audio_data:
-                # Aquí puedes procesar el audio_data['bytes'] con OpenAI Whisper si deseas transcripción exacta por IA,
-                # o por ahora el usuario puede insertar notas de voz.
-                st.info("Audio capturado correctamente en el servidor.")
-            return val
+            html_mic_code = """
+            <div style="text-align: center; padding: 8px; background-color: #f8f9fa; border-radius: 10px; border: 1px solid #e9ecef;">
+                <button id="btn_mic_factura" onclick="toggleDictadoFactura()" style="background-color: #ff4b4b; color: white; border: none; padding: 10px 20px; font-size: 15px; border-radius: 20px; cursor: pointer; transition: 0.3s;">
+                    🎙️ Iniciar Dictado por Voz
+                </button>
+                <p id="status_mic_factura" style="margin-top: 6px; font-weight: bold; color: #6c757d; font-size: 12px;">Haga clic para hablar</p>
+                <textarea id="texto_dictado_factura" rows="2" style="width: 100%; margin-top: 6px; border-radius: 6px; border: 1px solid #ced4da; padding: 6px; font-size: 13px;" placeholder="El texto dictado aparecerá aquí... Copia y pégalo abajo."></textarea>
+            </div>
 
-        rif_prov = campo_con_mic("RIF del Proveedor", "input_rif")
-        nombre_prov = campo_con_mic("Nombre del Proveedor", "input_nombre")
+            <script>
+                var recognition_factura;
+                var rec_factura = false;
+                
+                function toggleDictadoFactura() {
+                    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                        alert("Tu navegador no soporta entrada de voz. Usa Google Chrome o Edge.");
+                        return;
+                    }
+                    
+                    if (!rec_factura) {
+                        var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                        recognition_factura = new SpeechRecognition();
+                        recognition_factura.lang = 'es-VE';
+                        recognition_factura.continuous = true;
+                        recognition_factura.interimResults = true;
+
+                        recognition_factura.onstart = function() {
+                            rec_factura = true;
+                            document.getElementById("btn_mic_factura").style.backgroundColor = "#28a745";
+                            document.getElementById("btn_mic_factura").innerText = "🛑 Detener Dictado";
+                            document.getElementById("status_mic_factura").innerText = "Escuchando... Hable ahora.";
+                            document.getElementById("status_mic_factura").style.color = "#28a745";
+                        };
+
+                        recognition_factura.onresult = function(event) {
+                            var transcript = '';
+                            for (var i = event.resultIndex; i < event.results.length; ++i) {
+                                transcript += event.results[i][0].transcript;
+                            }
+                            document.getElementById("texto_dictado_factura").value = transcript;
+                        };
+
+                        recognition_factura.onend = function() {
+                            rec_factura = false;
+                            document.getElementById("btn_mic_factura").style.backgroundColor = "#ff4b4b";
+                            document.getElementById("btn_mic_factura").innerText = "🎙️ Iniciar Dictado por Voz";
+                            document.getElementById("status_mic_factura").innerText = "Dictado finalizado.";
+                            document.getElementById("status_mic_factura").style.color = "#6c757d";
+                        };
+
+                        recognition_factura.start();
+                    } else {
+                        recognition_factura.stop();
+                    }
+                }
+            </script>
+            """
+            st.components.v1.html(html_mic_code, height=160)
+
+            texto_voz_input = st.text_input(
+                "📝 Pega aquí la frase dictada para autocompletar los campos:", 
+                key="input_dictado_voz_factura_manual", 
+                placeholder="Ej: RIF J407469720 Nombre Forros J.K. Factura 1178 Control 1178 Base 204955.3 IVA 32792.84"
+            )
+
+        # --- PROCESAR EL DICTADO DE VOZ PARA AUTOCOMPLETAR ---
+        if texto_voz_input:
+            import re
+            t_lower = texto_voz_input.strip()
+
+            match_rif = re.search(r'rif\s*[:\s]*([jveg]?\d{7,9}[-]?\d?)', t_lower, re.IGNORECASE)
+            match_nombre = re.search(r'(?:nombre|proveedor)\s*[:\s]*(.*?)(?=factura|control|base|iva|direcci[oó]n|$)', t_lower, re.IGNORECASE)
+            match_factura = re.search(r'(?:factura|nro\s*factura)\s*[:\s]*([#\d\-]+)', t_lower, re.IGNORECASE)
+            match_control = re.search(r'(?:control|nro\s*control)\s*[:\s]*([#\d\-]+)', t_lower, re.IGNORECASE)
+            match_base = re.search(r'(?:base|base\s*imponible)\s*[:\s]*([\d\.,]+)', t_lower, re.IGNORECASE)
+            match_iva = re.search(r'(?:iva|monto\s*iva)\s*[:\s]*([\d\.,]+)', t_lower, re.IGNORECASE)
+
+            if match_rif:
+                st.session_state.input_rif = match_rif.group(1).upper()
+            if match_nombre:
+                st.session_state.input_nombre = match_nombre.group(1).strip().title()
+            if match_factura:
+                st.session_state.input_factura = match_factura.group(1).strip()
+            if match_control:
+                st.session_state.input_control = match_control.group(1).strip()
+            if match_base:
+                st.session_state.input_base = match_base.group(1).strip()
+            if match_iva:
+                st.session_state.input_iva = match_iva.group(1).strip()
+            
+            st.success("⚡ ¡Datos autocompletados mediante dictado por voz con éxito!")
+
+        rif_prov = st.text_input("RIF del Proveedor", key="input_rif")
+        nombre_prov = st.text_input("Nombre del Proveedor", key="input_nombre")
         
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            nro_factura = campo_con_mic("Número de Factura", "input_factura")
+            nro_factura = st.text_input("Número de Factura", key="input_factura")
         with col_f2:
-            nro_control = campo_con_mic("Número de Control", "input_control")
+            nro_control = st.text_input("Número de Control", key="input_control")
             
         fecha_str = st.text_input("Fecha de la Factura (DD/MM/AAAA)", key="input_fecha")
         
         col_b, col_i = st.columns(2)
         with col_b:
-            base_imp_str = campo_con_mic("Base Imponible Bs.", "input_base")
+            base_imp_str = st.text_input("Base Imponible Bs.", key="input_base")
         with col_i:
-            monto_iva_str = campo_con_mic("IVA (16%) Bs.", key="input_iva")
+            monto_iva_str = st.text_input("IVA (16%) Bs.", key="input_iva")
 
         domicilio = st.text_area("Dirección Fiscal", key="input_domicilio")
 
@@ -8713,7 +8798,6 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
             file_name=f"QR_{st.session_state.nro_factura_cache}.png",
             mime="image/png"
         )
-
 import io
 from datetime import date
 from reportlab.lib import colors
