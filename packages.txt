@@ -1,2 +1,4 @@
 tesseract-ocr
 tesseract-ocr-spa
+libgl1-mesa-glx
+libglib2.0-0
