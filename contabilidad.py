@@ -8434,19 +8434,15 @@ except Exception as e:
     st.error(f"⚠️ Aviso de IA: No se pudo inicializar EasyOCR automáticamente ({e}). El módulo funcionará con llenado manual asistido.")
     EASYOCR_DISPONIBLE = False
 
-def limpiar_y_extraer_factura(imagen_pil):
+def extraer_con_lupas(imagen_pil):
     img_cv = np.array(imagen_pil)
-    
-    if len(img_cv.shape) == 3:
-        gray = cv2.cvtColor(img_cv, cv2.COLOR_RGB2GRAY)
-    else:
-        gray = img_cv
+    h, w, _ = img_cv.shape
 
     datos = {
         "factura": "",
         "control": "",
         "rif": "",
-        "nombre": "JOSÉ RODRÍGUEZ COLMENARES", # Proveedor fijo de este formato de talonario
+        "nombre": "JOSÉ RODRÍGUEZ COLMENARES", # Proveedor fijo de este formato
         "base": 0.0,
         "iva": 0.0,
         "total": 0.0
@@ -8456,28 +8452,31 @@ def limpiar_y_extraer_factura(imagen_pil):
 
     if EASYOCR_DISPONIBLE:
         try:
-            resultados = reader.readtext(gray)
-            st.success(f"🔍 OCR analizó {len(resultados)} bloques de texto individualmente.")
+            # --- LUPA 1: ZONA SUPERIOR IZQUIERDA (Número de Factura 0006/0009) ---
+            lupa_factura = img_cv[0:int(h*0.25), 0:int(w*0.35)]
+            res_fac = reader.readtext(lupa_factura)
+            for _, texto, _ in res_fac:
+                t = texto.strip()
+                if re.search(r'\d{3,4}', t):
+                    datos["factura"] = t.zfill(4)
+                    break
 
-            for bbox, texto, conf in resultados:
-                t_limpio = texto.strip()
-                
-                # 1. Buscar Número de Factura (busca bloques de dígitos cortos)
-                if not datos["factura"]:
-                    if re.match(r'^0*\d{1,4}$', t_limpio) and len(t_limpio) <= 6:
-                        if int(t_limpio) < 9999:
-                            datos["factura"] = t_limpio.zfill(4)
+            # --- LUPA 2: ZONA INFERIOR / LATERAL (RIF del Proveedor) ---
+            lupa_rif = img_cv[int(h*0.4):h, int(w*0.1):int(w*0.5)]
+            res_rif = reader.readtext(lupa_rif)
+            for _, texto, _ in res_rif:
+                match_rif = re.search(r'([JGVEP]-?\d{6,9}-?\d?)', texto, re.IGNORECASE)
+                if match_rif:
+                    posible_rif = match_rif.group(1).replace(" ", "").upper()
+                    if len(posible_rif) >= 7:
+                        datos["rif"] = posible_rif
+                        break
 
-                # 2. Buscar RIF (incluso vertical o con espacios)
-                if not datos["rif"]:
-                    match_rif = re.search(r'([JGVEP]\s*-?\s*\d{6,9}\s*-?\s*\d?)', t_limpio, re.IGNORECASE)
-                    if match_rif:
-                        posible_rif = match_rif.group(1).replace(" ", "").upper()
-                        if len(posible_rif) >= 7: # Validar que sea un RIF real
-                            datos["rif"] = posible_rif
-
-                # 3. Buscar Montos (captura formato venezolano de miles y decimales)
-                match_monto = re.search(r'\b(\d{1,3}(?:\.\d{3})*,\d{2})\b', t_limpio)
+            # --- LUPA 3: ZONA DE TOTALES Y MONTOS (Columna derecha de la tabla) ---
+            lupa_montos = img_cv[int(h*0.2):int(h*0.7), int(w*0.5):w]
+            res_montos = reader.readtext(lupa_montos)
+            for _, texto, _ in res_montos:
+                match_monto = re.search(r'\b(\d{1,3}(?:\.\d{3})*,\d{2})\b', texto)
                 if match_monto:
                     monto_str = match_monto.group(1)
                     try:
@@ -8486,16 +8485,17 @@ def limpiar_y_extraer_factura(imagen_pil):
                     except:
                         pass
 
-            # Asignación de montos encontrados (tomamos el mayor como Total/Base)
             if montos_detectados:
                 monto_max = max(montos_detectados)
                 datos["base"] = monto_max
                 datos["iva"] = round(datos["base"] * 0.16, 2)
-                
+
+            st.success("🔍 ¡Lupas de precisión aplicadas con éxito en el talonario!")
+
         except Exception as e:
-            st.error(f"⚠️ Error en lectura por bloques: {e}")
-    
-    return datos, gray
+            st.error(f"⚠️ Error usando las lupas de recorte: {e}")
+
+    return datos, img_cv
 
 def modulo_escaneo_facturas_manuales(conn, db_actual):
     st.subheader("📸 Escáner Inteligente de Facturas a Bolígrafo (EasyOCR + OpenCV)")
@@ -8565,7 +8565,7 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
 
     if not st.session_state.ocr_procesado:
         with st.spinner("🤖 Leyendo escritura a bolígrafo con EasyOCR..."):
-            datos_extraidos, img_procesada = limpiar_y_extraer_factura(img)
+            datos_extraidos, img_procesada = extraer_con_lupas(img)
             st.session_state.datos_ocr = datos_extraidos
             st.session_state.img_proc = img_procesada
             
