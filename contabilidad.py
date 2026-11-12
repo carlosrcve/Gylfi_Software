@@ -8492,7 +8492,7 @@ def limpiar_y_extraer_factura(imagen_pil):
 
 def modulo_escaneo_facturas_manuales(conn, db_actual):
     st.subheader("📸 Escáner Inteligente de Facturas a Bolígrafo (EasyOCR + OpenCV + Voz)")
-    st.markdown("Sube la foto, pégala desde WhatsApp (`Ctrl + V`), o utiliza el **dictado por voz** si necesitas rellenar algún campo manualmente.")
+    st.markdown("Sube la foto, pégala desde WhatsApp (`Ctrl + V`), o utiliza el **dictado por voz** en cada campo si necesitas rellenar la factura rápidamente.")
 
     # --- INICIALIZAR ESTADOS DE SESIÓN PARA LOS CAMPOS ---
     if "ocr_procesado" not in st.session_state:
@@ -8590,7 +8590,17 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
 
     with col_der:
         st.markdown("### 📝 Campos con Asistencia IA y Voz")
-        st.caption("🎙️ Haz clic en el micrófono de cualquier campo para activar la dictada por voz.")
+        
+        # Validar si el OCR devolvió valores vacíos para mostrar el mensaje explicativo
+        d_check = st.session_state.get("datos_ocr", {})
+        if not d_check.get("rif") and not d_check.get("factura"):
+            st.warning(
+                "⚠️ Cuando el script no logra detectar con exactitud matemática los patrones o coordenadas de esos datos, "
+                "el diccionario devuelve valores vacíos y los campos quedan libres para que tú los llenes manualmente de forma rápida "
+                "consultando la factura original. Puedes utilizar los micrófonos en cada campo para agilizar más rápido la automatización de la factura."
+            )
+        else:
+            st.caption("🎙️ Haz clic en el micrófono de cualquier campo si necesitas dictar o corregir la información.")
 
         if "qr_generado_bytes" not in st.session_state:
             st.session_state.qr_generado_bytes = None
