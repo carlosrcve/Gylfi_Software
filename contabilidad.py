@@ -3599,6 +3599,7 @@ def consultar_libro_diario_db(db_a_usar=None, fecha_inicio=None, fecha_fin=None)
 
 
 @st.cache_data(ttl=300)
+@st.cache_data(ttl=300)
 def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     """
     Calcula el mayor analítico sanitizando la cuenta en Python y 
@@ -3618,13 +3619,16 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     if not conn:
         return pd.DataFrame(), pd.DataFrame(), 0.0
 
-    # --- DIAGNÓSTICO RÁPIDO PARA RESOLVER EL ERROR ---
-    st.write(f"🔍 **Base de datos consultada:** {db_actual}")
-    st.write(f"🔍 **Cuenta procesada:** '{cuenta_limpia}' (Solo números: '{cuenta_solo_numeros}')")
-    st.write(f"🔍 **Rango de fechas:** Desde {f_inicio} Hasta {f_fin}")
     try:
+        # PRIMERO CALCULamos las fechas y variables de depuración
         f_inicio = pd.to_datetime(fecha_desde).normalize()
         f_fin = pd.to_datetime(fecha_hasta).normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
+        
+        # AHORA SÍ podes usarlas en los st.write sin error de UnboundLocalError
+        st.write(f"🔍 **Base de datos consultada:** {db_actual}")
+        st.write(f"🔍 **Cuenta procesada:** '{cuenta_limpia}' (Solo números: '{cuenta_solo_numeros}')")
+        st.write(f"🔍 **Rango de fechas:** Desde {f_inicio} Hasta {f_fin}")
+
         cursor = conn.cursor()
 
         # --- DETECCIÓN DINÁMICA DE NOMBRES DE COLUMNAS EN LA BD ---
@@ -3716,6 +3720,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         return df_final, df_movs, saldo_final_real
 
     except Exception as e:
+        st.error(f"❌ Error en ejecución del mayor: {e}")
         return pd.DataFrame(), pd.DataFrame(), 0.0
     finally:
         if conn:
