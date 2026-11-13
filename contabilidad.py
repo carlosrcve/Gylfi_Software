@@ -3599,11 +3599,10 @@ def consultar_libro_diario_db(db_a_usar=None, fecha_inicio=None, fecha_fin=None)
 
 
 @st.cache_data(ttl=300)
-@st.cache_data(ttl=300)
 def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     """
     Calcula el mayor analítico sanitizando la cuenta en Python y 
-    aprovechando detección dinámica de columnas y respaldo por comodines.
+    corrigiendo el escape de parámetros SQL para evitar errores de formato.
     """
     # 1. SANITIZACIÓN EN PYTHON
     cuenta_limpia = str(cuenta).strip()
@@ -3620,14 +3619,8 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         return pd.DataFrame(), pd.DataFrame(), 0.0
 
     try:
-        # PRIMERO CALCULamos las fechas y variables de depuración
         f_inicio = pd.to_datetime(fecha_desde).normalize()
         f_fin = pd.to_datetime(fecha_hasta).normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
-        
-        # AHORA SÍ podes usarlas en los st.write sin error de UnboundLocalError
-        st.write(f"🔍 **Base de datos consultada:** {db_actual}")
-        st.write(f"🔍 **Cuenta procesada:** '{cuenta_limpia}' (Solo números: '{cuenta_solo_numeros}')")
-        st.write(f"🔍 **Rango de fechas:** Desde {f_inicio} Hasta {f_fin}")
 
         cursor = conn.cursor()
 
@@ -3646,7 +3639,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         except:
             pass
 
-        # 2. CONSULTAS SQL ROBUSTAS CON DETECCIÓN DE COLUMNA Y SOPORTE LIKE
+        # 2. CONSULTAS SQL CON PARÁMETROS SEGUROS
         if tiene_saldos_iniciales:
             query_saldo = f"""
                 SELECT 
