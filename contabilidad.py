@@ -3602,7 +3602,7 @@ def consultar_libro_diario_db(db_a_usar=None, fecha_inicio=None, fecha_fin=None)
 def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     """
     Calcula el mayor analítico sanitizando la cuenta en Python y 
-    corrigiendo el escape de parámetros SQL para evitar errores de formato.
+    corrigiendo el escape de los porcentajes (%%) en las f-strings de SQL.
     """
     # 1. SANITIZACIÓN EN PYTHON
     cuenta_limpia = str(cuenta).strip()
@@ -3639,7 +3639,7 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         except:
             pass
 
-        # 2. CONSULTAS SQL CON PARÁMETROS SEGUROS
+        # 2. CONSULTAS SQL CON PARÁMETROS Y PORCENTAJES ESCAPADOS (%%)
         if tiene_saldos_iniciales:
             query_saldo = f"""
                 SELECT 
@@ -3668,8 +3668,9 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
 
         saldo_inicial_periodo = float(res_saldo.iloc[0, 0]) if not res_saldo.empty else 0.0
 
+        # NOTA: Usamos DATE_FORMAT(fecha, '%%Y-%%m-%%d') con doble %% para evitar conflictos con f-strings
         query_movs = f"""
-            SELECT DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, n_comprobante, descripcion, referencia, debe, haber 
+            SELECT DATE_FORMAT(fecha, '%%Y-%%m-%%d') AS fecha, n_comprobante, descripcion, referencia, debe, haber 
             FROM `{db_actual}`.asientos_contables 
             WHERE (
                 `{col_c_ac}` = %s OR 
