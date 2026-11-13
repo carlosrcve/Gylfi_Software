@@ -3618,6 +3618,10 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     if not conn:
         return pd.DataFrame(), pd.DataFrame(), 0.0
 
+    # --- DIAGNÓSTICO RÁPIDO PARA RESOLVER EL ERROR ---
+    st.write(f"🔍 **Base de datos consultada:** {db_actual}")
+    st.write(f"🔍 **Cuenta procesada:** '{cuenta_limpia}' (Solo números: '{cuenta_solo_numeros}')")
+    st.write(f"🔍 **Rango de fechas:** Desde {f_inicio} Hasta {f_fin}")
     try:
         f_inicio = pd.to_datetime(fecha_desde).normalize()
         f_fin = pd.to_datetime(fecha_hasta).normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
