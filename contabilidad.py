@@ -3602,9 +3602,9 @@ def consultar_libro_diario_db(db_a_usar=None, fecha_inicio=None, fecha_fin=None)
 def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
     """
     Calcula el mayor analítico sanitizando la cuenta en Python y 
-    aprovechando los índices de MySQL (sin funciones en el WHERE).
+    aprovechando detección dinámica de columnas y respaldo por comodines.
     """
-    # 1. SANITIZACIÓN EN PYTHON (Adiós a TRIM() y funciones lentas en SQL)
+    # 1. SANITIZACIÓN EN PYTHON
     cuenta_limpia = str(cuenta).strip()
     if " - " in cuenta_limpia:
         cuenta_limpia = cuenta_limpia.split(" - ")[0].strip()
@@ -3623,34 +3623,46 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
         f_fin = pd.to_datetime(fecha_hasta).normalize() + pd.Timedelta(hours=23, minutes=59, seconds=59)
         cursor = conn.cursor()
 
-        cursor.execute("""
-            SELECT COUNT(*) FROM information_schema.tables 
-            WHERE table_schema = %s AND table_name = 'saldos_iniciales'
-        """, (db_actual,))
-        tiene_saldos_iniciales = cursor.fetchone()[0] > 0
-        
-        # 2. CONSULTAS SQL LIMPIAS (Comparación exacta, velocidad máxima)
+        # --- DETECCIÓN DINÁMICA DE NOMBRES DE COLUMNAS EN LA BD ---
+        cursor.execute(f"SHOW COLUMNS FROM `{db_actual}`.asientos_contables")
+        cols_ac = [row[0].lower() for row in cursor.fetchall()]
+        col_c_ac = next((c for c in cols_ac if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_ac[0])
+
+        tiene_saldos_iniciales = False
+        col_c_si = 'cuenta_contable'
+        try:
+            cursor.execute(f"SHOW COLUMNS FROM `{db_actual}`.saldos_iniciales")
+            cols_si = [row[0].lower() for row in cursor.fetchall()]
+            tiene_saldos_iniciales = len(cols_si) > 0
+            col_c_si = next((c for c in cols_si if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_si[0])
+        except:
+            pass
+
+        # 2. CONSULTAS SQL ROBUSTAS CON DETECCIÓN DE COLUMNA Y SOPORTE LIKE
         if tiene_saldos_iniciales:
             query_saldo = f"""
                 SELECT 
-                    (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.saldos_iniciales WHERE cuenta_contable = %s OR cuenta_contable = %s) +
+                    (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.saldos_iniciales WHERE `{col_c_si}` = %s OR `{col_c_si}` = %s OR `{col_c_si}` LIKE %s) +
                     (SELECT IFNULL(SUM(debe - haber), 0) FROM `{db_actual}`.asientos_contables 
-                     WHERE (plan_cuentas = %s OR plan_cuentas = %s OR cuenta_contable = %s OR cuenta_contable = %s) AND fecha < %s) 
+                     WHERE (`{col_c_ac}` = %s OR `{col_c_ac}` = %s OR `{col_c_ac}` LIKE %s) AND fecha < %s) 
                 AS saldo_previo
             """
             res_saldo = pd.read_sql(
                 query_saldo, conn, 
-                params=(cuenta_limpia, cuenta_solo_numeros, cuenta_limpia, cuenta_solo_numeros, cuenta_limpia, cuenta_solo_numeros, f_inicio.strftime('%Y-%m-%d %H:%M:%S'))
+                params=(cuenta_limpia, cuenta_solo_numeros, f"{cuenta_limpia}%", 
+                        cuenta_limpia, cuenta_solo_numeros, f"{cuenta_limpia}%", 
+                        f_inicio.strftime('%Y-%m-%d %H:%M:%S'))
             )
         else:
             query_saldo = f"""
                 SELECT IFNULL(SUM(debe - haber), 0) AS saldo_previo
                 FROM `{db_actual}`.asientos_contables 
-                WHERE (plan_cuentas = %s OR plan_cuentas = %s OR cuenta_contable = %s OR cuenta_contable = %s) AND fecha < %s
+                WHERE (`{col_c_ac}` = %s OR `{col_c_ac}` = %s OR `{col_c_ac}` LIKE %s) AND fecha < %s
             """
             res_saldo = pd.read_sql(
                 query_saldo, conn, 
-                params=(cuenta_limpia, cuenta_solo_numeros, cuenta_limpia, cuenta_solo_numeros, f_inicio.strftime('%Y-%m-%d %H:%M:%S'))
+                params=(cuenta_limpia, cuenta_solo_numeros, f"{cuenta_limpia}%", 
+                        f_inicio.strftime('%Y-%m-%d %H:%M:%S'))
             )
 
         saldo_inicial_periodo = float(res_saldo.iloc[0, 0]) if not res_saldo.empty else 0.0
@@ -3659,17 +3671,17 @@ def ejecutar_mayor_analitico(db_nombre, cuenta, fecha_desde, fecha_hasta):
             SELECT DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, n_comprobante, descripcion, referencia, debe, haber 
             FROM `{db_actual}`.asientos_contables 
             WHERE (
-                plan_cuentas = %s OR 
-                plan_cuentas = %s OR 
-                cuenta_contable = %s OR 
-                cuenta_contable = %s
+                `{col_c_ac}` = %s OR 
+                `{col_c_ac}` = %s OR 
+                `{col_c_ac}` LIKE %s
             ) 
             AND fecha >= %s AND fecha <= %s 
             ORDER BY fecha ASC, id ASC
         """
         df_movs = pd.read_sql(
             query_movs, conn, 
-            params=(cuenta_limpia, cuenta_solo_numeros, cuenta_limpia, cuenta_solo_numeros, f_inicio.strftime('%Y-%m-%d %H:%M:%S'), f_fin.strftime('%Y-%m-%d %H:%M:%S'))
+            params=(cuenta_limpia, cuenta_solo_numeros, f"{cuenta_limpia}%", 
+                    f_inicio.strftime('%Y-%m-%d %H:%M:%S'), f_fin.strftime('%Y-%m-%d %H:%M:%S'))
         )
         
         if not df_movs.empty:
@@ -16192,7 +16204,6 @@ elif opcion_menu == "📖 Mayor Analítico":
         mostrar_interfaz_mayor(f_inicio_global, f_fin_global, db_actual)
 
 
-# E. ESTADOS FINANCIEROS -> BALANCE COMPROBACIÓN
 # E. ESTADOS FINANCIEROS -> BALANCE COMPROBACIÓN
 elif sub_opcion == "Balance de Comprobación":
     
