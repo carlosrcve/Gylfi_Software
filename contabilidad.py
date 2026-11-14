@@ -12781,10 +12781,17 @@ elif opcion_menu == "📝 Asientos Contables":
             if not st.session_state.orden_guardada_exito:
                 st.markdown("### ✍️ Emitir Nueva Orden de Pago")
                 
+                # 🌟 LLAMADA FRESCA: Limpiamos caché y recargamos maestros al abrir la sección
+                cargar_datos_maestros_optimizados.clear()
+                lista_provs, dict_provs, lista_cuentas, dict_cuentas = cargar_datos_maestros_optimizados(db_actual)
+                
                 with st.form("form_emision_op", clear_on_submit=True):
                     col_f1_1, col_f1_2 = st.columns(2)
                     with col_f1_1:
-                        prov_seleccionado_form = st.selectbox("Seleccionar Proveedor", options=lista_provs if lista_provs else ["No hay proveedores"])
+                        prov_seleccionado_form = st.selectbox(
+                            "Seleccionar Proveedor", 
+                            options=lista_provs if lista_provs else ["No hay proveedores"]
+                        )
                         nro_factura_form = st.text_input("Número de Factura")
                         nro_control_form = st.text_input("Número de Control")
                     with col_f1_2:
@@ -12851,54 +12858,54 @@ elif opcion_menu == "📝 Asientos Contables":
                     
                     btn_guardar_op = st.form_submit_button("💾 Guardar y Registrar Orden de Pago", use_container_width=True)
 
-                if btn_guardar_op:
-                    if not nro_factura_form:
-                        st.error("⚠️ El número de factura es obligatorio.")
-                    elif not lista_provs or prov_seleccionado_form == "No hay proveedores":
-                        st.error("⚠️ No hay proveedores cargados para asociar la orden.")
-                    else:
-                        try:
-                            info_prov_form = dict_provs[prov_seleccionado_form]
-                            conn_ins = conectar_db(db_actual)
-                            if conn_ins:
-                                cursor = conn_ins.cursor()
-                                query_insert = """
-                                    INSERT INTO ordenes_pago (
-                                        empresa_db, proveedor_id, nro_factura, nro_control, 
-                                        monto_bruto, monto_exento, base_imponible, iva_porcentaje, monto_iva, 
-                                        retencion_islr, retencion_iva, monto_neto, estado, fecha_emision, 
-                                        observaciones, islr_porcentaje, islr_sustraendo, tipo_persona
-                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                """
-                                cursor.execute(query_insert, (
-                                    str(db_actual),
-                                    str(info_prov_form['id_interno']),
-                                    str(nro_factura_form),
-                                    str(nro_control_form),
-                                    float(monto_bruto_calculado),
-                                    float(monto_exento_form),
-                                    float(base_imponible_form),
-                                    float(alicuota_iva_form),
-                                    float(monto_iva_calculado),
-                                    float(retencion_islr_calculada),
-                                    float(retencion_iva_calculada),
-                                    float(monto_neto_calculado),
-                                    'Pendiente',
-                                    str(fecha_emision_form),
-                                    str(observaciones_form),
-                                    float(islr_porcentaje_form),
-                                    float(islr_sustraendo_form),
-                                    str(tipo_persona_form)
-                                ))
-                                conn_ins.commit()
-                                cursor.close()
-                                conn_ins.close()
-                                
-                                st.session_state.orden_guardada_exito = True
-                                st.success("🎉 ¡Orden de pago guardada con éxito!")
-                                st.rerun()
-                        except Exception as err_ins:
-                            st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
+                    if btn_guardar_op:
+                        if not nro_factura_form:
+                            st.error("⚠️ El número de factura es obligatorio.")
+                        elif not lista_provs or prov_seleccionado_form == "No hay proveedores":
+                            st.error("⚠️ No hay proveedores cargados para asociar la orden.")
+                        else:
+                            try:
+                                info_prov_form = dict_provs[prov_seleccionado_form]
+                                conn_ins = conectar_db(db_actual)
+                                if conn_ins:
+                                    cursor = conn_ins.cursor()
+                                    query_insert = """
+                                        INSERT INTO ordenes_pago (
+                                            empresa_db, proveedor_id, nro_factura, nro_control, 
+                                            monto_bruto, monto_exento, base_imponible, iva_porcentaje, monto_iva, 
+                                            retencion_islr, retencion_iva, monto_neto, estado, fecha_emision, 
+                                            observaciones, islr_porcentaje, islr_sustraendo, tipo_persona
+                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    """
+                                    cursor.execute(query_insert, (
+                                        str(db_actual),
+                                        str(info_prov_form['id_interno']),
+                                        str(nro_factura_form),
+                                        str(nro_control_form),
+                                        float(monto_bruto_calculado),
+                                        float(monto_exento_form),
+                                        float(base_imponible_form),
+                                        float(alicuota_iva_form),
+                                        float(monto_iva_calculado),
+                                        float(retencion_islr_calculada),
+                                        float(retencion_iva_calculada),
+                                        float(monto_neto_calculado),
+                                        'Pendiente',
+                                        str(fecha_emision_form),
+                                        str(observaciones_form),
+                                        float(islr_porcentaje_form),
+                                        float(islr_sustraendo_form),
+                                        str(tipo_persona_form)
+                                    ))
+                                    conn_ins.commit()
+                                    cursor.close()
+                                    conn_ins.close()
+                                    
+                                    st.session_state.orden_guardada_exito = True
+                                    st.success("🎉 ¡Orden de pago guardada con éxito!")
+                                    st.rerun()
+                            except Exception as err_ins:
+                                st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
             else:
                 if st.button("➕ Emitir Nueva Orden de Pago", type="secondary", use_container_width=True):
                     st.session_state.orden_guardada_exito = False
