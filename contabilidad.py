@@ -13702,8 +13702,8 @@ elif opcion_menu == "📝 Asientos Contables":
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
-            # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS OPTIMIZADO CON CACHÉ ---
-            @st.cache_data(ttl=300, show_spinner=False)
+           # --- CARGAR PROVEEDORES Y PLAN DE CUENTAS OPTIMIZADO ---
+            @st.cache_data(ttl=60, show_spinner=False)  # Reducido a 60 segundos o elimínalo si quieres tiempo real
             def cargar_datos_maestros_optimizados(empresa):
                 p_lista, p_dict, c_lista, c_dict = [], {}, [], {}
                 try:
@@ -13714,7 +13714,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY nombre ASC", 
                             conn, params=(str(empresa),)
                         )
-                        # 2. Plan de cuentas detalle (misma conexión abierta)
+                        # 2. Plan de cuentas detalle
                         df_cuentas = ejecutar_consulta(
                             "SELECT id, codigo, nombre, nivel, tipo, padre FROM plan_cuentas WHERE tipo = 'Detalle'", 
                             conn
@@ -13745,7 +13745,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                         'nombre': str(row['nombre']).strip()
                                     }
                 except Exception as ex:
-                    pass
+                    # ¡IMPORTANTE! Mostramos el error en pantalla en lugar de ocultarlo con 'pass'
+                    st.error(f"❌ Error al cargar datos maestros: {ex}")
+                    
                 return p_lista, p_dict, c_lista, c_dict
 
             lista_provs, dict_provs, lista_cuentas_detalle, dict_cuentas_detalle = cargar_datos_maestros_optimizados(db_actual)
