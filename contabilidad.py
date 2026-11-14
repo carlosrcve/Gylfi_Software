@@ -12772,12 +12772,11 @@ elif opcion_menu == "📝 Asientos Contables":
                 return p_lista, p_dict
 
             # --- CARGAR PROVEEDORES RÁPIDO USANDO SESSION_STATE ---
-            if "cache_lista_provs" not in st.session_state or "cache_dict_provs" not in st.session_state:
-                with st.spinner("Cargando catálogo de proveedores..."):
-                    # Cargamos una sola vez desde la base de datos
-                    p_lista, p_dict, _, _ = cargar_datos_maestros_optimizados(db_actual)
-                    st.session_state.cache_lista_provs = p_lista
-                    st.session_state.cache_dict_provs = p_dict
+            # Esto evita que se conecte a la base de datos en cada click innecesario
+            if "cache_lista_provs" not in st.session_state:
+                p_lista, p_dict, _, _ = cargar_datos_maestros_optimizados(db_actual)
+                st.session_state.cache_lista_provs = p_lista
+                st.session_state.cache_dict_provs = p_dict
 
             lista_provs = st.session_state.cache_lista_provs
             dict_provs = st.session_state.cache_dict_provs
@@ -13682,11 +13681,14 @@ elif opcion_menu == "📝 Asientos Contables":
                             conn_ins.commit()
                             cursor_ins.close()
                             conn_ins.close()
-                            
+
                             st.session_state["form_reset"] = True
                             cargar_datos_proveedores_tab1.clear()
 
                             st.success(f"✅ ¡Proveedor '{nombre_prov}' guardado con éxito!")
+                            
+                            # 🌟 AGREGA ESTO AQUÍ PARA QUE LA PÁGINA SE RECARGUE AL INSTANTE
+                            st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error al guardar en `proveedores_carga`: {e}")
                 else:
