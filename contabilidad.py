@@ -14107,7 +14107,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                                                         n_comprobante_retencion, monto_iva_retenido, fecha_comprobante, 
                                                                         created_at, updated_at
                                                                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
-                                                                    """
+                                                                """
                                                                 valores_libro = (
                                                                     str(sel_data['fecha_emision']), "Factura", str(fact_val),
                                                                     str(ctrl_val if ctrl_val and ctrl_val != 'None' else 'S/N'), None,
@@ -14123,10 +14123,15 @@ elif opcion_menu == "📝 Asientos Contables":
                                                                 cur_l.execute(query_libro, valores_libro)
                                                                 conn_l.commit()
                                                                 st.success("✅ ¡Libro de Compras guardado con éxito!")
-                                                                st.balloons()
-                                                                import time
-                                                                time.sleep(4)
-                                                                st.rerun()
+                                                                
+                                                            conn_l.close()
+                                                            
+                                                            # 🌟 CAMBIAMOS EL PASO A 2 DE INMEDIATO Y RECARGAMOS
+                                                            st.session_state[key_paso] = 2
+                                                            st.balloons()
+                                                            import time
+                                                            time.sleep(1)
+                                                            st.rerun()
                                                         conn_l.close()
                                                         st.session_state[key_paso] = 2
                                                         st.rerun()
