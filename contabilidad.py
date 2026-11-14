@@ -12771,19 +12771,20 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.error(f"⚠️ Error crítico al cargar proveedores: {ex_prov}")
                 return p_lista, p_dict
 
-            lista_provs, dict_provs = cargar_proveedores_seguro(db_actual)
+            # --- CARGAR PROVEEDORES RÁPIDO USANDO SESSION_STATE ---
+            if "cache_lista_provs" not in st.session_state or "cache_dict_provs" not in st.session_state:
+                with st.spinner("Cargando catálogo de proveedores..."):
+                    # Cargamos una sola vez desde la base de datos
+                    p_lista, p_dict, _, _ = cargar_datos_maestros_optimizados(db_actual)
+                    st.session_state.cache_lista_provs = p_lista
+                    st.session_state.cache_dict_provs = p_dict
 
-            # --- GESTIÓN DE SESSION STATE ---
-            if "orden_guardada_exito" not in st.session_state:
-                st.session_state["orden_guardada_exito"] = False
+            lista_provs = st.session_state.cache_lista_provs
+            dict_provs = st.session_state.cache_dict_provs
 
             # --- FASE 1: EMITIR NUEVA ORDEN DE PAGO CON ST.FORM ---
             if not st.session_state.orden_guardada_exito:
                 st.markdown("### ✍️ Emitir Nueva Orden de Pago")
-                
-                # 🌟 LLAMADA FRESCA: Limpiamos caché y recargamos maestros al abrir la sección
-                cargar_datos_maestros_optimizados.clear()
-                lista_provs, dict_provs, lista_cuentas, dict_cuentas = cargar_datos_maestros_optimizados(db_actual)
                 
                 with st.form("form_emision_op", clear_on_submit=True):
                     col_f1_1, col_f1_2 = st.columns(2)
@@ -12908,6 +12909,12 @@ elif opcion_menu == "📝 Asientos Contables":
                                 st.error(f"❌ Error al guardar la orden de pago: {err_ins}")
             else:
                 if st.button("➕ Emitir Nueva Orden de Pago", type="secondary", use_container_width=True):
+                    # Limpiamos las cachés de proveedores por si se registró uno nuevo recientemente
+                    if "cache_lista_provs" in st.session_state:
+                        del st.session_state.cache_lista_provs
+                    if "cache_dict_provs" in st.session_state:
+                        del st.session_state.cache_dict_provs
+                        
                     st.session_state.orden_guardada_exito = False
                     st.rerun()
 
