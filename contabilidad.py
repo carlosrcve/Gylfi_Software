@@ -12738,14 +12738,18 @@ elif opcion_menu == "📝 Asientos Contables":
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
-            # --- CARGAR PROVEEDORES SEGURO ---
+            # --- CARGAR PROVEEDORES SEGURO Y ORDENADOS A-Z ---
             def cargar_proveedores_seguro(empresa):
                 p_lista, p_dict = [], {}
                 try:
                     conn = conectar_db(empresa)
                     if conn:
                         cursor = conn.cursor()
-                        cursor.execute("SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga ORDER BY nombre ASC")
+                        # 🌟 CORREGIDO: Filtramos por empresa y ordenamos ignorando mayúsculas/minúsculas
+                        cursor.execute(
+                            "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY LOWER(nombre) ASC",
+                            (str(empresa),)
+                        )
                         filas = cursor.fetchall()
                         cursor.close()
                         conn.close()
@@ -12767,17 +12771,21 @@ elif opcion_menu == "📝 Asientos Contables":
                                     'codigo_cuenta': cod_cta,
                                     'descripcion_cuenta': desc_cta
                                 }
+                                
+                    # 🌟 DOBLE BLINDAJE EN PYTHON: Ordenamiento estricto A-Z ignorando mayúsculas
+                    p_lista = sorted(p_lista, key=lambda x: str(x).strip().lower())
+
                 except Exception as ex_prov:
                     st.error(f"⚠️ Error crítico al cargar proveedores: {ex_prov}")
+                    
                 return p_lista, p_dict
-
             # --- CARGAR Y ORDENAR PROVEEDORES ALFABÉTICAMENTE RÁPIDO ---
             if "cache_lista_provs" not in st.session_state or "cache_dict_provs" not in st.session_state:
                 with st.spinner("Cargando catálogo de proveedores..."):
                     p_lista, p_dict, _, _ = cargar_datos_maestros_optimizados(db_actual)
                     
-                    # 🌟 ORDENAMIENTO ALFABÉTICO ESTRICTO (A-Z)
-                    p_lista = sorted(p_lista, key=lambda x: str(x).lower())
+                    # 🌟 ORDENAMIENTO A-Z REAL (Poniendo todo en minúsculas temporalmente para comparar bien)
+                    p_lista = sorted(p_lista, key=lambda x: str(x).strip().lower())
                     
                     st.session_state.cache_lista_provs = p_lista
                     st.session_state.cache_dict_provs = p_dict
