@@ -14780,10 +14780,15 @@ elif opcion_menu == "📝 Asientos Contables":
                         id_ope_sel = fila_ope['id']
                         
                         with st.form("form_editar_orden_pago"):
-                            st.markdown(f"**Modificando la Orden ID:** `{id_ope_sel}` (Fecha Emisión: {fila_ope['fecha_emision']})")
+                            st.markdown(f"**Modificando la Orden ID:** `{id_ope_sel}` (Fecha Emisión Actual: {fila_ope['fecha_emision']})")
                             
                             col_eo1, col_eo2 = st.columns(2)
                             with col_eo1:
+                                # 🌟 CAMPO DE FECHA NUEVO PARA MODIFICAR
+                                import datetime
+                                fecha_actual_parseada = pd.to_datetime(fila_ope['fecha_emision']).date() if pd.notnull(fila_ope['fecha_emision']) else datetime.date.today()
+                                nueva_fecha_emision = st.date_input("Fecha de Emisión", value=fecha_actual_parseada)
+                                
                                 nuevo_nro_fact = st.text_input("Número de Factura", value=fila_ope['nro_factura'] or "").strip()
                                 nuevo_monto_bruto = st.number_input("Monto Bruto", value=float(fila_ope['monto_bruto']), min_value=0.00, step=100.00, format="%.2f")
                             with col_eo2:
@@ -14807,9 +14812,9 @@ elif opcion_menu == "📝 Asientos Contables":
                                     with conn_uop.cursor() as cur_uop:
                                         cur_uop.execute("""
                                             UPDATE ordenes_pago 
-                                            SET nro_factura = %s, monto_bruto = %s, retencion_islr = %s, retencion_iva = %s, monto_neto = %s, observaciones = %s
+                                            SET fecha_emision = %s, nro_factura = %s, monto_bruto = %s, retencion_islr = %s, retencion_iva = %s, monto_neto = %s, observaciones = %s
                                             WHERE id = %s AND empresa_db = %s
-                                        """, (nuevo_nro_fact, nuevo_monto_bruto, nueva_ret_islr, nueva_ret_iva, nuevo_neto_calc, nuevas_obs, id_ope_sel, str(db_actual)))
+                                        """, (str(nueva_fecha_emision), nuevo_nro_fact, nuevo_monto_bruto, nueva_ret_islr, nueva_ret_iva, nuevo_neto_calc, nuevas_obs, id_ope_sel, str(db_actual)))
                                         conn_uop.commit()
                                     conn_uop.close()
                                     cargar_datos_edicion.clear()
