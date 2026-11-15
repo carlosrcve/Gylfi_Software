@@ -17189,8 +17189,6 @@ elif opcion_menu == "📚 Libros Fiscales":
         # --- LÓGICA DE NAVEGACIÓN (BLOQUES ORDENADOS) ---
         with tab1:
             st.subheader("🔍 Consulta y Edición: Libro de Compras")
-            st.subheader("🔍 Consulta y Edición: Libro de Compras")
-
             # 1. Filtros de fecha y botón de consulta inicial
             col_c1, col_c2, col_c3 = st.columns([1, 1, 1])
             with col_c3:
