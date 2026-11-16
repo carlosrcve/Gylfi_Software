@@ -17560,7 +17560,7 @@ elif opcion_menu == "📚 Libros Fiscales":
                 cambios_df = st.data_editor(
                     df_mostrar_compras,
                     key=key_editor_compras,
-                    num_rows="fixed",
+                    num_rows="dynamic",  # 👈 CAMBIA "fixed" POR "dynamic" AQUÍ
                     use_container_width=True,
                     hide_index=True,
                     column_config={
