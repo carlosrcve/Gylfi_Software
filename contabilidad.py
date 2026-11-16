@@ -17194,8 +17194,8 @@ elif opcion_menu == "📚 Libros Fiscales":
                                     st.balloons()
                             except Exception as e:
                                 st.error(f"❌ Error crítico: {e}")
-                    # --- PESTAÑA 2: CONSULTAR Y EDITAR ---
-                with tab2:
+        # --- PESTAÑA 2: CONSULTAR Y EDITAR ---
+        with tab2:
             st.subheader("🔍 Consultar y Editar Libro de Ventas")
             
             # Filtros de búsqueda
