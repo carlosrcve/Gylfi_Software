@@ -3214,9 +3214,10 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
             if 'fecha' in reporte_vista.columns:
                 reporte_vista['fecha'] = reporte_vista['fecha'].astype(str).str.split().str[0].str.replace('00:00:00', '').str.strip()
 
-            cols_a_formatear = ['debe', 'haber', 'saldo']
-            for col in cols_a_formatear:
-                if col in reporte_vista.columns:
+            # 🌟 Formateo robusto buscando columnas sin importar mayúsculas/minúsculas
+            for col in reporte_vista.columns:
+                col_lower = col.lower()
+                if col_lower in ['debe', 'haber', 'saldo', 'saldo_actual', 'saldo_progresivo']:
                     reporte_vista[col] = reporte_vista[col].apply(formato_venezuela)
 
             st.dataframe(reporte_vista, use_container_width=True, hide_index=True)
