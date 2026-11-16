@@ -20268,15 +20268,19 @@ elif "Clientes" in opcion_menu:
         with tab2:
             st.markdown("### 📋 Directorio Actual de Clientes")
             
-            db_actual = st.session_state.get('DB_ACTUAL')
+            # Asegurar compatibilidad si la variable en sesión está en mayúsculas o minúsculas
+            db_actual = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
 
             if db_actual:
-                # Autoverificación ligera de columnas una sola vez por carga
+                columnas_reales = ["rif", "tipo_persona", "razon_social", "direccion_fiscal", "codigo_cuenta", "descripcion_cuenta"]
+                df_temp = pd.DataFrame()
+
                 conn_tmp = conectar_db(db_actual)
                 if conn_tmp:
                     try:
                         conn_tmp.ping(reconnect=True)
                         with conn_tmp.cursor() as cursor_check:
+                            # 1. Autoverificación de columnas
                             cursor_check.execute("SHOW COLUMNS FROM clientes_comerciales LIKE 'codigo_cuenta'")
                             if not cursor_check.fetchone():
                                 cursor_check.execute("ALTER TABLE clientes_comerciales ADD COLUMN codigo_cuenta VARCHAR(50) DEFAULT ''")
@@ -20286,31 +20290,36 @@ elif "Clientes" in opcion_menu:
                             if not cursor_check.fetchone():
                                 cursor_check.execute("ALTER TABLE clientes_comerciales ADD COLUMN descripcion_cuenta VARCHAR(255) DEFAULT ''")
                                 conn_tmp.commit()
-                    except Exception:
-                        pass
+
+                        # 2. Consulta directa sin caché corrupta
+                        df_temp = pd.read_sql("SELECT * FROM clientes_comerciales ORDER BY LOWER(razon_social) ASC", conn_tmp)
+                    except Exception as e_cli:
+                        st.error(f"❌ Error consultando `clientes_comerciales` en `{db_actual}`: {e_cli}")
                     finally:
                         try:
                             conn_tmp.close()
                         except Exception:
                             pass
+                else:
+                    st.error(f"❌ No se pudo establecer conexión con la base de datos: `{db_actual}`")
 
-                df_temp = consultar_clientes_cached(db_actual)
-                columnas_reales = ["rif", "tipo_persona", "razon_social", "direccion_fiscal", "codigo_cuenta", "descripcion_cuenta"]
-                
-                if df_temp.empty:
+                if df_temp is None or df_temp.empty:
+                    st.info(f"ℹ️ No hay clientes registrados actualmente en `{db_actual}`.")
                     df_para_mostrar = pd.DataFrame(columns=columnas_reales)
                 else:
                     df_para_mostrar = df_temp.copy()
                     for col in columnas_reales:
                         if col not in df_para_mostrar.columns:
                             df_para_mostrar[col] = ""
+                    # Mantener solo las columnas esperadas en el orden correcto
+                    df_para_mostrar = df_para_mostrar[columnas_reales]
 
                 for col in df_para_mostrar.columns:
-                    df_para_mostrar[col] = df_para_mostrar[col].astype(str).replace(['None', 'nan', 'NAT'], '')
+                    df_para_mostrar[col] = df_para_mostrar[col].astype(str).replace(['None', 'nan', 'NaT', 'NAT'], '')
 
                 # --- ORDENAMIENTO ALFABÉTICO AUTOMÁTICO POR RAZÓN SOCIAL ---
                 if not df_para_mostrar.empty and "razon_social" in df_para_mostrar.columns:
-                    df_para_mostrar['orden_aux'] = df_para_mostrar['razon_social'].str.lower()
+                    df_para_mostrar['orden_aux'] = df_para_mostrar['razon_social'].str.strip().str.lower()
                     df_para_mostrar = df_para_mostrar.sort_values(by='orden_aux', ascending=True).drop(columns=['orden_aux']).reset_index(drop=True)
 
                 df_editado = st.data_editor(
@@ -20363,7 +20372,7 @@ elif "Clientes" in opcion_menu:
                     st.download_button(
                         "📥 Descargar Respaldo de Clientes", 
                         data=output.getvalue(), 
-                        file_name="Respaldo_Clientes.xlsx",
+                        file_name="Respaldo_Clientes.xlsx", 
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
