@@ -17195,6 +17195,264 @@ elif opcion_menu == "📚 Libros Fiscales":
                             except Exception as e:
                                 st.error(f"❌ Error crítico: {e}")
                     # --- PESTAÑA 2: CONSULTAR Y EDITAR ---
+                with tab2:
+            st.subheader("🔍 Consultar y Editar Libro de Ventas")
+            
+            # Filtros de búsqueda
+            col_v1, col_v2, col_v3 = st.columns([1, 1, 1])
+            with col_v3:
+                ver_todo_v = st.checkbox("📂 Ver historial completo", key="todo_ventas")
+            
+            # --- BLINDAJE DE FECHAS SEGURO ---
+            from datetime import date as d_tipo, datetime as dt_tipo
+
+            def _obtener_f_segura(key_s):
+                val = st.session_state.get(key_s)
+                if val is not None:
+                    try:
+                        if hasattr(val, 'year') and hasattr(val, 'month'):
+                            return val
+                        elif isinstance(val, str):
+                            return dt_tipo.strptime(val, "%Y-%m-%d").date()
+                    except Exception:
+                        pass
+                return d_tipo.today()
+
+            with col_v1:
+                desde_v = st.date_input("Desde", _obtener_f_segura('f_inicio_global'), key="f_desde_v", disabled=ver_todo_v)
+            with col_v2:
+                hasta_v = st.date_input("Hasta", _obtener_f_segura('f_fin_global'), key="f_hasta_v", disabled=ver_todo_v)
+
+            if st.button("📊 Consultar Ventas"):
+                conn_query = conectar_db(db_actual)
+                if conn_query:
+                    try:
+                        if ver_todo_v: 
+                            query = "SELECT * FROM libro_ventas ORDER BY fecha_factura DESC"
+                        else:
+                            query = f"SELECT * FROM libro_ventas WHERE fecha_factura BETWEEN '{desde_v}' AND '{hasta_v}' ORDER BY fecha_factura ASC"
+                        st.session_state.df_ventas_editor = ejecutar_consulta(query, conn_query)
+                    finally:
+                        conn_query.close()
+
+            # Editor
+            if "df_ventas_editor" in st.session_state:
+                df_mostrar = st.session_state.df_ventas_editor.copy()
+                
+                # --- 1. TABLA DE CONSULTA (Visualización con formato contable blindado) ---
+                df_visual = df_mostrar.copy()
+                cols_moneda = ['total_ventas_con_iva', 'ventas_exentas', 'base_imponible', 'debito_fiscal']
+                
+                for col in cols_moneda:
+                    if col in df_visual.columns:
+                        df_visual[col] = df_visual[col].apply(
+                            lambda x: "{:,.2f}".format(x).replace(",", "X").replace(".", ",").replace("X", ".") if pd.notnull(x) else "0,00"
+                        )
+                
+                st.subheader("👁️ Vista de Consulta")
+                st.dataframe(df_visual, width='stretch', hide_index=True)
+
+                # --- 2. EDITOR DE REGISTROS (Agregar, Modificar y Eliminar Activo) ---
+                with st.expander("✏️ Administrar Facturas (Agregar, Modificar, Eliminar)", expanded=True):
+                    st.info("💡 **Instrucciones:** Puedes editar celdas directamente, agregar una nueva fila al final de la tabla o eliminar registros seleccionando la fila y haciendo clic en la papelera.")
+                    
+                    key_editor = f"editor_ventas_{db_actual}"
+                    
+                    editado_v = st.data_editor(
+                        df_mostrar,
+                        key=key_editor,
+                        num_rows="dynamic",
+                        width='stretch',
+                        hide_index=True,
+                        column_config={
+                            "id": st.column_config.NumberColumn("ID", disabled=True),
+                            "fecha_factura": st.column_config.DateColumn("Fecha", format="DD/MM/YYYY", required=True),
+                            "nombre_razon_social": st.column_config.TextColumn("Razón Social", required=True),
+                            "rif": st.column_config.TextColumn("RIF", required=True),
+                            "n_factura": st.column_config.TextColumn("Nº Factura", required=True),
+                            "n_control": st.column_config.TextColumn("Nº Control", required=True),
+                            "total_ventas_con_iva": st.column_config.NumberColumn(
+                                "Total Bs.", 
+                                format="%,.2f", 
+                                step=0.01,
+                                help="Monto total de la venta con IVA"
+                            ),
+                            "ventas_exentas": st.column_config.NumberColumn(
+                                "Exento Bs.", 
+                                format="%,.2f", 
+                                step=0.01,
+                                help="Monto de ventas exentas"
+                            ),
+                            "base_imponible": st.column_config.NumberColumn(
+                                "Base Bs.", 
+                                format="%,.2f", 
+                                step=0.01,
+                                help="Base imponible"
+                            ),
+                            "debito_fiscal": st.column_config.NumberColumn(
+                                "IVA Bs.", 
+                                format="%,.2f", 
+                                step=0.01,
+                                help="Débito fiscal (IVA)"
+                            ),
+                            "porcentaje_alicuota": st.column_config.NumberColumn("% Alícuota", format="%.1f", step=0.1),
+                            "fecha_registro": st.column_config.DatetimeColumn("F. Registro", disabled=True)
+                        }
+                    )
+
+                # --- 5. SECCIÓN DE TOTALES ---
+                st.markdown("---")
+                t_ventas = df_mostrar['total_ventas_con_iva'].sum() if 'total_ventas_con_iva' in df_mostrar.columns else 0.0
+                t_exento = df_mostrar['ventas_exentas'].sum() if 'ventas_exentas' in df_mostrar.columns else 0.0
+                t_base = df_mostrar['base_imponible'].sum() if 'base_imponible' in df_mostrar.columns else 0.0
+                t_iva = df_mostrar['debito_fiscal'].sum() if 'debito_fiscal' in df_mostrar.columns else 0.0
+
+                def f_moneda(v): return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("TOTAL VENTAS", f_moneda(t_ventas))
+                m2.metric("TOTAL EXENTO", f_moneda(t_exento))
+                m3.metric("TOTAL BASE", f_moneda(t_base))
+                m4.metric("TOTAL IVA", f_moneda(t_iva))
+                
+                st.markdown("---")
+
+                # --- 6. ACCIONES: DESCARGA Y GUARDADO (PROCESAMIENTO DE CAMBIOS) ---
+                col_btn1, col_btn2 = st.columns([1, 1])
+
+                with col_btn1:
+                    if "df_ventas_editor" in st.session_state:
+                        conn_temp = conectar_db(db_actual)
+                        try:
+                            datos_excel = preparar_excel_descarga(df_mostrar, conn_temp)
+                            st.download_button(
+                                label="📥 Descargar Respaldo Excel",
+                                data=datos_excel,
+                                file_name=f"Libro_Ventas_{desde_v}_al_{hasta_v}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                width='stretch'
+                            )
+                        finally:
+                            conn_temp.close()
+
+                with col_btn2:
+                    if st.button("💾 Guardar Cambios en Ventas", type="primary", width='stretch'):
+                        if key_editor in st.session_state:
+                            cambios = st.session_state[key_editor]
+                            conn_save = conectar_db(db_actual)
+                            
+                            if conn_save:
+                                cursor = conn_save.cursor()
+                                try:
+                                    # 1. MODIFICAR / EDITAR FACTURAS
+                                    for row_idx, dict_cambios in cambios.get("edited_rows", {}).items():
+                                        id_edit = int(df_mostrar.iloc[int(row_idx)]["id"])
+                                        
+                                        if "n_factura" in dict_cambios: 
+                                            dict_cambios["n_factura"] = str(dict_cambios["n_factura"]).strip()
+                                        if "n_control" in dict_cambios: 
+                                            dict_cambios["n_control"] = str(dict_cambios["n_control"]).strip()
+                                        if "fecha_factura" in dict_cambios and dict_cambios["fecha_factura"]:
+                                            f = dict_cambios["fecha_factura"]
+                                            dict_cambios["fecha_factura"] = f.strftime('%Y-%m-%d') if hasattr(f, 'strftime') else str(f)
+                                        
+                                        if dict_cambios:
+                                            sql_upd = ", ".join([f"{k} = %s" for k in dict_cambios.keys()])
+                                            cursor.execute(f"UPDATE libro_ventas SET {sql_upd} WHERE id = %s", list(dict_cambios.values()) + [id_edit])
+
+                                    # 2. ELIMINAR FACTURAS (Colocado antes de las inserciones)
+                                    for row_idx in cambios.get("deleted_rows", []):
+                                        id_del = int(df_mostrar.iloc[row_idx]["id"])
+                                        cursor.execute("DELETE FROM libro_ventas WHERE id = %s", (id_del,))
+
+                                    # 3. AGREGAR NUEVAS FACTURAS
+                                    for row_dict in cambios.get("added_rows", []):
+                                        if not row_dict or not any(row_dict.values()): 
+                                            continue
+                                        
+                                        f_raw = row_dict.get("fecha_factura") or desde_v
+                                        fecha_final = f_raw.strftime('%Y-%m-%d') if hasattr(f_raw, 'strftime') else str(f_raw)
+
+                                        datos_finales = {
+                                            "fecha_factura": fecha_final,
+                                            "nombre_razon_social": str(row_dict.get("nombre_razon_social", "VARIOS")).strip(),
+                                            "rif": str(row_dict.get("rif", "V000000000")).strip(),
+                                            "n_factura": str(row_dict.get("n_factura", "0")).strip(),
+                                            "n_control": str(row_dict.get("n_control", "0")).strip(),
+                                            "total_ventas_con_iva": float(row_dict.get("total_ventas_con_iva", 0.00)),
+                                            "ventas_exentas": float(row_dict.get("ventas_exentas", 0.00)),
+                                            "base_imponible": float(row_dict.get("base_imponible", 0.00)),
+                                            "porcentaje_alicuota": float(row_dict.get("porcentaje_alicuota", 16.00)),
+                                            "debito_fiscal": float(row_dict.get("debito_fiscal", 0.00))
+                                        }
+                                        
+                                        columnas = ", ".join(datos_finales.keys())
+                                        placeholders = ", ".join(["%s"] * len(datos_finales))
+                                        cursor.execute(f"INSERT INTO libro_ventas ({columnas}) VALUES ({placeholders})", list(datos_finales.values()))
+
+                                    conn_save.commit()
+                                    st.success("✅ ¡Libro de Ventas actualizado con éxito (Modificaciones, Eliminaciones e Inserciones aplicadas)!")
+                                    
+                                    # Limpiamos el estado para recargar los datos actualizados desde la BD
+                                    if "df_ventas_editor" in st.session_state:
+                                        del st.session_state["df_ventas_editor"]
+                                    st.rerun()
+
+                                except Exception as e:
+                                    conn_save.rollback()
+                                    st.error(f"❌ Error al guardar los cambios: {e}")
+                                finally:
+                                    cursor.close()
+                                    conn_save.close()
+                        else:
+                            st.warning("⚠️ No hay registro de cambios activos en la sesión.")
+
+        # --- PESTAÑA 3: VACIADO DE RANGO ---
+        with tab3:
+            st.subheader("🚨 Vaciado de Rango")
+            
+            # 1. Definimos el rango de fechas
+            col1, col2 = st.columns(2)
+            with col1:
+                # Quitamos el 'value=' para que el usuario elija desde cero
+                fecha_inicio = st.date_input("📅 Fecha de inicio")
+            with col2:
+                # Quitamos el 'value='
+                fecha_fin = st.date_input("📅 Fecha de fin")
+
+            st.error("⚠️ **Atención:** El borrado masivo es irreversible.")
+            
+            # 2. Popover de confirmación
+            with st.popover("🚨 VACIAR VENTAS (RANGO SELECCIONADO)", width='stretch'):
+                st.subheader("Confirmar Borrado de Ventas")
+                st.info(f"Se borrará el rango: {fecha_inicio} hasta {fecha_fin}")
+                
+                confirmar_v = st.checkbox("Confirmo que deseo borrar las VENTAS", key="check_borrar_ventas_key")
+                
+                if st.button("EJECUTAR BORRADO VENTAS", type="primary", disabled=not confirmar_v):
+                    borrar_ventas_por_rango(fecha_inicio, fecha_fin)
+                    st.rerun()
+
+            st.divider()
+
+            # 3. BLOQUE DE INSPECCIÓN: Para que salgas de dudas
+            with st.expander("🕵️ Inspeccionar datos antes de borrar"):
+                try:
+                    db_actual = st.session_state.get('DB_ACTUAL')
+                    conexion = conectar_db(db_actual)
+                    cursor = conexion.cursor()
+                    
+                    cursor.execute("SELECT DISTINCT fecha_factura FROM libro_ventas ORDER BY fecha_factura DESC LIMIT 10")
+                    fechas_existentes = cursor.fetchall()
+                    
+                    st.write("Las 10 fechas más recientes encontradas en tu tabla son:")
+                    for f in fechas_existentes:
+                        st.write(f"- {f[0]}")
+                    
+                    cursor.close()
+                    conexion.close()
+                except Exception as e:
+                    st.error("No se pudieron cargar las fechas de inspección.")
 
     elif sub_opcion == "Libro de Compras":
         # 0. Validación inicial
