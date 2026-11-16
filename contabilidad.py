@@ -11973,13 +11973,17 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.error(f"❌ Error al consultar los registros: {e}")
 
                     if df_diario is not None and not df_diario.empty:
-                        # 1. Normalizar minúsculas
+                        # 1. Normalizar minúsculas y tipos de datos estrictos para st.data_editor
                         df_diario.columns = [str(c).strip().lower() for c in df_diario.columns]
                         
                         if 'plan_cuentas' not in df_diario.columns:
                             df_diario['plan_cuentas'] = ""
 
-                        # 2. Convertir código de cuenta al formato "CÓDIGO - NOMBRE" para coincidir con las opciones del Selectbox
+                        # 🌟 SOLUCIÓN AL ERROR: Convertir fecha a datetime.date y montos a float
+                        df_diario['fecha'] = pd.to_datetime(df_diario['fecha'], errors='coerce').dt.date
+                        df_diario['debe'] = pd.to_numeric(df_diario['debe'], errors='coerce').fillna(0.0)
+                        df_diario['haber'] = pd.to_numeric(df_diario['haber'], errors='coerce').fillna(0.0)
+
                         def formatear_plan_cuentas(cod_raw):
                             cod_clean = str(cod_raw).strip()
                             if cod_clean in dict_nombres_cuentas:
@@ -11990,87 +11994,54 @@ elif opcion_menu == "📝 Asientos Contables":
 
                         st.info(f"Mostrando {len(df_diario)} registros para editar.")
 
-                        # ---------------------------------------------------------
-                        # 3. LÓGICA DE ACTUALIZACIÓN AUTOMÁTICA EN EL EDITOR
-                        # ---------------------------------------------------------
-                        if "df_editor_modificacion" not in st.session_state:
-                            st.session_state["df_editor_modificacion"] = df_diario.copy()
-
-                        # Si cambió la búsqueda o número de registros, refrescamos la sesión local
-                        if len(st.session_state["df_editor_modificacion"]) != len(df_diario) or \
-                           list(st.session_state["df_editor_modificacion"]["id"]) != list(df_diario["id"]):
-                            st.session_state["df_editor_modificacion"] = df_diario.copy()
-
-                        def procesar_cambios_editor_mod():
-                            estado_editor = st.session_state.get("editor_diario_mod_dinamico", {})
-                            df_act = st.session_state["df_editor_modificacion"]
-                            
-                            if isinstance(estado_editor, dict) and "edited_rows" in estado_editor:
-                                for idx_str, cambios in estado_editor["edited_rows"].items():
-                                    idx = int(idx_str)
-                                    for col, val in cambios.items():
-                                        if idx < len(df_act):
-                                            df_act.at[idx, col] = val
-                                            # Si se cambió la columna plan_cuentas, extraemos el código y actualizamos cuenta_contable automáticamente
-                                            if col == "plan_cuentas":
-                                                val_str = str(val).strip()
-                                                cod_puro = val_str.split(" - ")[0].strip() if " - " in val_str else val_str
-                                                df_act.at[idx, "cuenta_contable"] = dict_nombres_cuentas.get(cod_puro, "")
-
-                            if isinstance(estado_editor, dict) and "added_rows" in estado_editor:
-                                for nueva_fila in estado_editor["added_rows"]:
-                                    val_plan = nueva_fila.get("plan_cuentas", "")
-                                    if val_plan:
-                                        cod_puro = str(val_plan).split(" - ")[0].strip() if " - " in str(val_plan) else str(val_plan)
-                                        nueva_fila["cuenta_contable"] = dict_nombres_cuentas.get(cod_puro, "")
-                                    df_act = pd.concat([df_act, pd.DataFrame([nueva_fila])], ignore_index=True)
-
-                            st.session_state["df_editor_modificacion"] = df_act
-
                         column_config_dict = {
                             "id": st.column_config.NumberColumn("ID", disabled=True),
                             "n_comprobante": st.column_config.TextColumn("Comprobante"),
-                            "fecha": st.column_config.DateColumn("Fecha"),
+                            "fecha": st.column_config.DateColumn("Fecha", format="YYYY-MM-DD"),
                             "descripcion": st.column_config.TextColumn("Descripción"),
                             "plan_cuentas": st.column_config.SelectboxColumn("Plan Cuentas", options=opciones_cuentas, required=True),        
-                            "cuenta_contable": st.column_config.TextColumn("Cuenta Contable", help="Se actualiza automáticamente al elegir la cuenta"), 
+                            "cuenta_contable": st.column_config.TextColumn("Cuenta Contable", disabled=True, help="Se actualiza automáticamente al guardar o elegir cuenta"), 
                             "referencia": st.column_config.TextColumn("Referencia"),
                             "debe": st.column_config.NumberColumn("Debe", format="%,.2f", min_value=0.0),
                             "haber": st.column_config.NumberColumn("Haber", format="%,.2f", min_value=0.0)
                         }
 
                         df_editado = st.data_editor(
-                            st.session_state["df_editor_modificacion"], 
+                            df_diario, 
                             use_container_width=True, 
                             hide_index=True,
                             num_rows="dynamic",
                             key="editor_diario_mod_dinamico",
-                            on_change=procesar_cambios_editor_mod,
                             column_config=column_config_dict
                         )
 
-                        st.session_state["df_editor_modificacion"] = df_editado
+                        # Sincronizar automáticamente la descripción de cuenta según el código elegido en plan_cuentas
+                        if not df_editado.empty and 'plan_cuentas' in df_editado.columns:
+                            def sincronizar_nombre_cuenta(val_plan):
+                                val_str = str(val_plan).strip()
+                                cod_puro = val_str.split(" - ")[0].strip() if " - " in val_str else val_str
+                                return dict_nombres_cuentas.get(cod_puro, "")
+                            
+                            df_editado['cuenta_contable'] = df_editado['plan_cuentas'].apply(sincronizar_nombre_cuenta)
 
                         if st.button("💾 Guardar Cambios", key="btn_guardar_cambios", type="primary"):
                             try:
-                                t_debe_val = pd.to_numeric(df_editado['debe'], errors='coerce').sum()
-                                t_haber_val = pd.to_numeric(df_editado['haber'], errors='coerce').sum()
+                                t_debe_val = pd.to_numeric(df_editado['debe'], errors='coerce').fillna(0.0).sum()
+                                t_haber_val = pd.to_numeric(df_editado['haber'], errors='coerce').fillna(0.0).sum()
 
                                 if abs(t_debe_val - t_haber_val) >= 0.01:
-                                    st.error(f"❌ El asiento no cuadra. Debe: {t_debe_val:,.2f} | Haber: {t_haber_val:,.2f}")
+                                    st.error(f"❌ El asiento no cuadra. Debe: {formato_contable(t_debe_val)} | Haber: {formato_contable(t_haber_val)}")
                                 else:
-                                    # 4. Limpiar los valores de plan_cuentas para enviar solo el código puro a la BD
                                     df_guardar = df_editado.copy()
                                     df_guardar['plan_cuentas'] = df_guardar['plan_cuentas'].astype(str).apply(
                                         lambda x: x.split(" - ")[0].strip() if " - " in x else x.strip()
                                     )
+                                    df_guardar['fecha'] = df_guardar['fecha'].astype(str)
                                     
                                     exito = actualizar_libro_diario_en_db(db_actual, df_guardar)
                                     if exito:
                                         st.success("¡Registros actualizados correctamente en la base de datos!")
                                         st.balloons()
-                                        if "df_editor_modificacion" in st.session_state:
-                                            del st.session_state["df_editor_modificacion"]
                                         time.sleep(1)
                                         st.rerun()
                                     else:
