@@ -3122,6 +3122,11 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
 
 
+import io
+import datetime
+import pandas as pd
+import streamlit as st
+
 def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
     st.subheader("📖 Libro Mayor Analítico")
 
@@ -3159,7 +3164,6 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
     cuenta_sel_label = st.selectbox("Seleccione cuenta:", lista_opciones, key="select_cuenta_mayor")
     cuenta_para_consulta = opciones_mapa.get(cuenta_sel_label, cuenta_sel_label.split(" - ")[0])
     
-    import datetime
     def_inicio = f_ini_g if f_ini_g else datetime.date(2026, 5, 1)
     def_fin = f_fin_g if f_fin_g else datetime.date(2026, 5, 31)
 
@@ -3209,18 +3213,60 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
             m2.metric("TOTAL HABER", f"Bs. {formato_venezuela(t_haber)}")
             m3.metric("SALDO FINAL", f"Bs. {formato_venezuela(s_final)}")
 
-            # Limpieza de fecha en texto plano y formateo de columnas numéricas
+            # Preparar vista en pantalla (texto formateado)
             reporte_vista = reporte.copy()
             if 'fecha' in reporte_vista.columns:
                 reporte_vista['fecha'] = reporte_vista['fecha'].astype(str).str.split().str[0].str.replace('00:00:00', '').str.strip()
 
-            # 🌟 Formateo robusto buscando columnas sin importar mayúsculas/minúsculas
             for col in reporte_vista.columns:
-                col_lower = col.lower()
-                if col_lower in ['debe', 'haber', 'saldo', 'saldo_actual', 'saldo_progresivo']:
+                if col.lower() in ['debe', 'haber', 'saldo', 'saldo_actual', 'saldo_progresivo']:
                     reporte_vista[col] = reporte_vista[col].apply(formato_venezuela)
 
             st.dataframe(reporte_vista, use_container_width=True, hide_index=True)
+
+            # =========================================================
+            # 📥 GENERACIÓN Y DESCARGA DE EXCEL (.XLSX)
+            # =========================================================
+            df_excel = reporte.copy()
+            if 'fecha' in df_excel.columns:
+                df_excel['fecha'] = df_excel['fecha'].astype(str).str.split().str[0].str.replace('00:00:00', '').str.strip()
+
+            # Asegurar que las columnas numéricas sean flotantes reales en Excel
+            cols_num_indices = []
+            for idx, col in enumerate(df_excel.columns, start=1):
+                if col.lower() in ['debe', 'haber', 'saldo', 'saldo_actual', 'saldo_progresivo']:
+                    df_excel[col] = pd.to_numeric(df_excel[col], errors='coerce').fillna(0.0)
+                    cols_num_indices.append(idx)
+
+            buffer_excel = io.BytesIO()
+            with pd.ExcelWriter(buffer_excel, engine='openpyxl') as writer:
+                df_excel.to_excel(writer, index=False, sheet_name='Mayor_Analitico', startrow=3)
+                ws = writer.sheets['Mayor_Analitico']
+
+                # Encabezado informativo superior
+                ws['A1'] = f"LIBRO MAYOR ANALÍTICO - {str(db_nombre).upper()}"
+                ws['A2'] = f"Cuenta: {st.session_state.cuenta_actual} | Período: {f_m_d} al {f_m_h}"
+
+                # Aplicar formato numérico real (#,##0.00) y ajustar ancho de columnas
+                for col_idx in cols_num_indices:
+                    for row_idx in range(5, len(df_excel) + 5):
+                        ws.cell(row=row_idx, column=col_idx).number_format = '#,##0.00'
+
+                for col_cells in ws.columns:
+                    col_letter = col_cells[3].column_letter
+                    max_len = max((len(str(c.value or "")) for c in col_cells[3:]), default=12)
+                    ws.column_dimensions[col_letter].width = min(max_len + 4, 45)
+
+            nombre_limpio = str(cuenta_para_consulta).replace(".", "_").replace(" ", "_")
+            nombre_archivo = f"Mayor_Analitico_{nombre_limpio}_{f_m_d}_al_{f_m_h}.xlsx"
+
+            st.download_button(
+                label="📥 Descargar Libro Mayor en Excel (.xlsx)",
+                data=buffer_excel.getvalue(),
+                file_name=nombre_archivo,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
 
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
