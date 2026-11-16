@@ -3123,115 +3123,104 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
 
 @st.cache_data(ttl=300)
-def generar_balance_comprobacion(db_name, f_i, f_f, sucursal):
-    if not db_name:
-        return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
+    st.subheader("📖 Libro Mayor Analítico")
+
+    # 1. ESTADOS DE SESIÓN
+    if 'reporte_mayor' not in st.session_state: st.session_state.reporte_mayor = None
+    if 'movs_solos' not in st.session_state: st.session_state.movs_solos = None
+    if 'cuenta_actual' not in st.session_state: st.session_state.cuenta_actual = ""
+
+    # Registrar log de forma segura sin mantener la conexión abierta innecesariamente
+    conn_log = conectar_db(db_nombre)
+    if conn_log:
+        try:
+            registrar_log_automatico(conn_log, "CONSULTA_LIBRO_MAYOR", f"Usuario {st.session_state.get('usuario', 'Desconocido')} consultó mayor en {db_nombre}")
+        except:
+            pass
+        finally:
+            conn_log.close()
+
+    # 2. Carga optimizada de cuentas mediante caché
+    df_cuentas = _obtener_cuentas_detalle(db_nombre)
+    if df_cuentas.empty:
+        st.error(f"❌ No se encontraron cuentas en el plan de cuentas de: {db_nombre}")
+        return
+
+    # Construcción ultrarrápida de opciones sin iterrows()
+    df_cuentas['codigo_str'] = df_cuentas['codigo'].astype(str).str.strip()
+    df_cuentas['nombre_str'] = df_cuentas['nombre'].fillna("").astype(str).str.strip()
     
-    conn = conectar_db(db_name)
-    if not conn:
-        return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+    opciones_mapa = {
+        (f"{row.codigo_str} - {row.nombre_str}" if row.nombre_str else row.codigo_str): row.codigo_str
+        for _, row in df_cuentas.iterrows()
+    }
+    lista_opciones = list(opciones_mapa.keys())
+
+    cuenta_sel_label = st.selectbox("Seleccione cuenta:", lista_opciones, key="select_cuenta_mayor")
+    cuenta_para_consulta = opciones_mapa.get(cuenta_sel_label, cuenta_sel_label.split(" - ")[0])
     
-    cursor = None
-    try:
-        cursor = conn.cursor()
+    import datetime
+    def_inicio = f_ini_g if f_ini_g else datetime.date(2026, 5, 1)
+    def_fin = f_fin_g if f_fin_g else datetime.date(2026, 5, 31)
+
+    col1, col2 = st.columns(2)
+    f_m_d = col1.date_input("Desde", value=def_inicio, key="m_d_mayo")
+    f_m_h = col2.date_input("Hasta", value=def_fin, key="m_h_mayo")
+
+    if st.button("🔍 Generar Movimientos", key="btn_generar_movs_mayor"):
+        st.info(f"⏳ Procesando mayor para la cuenta {cuenta_para_consulta} del {f_m_d} al {f_m_h}...")
         
-        cursor.execute(f"SHOW COLUMNS FROM `{db_name}`.saldos_iniciales")
-        cols_si = [row[0].lower() for row in cursor.fetchall()]
-        col_c_si = next((c for c in cols_si if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_si[0])
+        res_reporte, movs_solos, saldo_final_real = ejecutar_mayor_analitico(db_nombre, cuenta_para_consulta, f_m_d, f_m_h)
         
-        cursor.execute(f"SHOW COLUMNS FROM `{db_name}`.asientos_contables")
-        cols_ac = [row[0].lower() for row in cursor.fetchall()]
-        col_c_ac = next((c for c in cols_ac if 'cuenta' in c or 'codigo' in c or 'plan' in c), cols_ac[0])
+        if res_reporte is not None and not res_reporte.empty:
+            st.session_state.reporte_mayor = res_reporte
+            st.session_state.movs_solos = movs_solos if not movs_solos.empty else res_reporte
+            st.session_state.saldo_final_reporte = saldo_final_real
+            st.session_state.cuenta_actual = cuenta_sel_label
+            st.rerun()
+        else:
+            st.session_state.reporte_mayor = None
+            st.session_state.movs_solos = None
+            st.warning("⚠️ La función `ejecutar_mayor_analitico` no devolvió registros para los parámetros dados.")
 
-        # CONSULTA UNIFICADA, ROBUSTA Y CON MANEJO DE CONTRA-ACTIVO: 
-        # 1. Balance (1, 2, 3): Saldos iniciales manuales + histórico anterior (con CASE WHEN para invertir la depreciación acumulada 1.2.1.02).
-        # 2. Resultados (4, 5, 6, 7, 8): Acumulado del año en curso desde el 1 de enero hasta antes de f_i.
-        sql_si = f"""
-            SELECT plan_cuentas, SUM(val) as val FROM (
-                SELECT `{col_c_si}` as plan_cuentas, 
-                       SUM(CASE WHEN `{col_c_si}` LIKE '1.2.1.02%%' THEN (haber - debe) ELSE (debe - haber) END) as val 
-                FROM `{db_name}`.saldos_iniciales 
-                WHERE SUBSTRING(`{col_c_si}`, 1, 1) IN ('1', '2', '3')
-                GROUP BY `{col_c_si}`
-                UNION ALL
-                SELECT `{col_c_ac}` as plan_cuentas, 
-                       SUM(CASE WHEN `{col_c_ac}` LIKE '1.2.1.02%%' THEN (haber - debe) ELSE (debe - haber) END) as val 
-                FROM `{db_name}`.asientos_contables 
-                WHERE fecha < %s AND SUBSTRING(`{col_c_ac}`, 1, 1) IN ('1', '2', '3') 
-                GROUP BY `{col_c_ac}`
-                UNION ALL
-                SELECT `{col_c_ac}` as plan_cuentas, SUM(debe) - SUM(haber) as val 
-                FROM `{db_name}`.asientos_contables 
-                WHERE YEAR(fecha) = YEAR(%s) 
-                  AND fecha < %s 
-                  AND SUBSTRING(`{col_c_ac}`, 1, 1) IN ('4', '5', '6', '7', '8') 
-                GROUP BY `{col_c_ac}`
-            ) as acumulado_total
-            GROUP BY plan_cuentas
-        """
+    st.divider()
+
+    if st.session_state.reporte_mayor is not None:
+        reporte = st.session_state.reporte_mayor
+        movs_solos = st.session_state.movs_solos
         
-        sql_mo_d = f"SELECT `{col_c_ac}` as cuenta_id, SUM(debe) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
-        sql_mo_h = f"SELECT `{col_c_ac}` as cuenta_id, SUM(haber) as val FROM `{db_name}`.asientos_contables WHERE fecha BETWEEN %s AND %s GROUP BY `{col_c_ac}`"
+        if not reporte.empty and movs_solos is not None:
+            t_debe = movs_solos['debe'].sum() if 'debe' in movs_solos.columns else 0.0
+            t_haber = movs_solos['haber'].sum() if 'haber' in movs_solos.columns else 0.0
+            s_final = st.session_state.get('saldo_final_reporte', 0.0)
 
-        # Pasamos f_i tres veces para los tres comodines %s de la consulta unificada de saldo inicial
-        df_si = ejecutar_consulta(sql_si, conn, params=(f_i, f_i, f_i))
-        df_debe = ejecutar_consulta(sql_mo_d, conn, params=(f_i, f_f))
-        df_haber = ejecutar_consulta(sql_mo_h, conn, params=(f_i, f_f))
+            # Función auxiliar para formatear los números al estilo 34.789,52
+            def formato_venezuela(val):
+                try:
+                    if pd.notnull(val):
+                        s = f"{float(val):,.2f}"
+                        return s.replace(',', 'X').replace('.', ',').replace('X', '.')
+                except:
+                    pass
+                return val
 
-        dfs = {'si': df_si, 'debe': df_debe, 'haber': df_haber}
-        lista_frames = []
-        
-        for nombre, df_aux in dfs.items():
-            if df_aux is not None and not df_aux.empty:
-                df_aux.columns = [str(c).lower().strip() for c in df_aux.columns]
-                col_pc = next((c for c in df_aux.columns if 'cuenta' in c or 'plan' in c or 'codigo' in c), df_aux.columns[0])
-                col_val = next((c for c in df_aux.columns if c != col_pc), df_aux.columns[-1])
-                
-                df_aux = df_aux.rename(columns={col_pc: 'Código', col_val: nombre})
-                df_aux[nombre] = pd.to_numeric(df_aux[nombre], errors='coerce').fillna(0.0)
-                df_aux['Código'] = df_aux['Código'].astype(str).str.strip()
-                df_aux = df_aux.groupby('Código')[nombre].sum().reset_index()
-                df_aux = df_aux.set_index('Código')
-                lista_frames.append(df_aux)
+            m1, m2, m3 = st.columns(3)
+            m1.metric("TOTAL DEBE", f"Bs. {formato_venezuela(t_debe)}")
+            m2.metric("TOTAL HABER", f"Bs. {formato_venezuela(t_haber)}")
+            m3.metric("SALDO FINAL", f"Bs. {formato_venezuela(s_final)}")
 
-        if not lista_frames:
-            return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
+            # Limpieza de fecha en texto plano y formateo de columnas numéricas
+            reporte_vista = reporte.copy()
+            if 'fecha' in reporte_vista.columns:
+                reporte_vista['fecha'] = reporte_vista['fecha'].astype(str).str.split().str[0].str.replace('00:00:00', '').str.strip()
 
-        balance = pd.concat(lista_frames, axis=1).fillna(0.0)
-        balance.reset_index(inplace=True)
-        
-        for c in ['si', 'debe', 'haber']:
-            if c not in balance.columns: 
-                balance[c] = 0.0
-            balance[c] = balance[c].astype(float)
-            
-        balance['Tipo'] = balance['Código'].astype(str).str[0]
-        balance['Saldo Inicial'] = balance['si']
-        
-        es_contra_activo = balance['Código'].astype(str).str.startswith('1.2')
-        es_deudor = (balance['Tipo'].isin(['1', '5', '6', '8'])) & (~es_contra_activo)
-        es_acreedor = balance['Tipo'].isin(['2', '3', '4', '7']) | es_contra_activo
+            cols_a_formatear = ['debe', 'haber', 'saldo']
+            for col in cols_a_formatear:
+                if col in reporte_vista.columns:
+                    reporte_vista[col] = reporte_vista[col].apply(formato_venezuela)
 
-        balance.loc[es_acreedor, 'Saldo Inicial'] = balance.loc[es_acreedor, 'Saldo Inicial'] * -1
-
-        balance['Saldo Final'] = 0.0
-        balance.loc[es_deudor, 'Saldo Final'] = balance['Saldo Inicial'] + balance['debe'] - balance['haber']
-        balance.loc[es_acreedor, 'Saldo Final'] = balance['Saldo Inicial'] + balance['haber'] - balance['debe']
-        
-        return balance[['Código', 'Saldo Inicial', 'debe', 'haber', 'Saldo Final']].rename(columns={
-            'debe': 'Debe', 'haber': 'Haber'
-        })
-
-    except Exception as e:
-        st.error(f"❌ Error en comprobación: {e}")
-        return pd.DataFrame(columns=['Código', 'Saldo Inicial', 'Debe', 'Haber', 'Saldo Final'])
-    finally:
-        if cursor:
-            try: cursor.close()
-            except: pass
-        if conn:
-            try: conn.close()
-            except: pass
+            st.dataframe(reporte_vista, use_container_width=True, hide_index=True)
 
 @st.cache_data(ttl=300)
 def generar_balance_profesional(db_name, f_i, f_f, sucursal):
