@@ -3122,7 +3122,6 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
 
 
 
-@st.cache_data(ttl=300)
 def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
     st.subheader("📖 Libro Mayor Analítico")
 
@@ -3141,7 +3140,7 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
         finally:
             conn_log.close()
 
-    # 2. Carga optimizada de cuentas mediante caché
+    # 2. Carga optimizada de cuentas mediante caché (Llamada única)
     df_cuentas = _obtener_cuentas_detalle(db_nombre)
     if df_cuentas.empty:
         st.error(f"❌ No se encontraron cuentas en el plan de cuentas de: {db_nombre}")
