@@ -11920,7 +11920,7 @@ if opcion_menu == "🏠 Inicio":
     import streamlit as st
 
     # ==============================================================================
-    # MÓDULO: TOP 5 COSTOS Y GASTOS (TABLA NATIVA PROFESIONAL)
+    # MÓDULO: TOP 5 COSTOS Y GASTOS (CUENTAS DE DETALLE 5 Y 6)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11928,19 +11928,19 @@ if opcion_menu == "🏠 Inicio":
     if not db or db == "{db}" or db == "None" or str(db).strip() == "":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
-        st.markdown("### 📊 Top 5 Cuentas de Costos y Gastos")
-        st.caption("Estructura consolidada por cuenta contable.")
+        st.markdown("### 📊 Top 5 Cuentas de Costos y Gastos (Clases 5 y 6)")
+        st.caption("Estructura consolidada exclusivamente para cuentas de detalle de costos y gastos.")
 
         hoy_g = datetime.date.today()
         primer_dia_g = hoy_g.replace(day=1)
         
         col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
         with col_g1:
-            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_native")
+            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_det_56")
         with col_g2:
-            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_native")
+            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_det_56")
         with col_g3:
-            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_native", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
+            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_det_56", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
 
         if fecha_ini_g > fecha_fin_g:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
@@ -11953,15 +11953,16 @@ if opcion_menu == "🏠 Inicio":
                     f_ini_str_g = fecha_ini_g.strftime('%Y-%m-%d')
                     f_fin_str_g = fecha_fin_g.strftime('%Y-%m-%d')
                     
-                    filtro_fecha_sql = "" if ver_historico_p else f"WHERE fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
+                    filtro_fecha_sql = "" if ver_historico_p else f"AND fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
                     
-                    # Consulta agrupando directamente por cuenta_contable
-                    query_cuentas_txt = f"""
+                    # Consulta SQL filtrando estrictamente cuentas que inicien por 5 o 6 en cuenta_contable
+                    query_cuentas_56 = f"""
                         SELECT 
                             cuenta_contable AS nombre_cuenta,
                             SUM(debe - haber) AS total_gasto
                         FROM asientos_contables
-                        {filtro_fecha_sql}
+                        WHERE (cuenta_contable LIKE '5%' OR cuenta_contable LIKE '6%')
+                          {filtro_fecha_sql}
                         GROUP BY cuenta_contable
                         HAVING total_gasto > 0
                         ORDER BY total_gasto DESC
@@ -11970,7 +11971,7 @@ if opcion_menu == "🏠 Inicio":
                     
                     df_gastos = pd.DataFrame()
                     try:
-                        df_gastos = pd.read_sql(query_cuentas_txt, conn)
+                        df_gastos = pd.read_sql(query_cuentas_56, conn)
                     except Exception as sql_err:
                         st.error(f"Error en la consulta SQL: {sql_err}")
                     
@@ -11990,14 +11991,13 @@ if opcion_menu == "🏠 Inicio":
                         with st.container(border=True):
                             st.metric("Total General Acumulado", formato_venezuela_gasto(total_general_gastos))
 
-                        st.markdown("#### 📋 Detalle de Cuentas Contables y Egresos")
+                        st.markdown("#### 📋 Detalle de Costos y Gastos (Cuentas 5 y 6)")
                         
-                        # Preparamos el DataFrame limpio para presentación ejecutiva
+                        # Preparamos el DataFrame para la vista ejecutiva
                         df_presentacion = df_gastos.copy()
                         df_presentacion['Porcentaje'] = df_presentacion['porcentaje'].apply(lambda x: f"{x:.1f}%")
                         df_presentacion['Total Cuenta (Bs.)'] = df_presentacion['total_gasto'].apply(formato_venezuela_gasto)
                         
-                        # Renombramos las columnas para la vista final
                         df_final = df_presentacion[[
                             "nombre_cuenta", 
                             "Total Cuenta (Bs.)", 
@@ -12006,7 +12006,7 @@ if opcion_menu == "🏠 Inicio":
                             "nombre_cuenta": "Denominación Contable"
                         })
                         
-                        # Renderizamos con la tabla nativa elegante de Streamlit
+                        # Renderizamos la tabla ejecutiva nativa
                         st.dataframe(
                             df_final,
                             use_container_width=True,
@@ -12015,7 +12015,7 @@ if opcion_menu == "🏠 Inicio":
 
                     else:
                         with st.container(border=True):
-                            st.info("ℹ️ No se registran movimientos con los filtros actuales para este periodo.")
+                            st.info("ℹ️ No se registran movimientos en cuentas de costos y gastos (5 y 6) para este periodo. Prueba tildando '¿Ver Todo?' para verificar histórico.")
 
                 else:
                     st.error("No se pudo establecer conexión con la base de datos seleccionada.")
