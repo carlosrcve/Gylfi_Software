@@ -21589,8 +21589,36 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
             df_prov_nac = df_auxiliar[df_auxiliar['Plan_Cuentas_Clean'] == '2.1.1.01.001'].copy()
 
             if not df_prov_nac.empty:
-                
-                # CREACIÓN DE LAS DOS PESTAÑAS (TAB 1 Y TAB 2)
+                # 1. APLICAMOS LA EXTRACCIÓN INTELIGENTE GLOBALMENTE PARA QUE AMBAS TABS COINCIDAN
+                import re
+                def extraer_proveedor_inteligente(row):
+                    prov = str(row['Proveedor']).strip()
+                    desc = str(row['Descripción']).upper()
+                    
+                    if prov in ["", "GENERAL / OTROS"] and "PAGO A PROVEEDOR" in desc:
+                        try:
+                            partes = desc.split("PAGO A PROVEEDOR")
+                            if len(partes) > 1:
+                                sub = partes[1].split("- FACTURA")[0].split(" - FAC")[0].strip()
+                                if sub:
+                                    return sub
+                        except Exception:
+                            pass
+                    elif prov in ["", "GENERAL / OTROS"] and "CANCELACIÓN DE PAGO A" in desc:
+                        try:
+                            partes = desc.split("CANCELACIÓN DE PAGO A")
+                            if len(partes) > 1:
+                                sub = partes[1].split("- FACTURA")[0].split(" - FAC")[0].strip()
+                                if sub:
+                                    return sub
+                        except Exception:
+                            pass
+                            
+                    return prov if prov not in ["", "None"] else "GENERAL / OTROS"
+
+                df_prov_nac['Proveedor'] = df_prov_nac.apply(extraer_proveedor_inteligente, axis=1)
+
+                # CREACIÓN DE LAS DOS PESTAÑAS
                 tab1, tab2 = st.tabs(["📄 Auxiliar Detallado", "📊 Neto de Deuda por Proveedor"])
 
                 # ==============================================================
@@ -21611,7 +21639,6 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                     if prov_seleccionado != "TODOS":
                         df_vista = df_vista[df_vista['Proveedor'] == prov_seleccionado].copy()
                     
-                    # Cálculo de saldo acumulado de pasivo (Haber aumenta deuda, Debe la disminuye)
                     df_vista['mov_temp'] = df_vista['Haber'] - df_vista['Debe']
                     df_vista['Saldo'] = df_vista['mov_temp'].cumsum()
                     if 'mov_temp' in df_vista.columns:
@@ -21675,61 +21702,22 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                         )
                     else:
                         col_pdf.error("❌ No se pudo generar el archivo PDF.")
+
                 # ==============================================================
-                # PESTAÑA 2: NETO DE DEUDA CONSOLIDADO POR PROVEEDOR REAL
+                # PESTAÑA 2: NETO DE DEUDA POR PROVEEDOR
                 # ==============================================================
                 with tab2:
                     st.markdown("#### 📋 Resumen Consolidado: Neto de Deuda por Proveedor")
                     st.caption(f"Calculado del {f_desde.strftime('%d/%m/%Y')} al {f_hasta.strftime('%d/%m/%Y')} para la cuenta 2.1.1.01.001.")
 
-                    # Copiamos la base de proveedores nacionales
-                    df_neto_base = df_prov_nac.copy()
-                    
-                    # FUNCIÓN INTELIGENTE PARA EXTRAER EL PROVEEDOR DESDE LA DESCRIPCIÓN SI DICE "GENERAL / OTROS"
-                    import re
-                    def extraer_proveedor_inteligente(row):
-                        prov = str(row['Proveedor']).strip()
-                        desc = str(row['Descripción']).upper()
-                        
-                        # Si el proveedor es genérico pero la descripción tiene el patrón de pago
-                        if prov in ["", "GENERAL / OTROS"] and "PAGO A PROVEEDOR" in desc:
-                            # Intenta extraer el texto entre "PAGO A PROVEEDOR" y " - FACTURA" o al final
-                            try:
-                                partes = desc.split("PAGO A PROVEEDOR")
-                                if len(partes) > 1:
-                                    sub = partes[1].split("- FACTURA")[0].split(" - FAC")[0].strip()
-                                    if sub:
-                                        return sub
-                            except Exception:
-                                pass
-                        elif prov in ["", "GENERAL / OTROS"] and "CANCELACIÓN DE PAGO A" in desc:
-                            try:
-                                partes = desc.split("CANCELACIÓN DE PAGO A")
-                                if len(partes) > 1:
-                                    sub = partes[1].split("- FACTURA")[0].split(" - FAC")[0].strip()
-                                    if sub:
-                                        return sub
-                            except Exception:
-                                pass
-                                
-                        return prov if prov not in ["", "None"] else "GENERAL / OTROS"
-
-                    # Aplicamos la extracción inteligente a cada fila
-                    df_neto_base['Proveedor'] = df_neto_base.apply(extraer_proveedor_inteligente, axis=1)
-
-                    # Agrupamos por proveedor real sumando el Haber (deudas) y el Debe (pagos)
-                    df_neto_agrupado = df_neto_base.groupby('Proveedor').agg(
+                    df_neto_agrupado = df_prov_nac.groupby('Proveedor').agg(
                         Total_Haber=('Haber', 'sum'),
                         Total_Debe=('Debe', 'sum')
                     ).reset_index()
 
-                    # Calculamos el neto en una sola columna (Haber menos Debe para pasivos)
                     df_neto_agrupado['Deuda_Neta'] = df_neto_agrupado['Total_Haber'] - df_neto_agrupado['Total_Debe']
-
-                    # Ordenamos de mayor a menor deuda neta pendiente
                     df_neto_agrupado = df_neto_agrupado.sort_values(by='Deuda_Neta', ascending=False)
 
-                    # DataFrame para visualizar en pantalla con formato de bolívares en una sola columna neta
                     df_neto_show = df_neto_agrupado.copy()
                     df_neto_show['Deuda Neta Pendiente'] = df_neto_show['Deuda_Neta'].apply(
                         lambda x: f"Bs. {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
@@ -21744,7 +21732,6 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                         }
                     )
 
-                    # Métrica global total de la deuda neta consolidada
                     gran_total_deuda = df_neto_agrupado['Deuda_Neta'].sum()
                     st.metric(
                         "Deuda Neta Consolidada (Proveedores Nacionales)", 
@@ -21753,7 +21740,6 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
 
                     st.divider()
 
-                    # BOTÓN DE DESCARGA EN EXCEL PARA EL RESUMEN NETO POR PROVEEDOR
                     st.write("### 📥 Exportar Resumen Neto por Proveedor en Excel")
                     
                     output_neto = io.BytesIO()
