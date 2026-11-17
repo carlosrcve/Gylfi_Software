@@ -13261,13 +13261,12 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.error(f"⚠️ Error crítico al cargar proveedores: {ex_prov}")
                     
                 return p_lista, p_dict
+
             # --- CARGAR Y ORDENAR PROVEEDORES ALFABÉTICAMENTE RÁPIDO ---
             if "cache_lista_provs" not in st.session_state or "cache_dict_provs" not in st.session_state:
                 with st.spinner("Cargando catálogo de proveedores..."):
-                    p_lista, p_dict, _, _ = cargar_datos_maestros_optimizados(db_actual)
-                    
-                    # 🌟 ORDENAMIENTO A-Z REAL (Poniendo todo en minúsculas temporalmente para comparar bien)
-                    p_lista = sorted(p_lista, key=lambda x: str(x).strip().lower())
+                    # 🌟 CORREGIDO: Usamos la función local segura en lugar de la que causaba el NameError
+                    p_lista, p_dict = cargar_proveedores_seguro(db_actual)
                     
                     st.session_state.cache_lista_provs = p_lista
                     st.session_state.cache_dict_provs = p_dict
