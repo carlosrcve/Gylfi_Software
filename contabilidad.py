@@ -11542,6 +11542,14 @@ if opcion_menu == "🏠 Inicio":
         st.markdown("### 🎯 Análisis de Punto de Equilibrio Operativo")
         st.caption("Visualiza rápidamente si tu negocio está cubriendo sus costos fijos y alcanzando la rentabilidad.")
         
+        # Sección pedagógica desplegable para el usuario
+        with st.expander("📖 ¿Cómo interpretar este análisis financiero?"):
+            st.markdown("""
+            * **Meta de Equilibrio:** Es el monto mínimo que tu empresa debe vender para **no perder dinero**. 
+            * **Si tu porcentaje de logro es menor al 100%:** Estás operando a pérdidas temporales o requieres inyección de capital/mayor impulso comercial.
+            * **Si tu porcentaje es mayor al 100%:** ¡El negocio ya es autosostenible y genera excedentes de ganancia operativa!
+            """)
+            
         hoy = datetime.date.today()
         primer_dia_mes = hoy.replace(day=1)
         
@@ -11632,8 +11640,8 @@ if opcion_menu == "🏠 Inicio":
                         else:
                             st.info("ℹ️ No se registran suficientes movimientos de ingresos en la cuenta 4 para el rango de fechas seleccionado.")
 
-                else:
-                    st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+                    else:
+                        st.error("No se pudo establecer conexión con la base de datos seleccionada.")
             except Exception as err:
                 st.error(f"Ocurrió un error al procesar el cálculo del punto de equilibrio: {err}")
 
