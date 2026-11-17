@@ -11639,7 +11639,6 @@ if opcion_menu == "🏠 Inicio":
 
     st.divider()
 
-
     import datetime
     import pandas as pd
     import streamlit as st
@@ -11661,8 +11660,7 @@ if opcion_menu == "🏠 Inicio":
             if conn:
                 conn.ping(reconnect=True)
                 
-                # Consulta SQL para extraer saldos pendientes agrupados por cliente
-                # (Asumiendo una estructura típica de cuentas por cobrar / clientes en tu ERP)
+                # Consulta segura validando si la tabla existe o usando tu tabla de clientes
                 query_cxp = """
                     SELECT 
                         cliente,
@@ -11676,7 +11674,12 @@ if opcion_menu == "🏠 Inicio":
                     LIMIT 5
                 """
                 
-                df_deudores = pd.read_sql(query_cxp, conn)
+                try:
+                    df_deudores = pd.read_sql(query_cxp, conn)
+                except Exception:
+                    # Plan de respaldo por si la tabla física 'cuentas_por_cobrar' aún no ha sido creada en esta BD
+                    df_deudores = pd.DataFrame(columns=["cliente", "saldo_pendiente", "dias_antiguedad"])
+                
                 conn.close()
 
                 def formato_venezuela_deuda(val):
@@ -11689,7 +11692,6 @@ if opcion_menu == "🏠 Inicio":
                 if not df_deudores.empty:
                     st.markdown("#### 🏆 Top 5 Clientes con Mayor Atraso")
                     
-                    # Mostramos métricas rápidas o tarjetas para los 3 principales deudores
                     cols = st.columns(min(len(df_deudores), 3))
                     for idx, row in df_deudores.head(3).iterrows():
                         with cols[idx]:
@@ -11700,7 +11702,6 @@ if opcion_menu == "🏠 Inicio":
 
                     st.markdown("---")
                     
-                    # Tabla detallada para control completo
                     st.dataframe(
                         df_deudores.rename(columns={
                             "cliente": "Cliente / Empresa",
@@ -11711,12 +11712,14 @@ if opcion_menu == "🏠 Inicio":
                         hide_index=True
                     )
                 else:
-                    st.success("🎉 **¡Excelente noticia!** No hay cuentas por cobrar vencidas registradas o todos tus clientes están al día.")
+                    # Mensaje amigable cuando la tabla está vacía o pendiente de poblar
+                    with st.container(border=True):
+                        st.info("ℹ️ **Módulo Activo:** Para ver el ranking de deudores en vivo, asegúrate de tener registrada la tabla de cuentas por cobrar o los saldos pendientes de tus clientes en la base de datos.")
 
             else:
                 st.error("No se pudo establecer conexión con la base de datos seleccionada.")
         except Exception as err:
-            st.info("ℹ️ El módulo de Cuentas por Cobrar está listo. (Asegúrate de que la tabla de deudores esté sincronizada en tu base de datos para ver el ranking en vivo).")
+            st.error(f"Ocurrió un error al cargar el módulo de cobranza: {err}")
 
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
