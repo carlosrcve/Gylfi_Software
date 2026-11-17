@@ -11637,14 +11637,14 @@ if opcion_menu == "🏠 Inicio":
             except Exception as err:
                 st.error(f"Ocurrió un error al procesar el cálculo del punto de equilibrio: {err}")
 
-    st.divider()
+   st.divider()
 
     import datetime
     import pandas as pd
     import streamlit as st
 
     # ==============================================================================
-    # MÓDULO: TOP CLIENTES QUE DEBEN (DESDE ASIENTOS CONTABLES) - GYLFI SOFTWARE
+    # MÓDULO: TOP CLIENTES QUE DEBEN (RANGO CUENTAS 1.1.2.01.001 AL 1.1.2.01.500)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11653,20 +11653,21 @@ if opcion_menu == "🏠 Inicio":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
         st.markdown("### 🚨 Top Clientes que Deben (Cuentas por Cobrar)")
-        st.caption("Visualiza rápidamente los saldos pendientes desde el libro diario para gestionar la cobranza a tiempo.")
+        st.caption("Visualiza los saldos pendientes del rango de cuentas 1.1.2.01.001 al 1.1.2.01.500 (Debe menos Haber).")
 
         try:
             conn = conectar_db(db)
             if conn:
                 conn.ping(reconnect=True)
                 
+                # Consulta SQL estricta por rango de plan de cuentas, considerando Debe - Haber y la descripción
                 query_cxp = """
                     SELECT 
                         descripcion AS cliente,
                         SUM(debe - haber) AS saldo_pendiente,
                         DATEDIFF(NOW(), MIN(fecha)) as dias_antiguedad
                     FROM asientos_contables
-                    WHERE plan_cuentas LIKE '1.1%' OR plan_cuentas LIKE '1%'
+                    WHERE plan_cuentas BETWEEN '1.1.2.01.001' AND '1.1.2.01.500'
                     GROUP BY descripcion
                     HAVING saldo_pendiente > 0
                     ORDER BY saldo_pendiente DESC
@@ -11696,11 +11697,11 @@ if opcion_menu == "🏠 Inicio":
                             with st.container(border=True):
                                 st.markdown(f"**{row['cliente']}**")
                                 st.metric("Deuda Pendiente", formato_venezuela_deuda(row['saldo_pendiente']))
-                                st.caption(f"⏳ Aprox. {int(row['dias_antiguedad'])} días")
+                                st.caption(f"⏳ Aprox. {int(row['dias_antiguedad'])} días en la calle")
 
                     st.markdown("---")
                     
-                    # Formateamos la columna numérica para la tabla visual
+                    # Formateamos la columna numérica para que se vea con puntos de miles y comas decimales
                     df_tabla = df_deudores.copy()
                     df_tabla['saldo_pendiente'] = df_tabla['saldo_pendiente'].apply(formato_venezuela_deuda)
                     
@@ -11715,7 +11716,7 @@ if opcion_menu == "🏠 Inicio":
                     )
                 else:
                     with st.container(border=True):
-                        st.success("🎉 **¡Excelente noticia!** No se registran saldos pendientes de cobro en este momento según los asientos contables analizados.")
+                        st.success("🎉 **¡Excelente noticia!** No se registran saldos pendientes de cobro en el rango de cuentas por cobrar analizado.")
 
             else:
                 st.error("No se pudo establecer conexión con la base de datos seleccionada.")
