@@ -11444,56 +11444,117 @@ if opcion_menu == "🏠 Inicio":
 
 
     #Puntode Equilibrio
-    import streamlit as st
-    import datetime
+    # ==============================================================================
+    # MÓDULO: PUNTO DE EQUILIBRIO OPERATIVO (ESTÁNDAR GYLFI SOFTWARE)
+    # ==============================================================================
 
-    def mostrar_widget_punto_equilibrio(db_nombre):
-        st.subheader("🎯 Meta del Mes: Punto de Equilibrio")
-        
-        # Tomar año y mes actual por defecto
-        hoy = datetime.date.today()
-        ventas_reales, costos_variables, costos_fijos = obtener_datos_punto_equilibrio(db_nombre, hoy.year, hoy.month)
-        
-        # 1. Cálculo del Margen de Contribución
-        if ventas_reales > 0:
-            margen_contribucion_pct = (ventas_reales - costos_variables) / ventas_reales
-        else:
-            margen_contribucion_pct = 0.0  # Evitar división por cero
+    # Sincronizamos la base de datos activa desde la sesión
+    db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
+
+    if not db or db == "{db}" or db == "None" or str(db).strip() == "":
+        st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
+    else:
+        # Intentamos obtener los datos de la empresa si tu función existe
+        try:
+            empresa_actual = obtener_datos_empresa_activa() if 'obtener_datos_empresa_activa' in globals() else {"nombre": str(db).upper()}
+        except Exception:
+            empresa_actual = {"nombre": str(db).upper()}
             
-        # 2. Cálculo del Punto de Equilibrio en Dinero
-        if margen_contribucion_pct > 0:
-            punto_equilibrio_monto = costos_fijos / margen_contribucion_pct
-        else:
-            punto_equilibrio_monto = 0.0
-            
-        # 3. Porcentaje de cumplimiento actual
-        if punto_equilibrio_monto > 0:
-            progreso_pct = min(ventas_reales / punto_equilibrio_monto, 1.0)
-        else:
-            progreso_pct = 0.0
-
-        # --- RENDERIZADO VISUAL EN STREAMLIT ---
-        col1, col2, col3 = st.columns(3)
+        st.markdown("### 🎯 Análisis de Punto de Equilibrio Operativo")
+        st.caption("Visualiza rápidamente si tu negocio está cubriendo sus costos fijos y alcanzando la rentabilidad.")
         
-        def formato_bs(v):
-            return f"Bs. {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            fecha_ini_pe = st.date_input("Fecha Desde:", datetime(2026, 5, 1), key="pe_f_ini")
+        with col_f2:
+            fecha_fin_pe = st.date_input("Fecha Hasta:", datetime(2026, 5, 31), key="pe_f_fin")
 
-        col1.metric("Costos Fijos del Mes", formato_bs(costos_fijos), help="Suma de alquileres, nómina fija y gastos operativos.")
-        col2.metric("Ventas Actuales", formato_bs(ventas_reales), help="Ingresos facturados en lo que va del mes.")
-        col3.metric("Meta de Equilibrio", formato_bs(punto_equilibrio_monto), help="Monto exacto donde la empresa no gana ni pierde.")
+        if st.button("🔄 Calcular Punto de Equilibrio", key="btn_calcular_punto_eq"):
+            if fecha_ini_pe > fecha_fin_pe:
+                st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
+            else:
+                try:
+                    conn = conectar_db(db)
+                    if conn:
+                        conn.ping(reconnect=True)
+                        
+                        # Consulta robusta adaptada a tus rangos de fecha personalizados
+                        query_pe = """
+                            SELECT 
+                                COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) AS total_ventas,
+                                COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN (debe - haber) ELSE 0 END), 0) AS costos_variables,
+                                COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' OR TRIM(plan_cuentas) LIKE '6%' THEN (debe - haber) ELSE 0 END), 0) AS costos_fijos
+                            FROM asientos_contables
+                            WHERE fecha BETWEEN %s AND %s
+                        """
+                        import pandas as pd
+                        df_pe = pd.read_sql(query_pe, conn, params=(fecha_ini_pe.strftime('%Y-%m-%d'), fecha_fin_pe.strftime('%Y-%m-%d')))
+                        conn.close()
 
-        st.markdown("---")
-        
-        # Barra de progreso intuitiva
-        if ventas_reales >= punto_equilibrio_monto and punto_equilibrio_monto > 0:
-            st.success(f"🚀 **¡Objetivo cumplido!** Tu empresa ya superó el punto de equilibrio. Todo lo que vendas a partir de ahora es **ganancia neta**.")
-            st.progress(1.0)
-        elif punto_equilibrio_monto > 0:
-            faltante = punto_equilibrio_monto - ventas_reales
-            st.warning(f"⚠️ **En proceso:** Te faltan **{formato_bs(faltante)}** en ventas este mes para cubrir todos tus costos.")
-            st.progress(progreso_pct)
-        else:
-            st.info("ℹ️ Configura tus cuentas de ingresos y gastos para calcular automáticamente el punto de equilibrio.")
+                        if not df_pe.empty:
+                            ventas = float(df_pe['total_ventas'].iloc[0] or 0.0)
+                            costos_vars = float(df_pe['costos_variables'].iloc[0] or 0.0)
+                            costos_fijos = float(df_pe['costos_fijos'].iloc[0] or 0.0)
+                        else:
+                            ventas, costos_vars, costos_fijos = 0.0, 0.0, 0.0
+
+                        # Cálculos financieros clave
+                        utilidad_bruta = ventas - costos_vars
+                        margen_contribucion = (utilidad_bruta / ventas) if ventas > 0 else 0.0
+                        
+                        if margen_contribucion > 0:
+                            punto_equilibrio = costos_fijos / margen_contribucion
+                        else:
+                            punto_equilibrio = costos_fijos
+
+                        # Función de formato monetario venezolano (34.789,52)
+                        def formato_venezuela_pe(val):
+                            try:
+                                s = f"{float(val):,.2f}"
+                                return "Bs. " + s.replace(',', 'X').replace('.', ',').replace('X', '.')
+                            except:
+                                return "Bs. 0,00"
+
+                        # Mostramos métricas clave en pantalla
+                        m1, m2, m3, m4 = st.columns(4)
+                        m1.metric("Costos Fijos", formato_venezuela_pe(costos_fijos))
+                        m2.metric("Margen Contribución", f"{margen_contribucion * 100:.1f}%")
+                        m3.metric("Ventas Reales", formato_venezuela_pe(ventas))
+                        
+                        ratio_cumplimiento = (ventas / punto_equilibrio) if punto_equilibrio > 0 else 0.0
+                        m4.metric(
+                            "Meta de Equilibrio", 
+                            formato_venezuela_pe(punto_equilibrio), 
+                            delta=f"{ratio_cumplimiento * 100:.1f}% log.",
+                            delta_color="normal" if ratio_cumplimiento >= 1.0 else "inverse"
+                        )
+
+                        st.markdown("---")
+
+                        # Diagnóstico visual amigable para el emprendedor
+                        if punto_equilibrio > 0:
+                            progreso = min(max(ratio_cumplimiento, 0.0), 1.0)
+                            st.progress(progreso)
+
+                            if ventas >= punto_equilibrio:
+                                excedente = ventas - punto_equilibrio
+                                st.success(
+                                    f"🚀 **¡Excelente noticia!** Has superado el punto de equilibrio para este período. "
+                                    f"Tus ventas superan la meta por **{formato_venezuela_pe(excedente)}** (Ganancia Neta Operativa)."
+                                )
+                            else:
+                                faltante = punto_equilibrio - ventas
+                                st.warning(
+                                    f"⚠️ **En desarrollo:** Te faltan **{formato_venezuela_pe(faltante)}** en ventas "
+                                    f"dentro de este rango de fechas para cubrir el 100% de tus compromisos fijos."
+                                )
+                        else:
+                            st.info("ℹ️ No se registran suficientes movimientos de ingresos o costos en el rango de fechas seleccionado para calcular el punto de equilibrio.")
+
+                    else:
+                        st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+                except Exception as err:
+                    st.error(f"Ocurrió un error al procesar el cálculo del punto de equilibrio: {err}")
 
 
 
