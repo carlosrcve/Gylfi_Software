@@ -11921,7 +11921,7 @@ if opcion_menu == "🏠 Inicio":
     import plotly.express as px
 
     # ==============================================================================
-    # MÓDULO: TOP 5 GASTOS Y COSTOS (GRÁFICO PLOTLY CON MONTONES Y CUENTAS)
+    # MÓDULO: TOP 5 GASTOS Y COSTOS (GRÁFICO PLOTLY CON MONTOS Y CUENTAS)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -12087,7 +12087,7 @@ if opcion_menu == "🏠 Inicio":
                 else:
                     st.error("No se pudo establecer conexión con la base de datos seleccionada.")
             except Exception as err:
-            st.error(f"Ocurrió un error al cargar el análisis: {err}")
+                st.error(f"Ocurrió un error al cargar el análisis: {err}")
 
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
