@@ -13217,11 +13217,13 @@ elif opcion_menu == "📝 Asientos Contables":
                     except Exception as e:
                         st.error(f"Error al eliminar: {e}")
         # --- TAB 2: GESTIÓN Y GENERACIÓN DE ÓRDENES DE PAGO Y CRUCE ---
-        # --- TAB 2: GESTIÓN Y GENERACIÓN DE ÓRDENES DE PAGO Y CRUCE ---
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
-            # 🌟 DEFINIMOS EL MODO DE VISTA PARA EVITAR EL NAMEERROR
+            # 🌟 INICIALIZAR VARIABLES DE SESIÓN DE FORMA SEGURA
+            if "orden_guardada_exito" not in st.session_state:
+                st.session_state.orden_guardada_exito = False
+
             modo_vista = st.radio(
                 "Seleccione la acción:",
                 ("Emitir Nueva Orden de Pago", "Consultar / Gestionar Órdenes"),
@@ -13286,6 +13288,7 @@ elif opcion_menu == "📝 Asientos Contables":
             # 📋 OPCIÓN 1: EMITIR NUEVA ORDEN DE PAGO
             # ==========================================
             if modo_vista == "Emitir Nueva Orden de Pago":
+                # 🌟 EVALUACIÓN SEGURA CON .get()
                 if not st.session_state.get('orden_guardada_exito', False):
                     st.markdown("### ✍️ Emitir Nueva Orden de Pago")
                     
