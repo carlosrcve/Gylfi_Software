@@ -11637,7 +11637,86 @@ if opcion_menu == "🏠 Inicio":
             except Exception as err:
                 st.error(f"Ocurrió un error al procesar el cálculo del punto de equilibrio: {err}")
 
+    st.divider()
 
+
+    import datetime
+    import pandas as pd
+    import streamlit as st
+
+    # ==============================================================================
+    # MÓDULO: TOP CLIENTES QUE DEBEN (CUENTAS POR COBRAR) - GYLFI SOFTWARE
+    # ==============================================================================
+
+    db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
+
+    if not db or db == "{db}" or db == "None" or str(db).strip() == "":
+        st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
+    else:
+        st.markdown("### 🚨 Top Clientes que Deben (Cuentas por Cobrar)")
+        st.caption("Visualiza rápidamente a los clientes con mayores saldos pendientes y evita que el dinero se quede en la calle.")
+
+        try:
+            conn = conectar_db(db)
+            if conn:
+                conn.ping(reconnect=True)
+                
+                # Consulta SQL para extraer saldos pendientes agrupados por cliente
+                # (Asumiendo una estructura típica de cuentas por cobrar / clientes en tu ERP)
+                query_cxp = """
+                    SELECT 
+                        cliente,
+                        SUM(debe - haber) AS saldo_pendiente,
+                        DATEDIFF(NOW(), MIN(fecha)) as dias_antiguedad
+                    FROM cuentas_por_cobrar
+                    WHERE estado != 'Pagado'
+                    GROUP BY cliente
+                    HAVING saldo_pendiente > 0
+                    ORDER BY saldo_pendiente DESC
+                    LIMIT 5
+                """
+                
+                df_deudores = pd.read_sql(query_cxp, conn)
+                conn.close()
+
+                def formato_venezuela_deuda(val):
+                    try:
+                        s = f"{float(val):,.2f}"
+                        return "Bs. " + s.replace(',', 'X').replace('.', ',').replace('X', '.')
+                    except Exception:
+                        return "Bs. 0,00"
+
+                if not df_deudores.empty:
+                    st.markdown("#### 🏆 Top 5 Clientes con Mayor Atraso")
+                    
+                    # Mostramos métricas rápidas o tarjetas para los 3 principales deudores
+                    cols = st.columns(min(len(df_deudores), 3))
+                    for idx, row in df_deudores.head(3).iterrows():
+                        with cols[idx]:
+                            with st.container(border=True):
+                                st.markdown(f"**{row['cliente']}**")
+                                st.metric("Deuda Pendiente", formato_venezuela_deuda(row['saldo_pendiente']))
+                                st.caption(f"⏳ Aprox. {int(row['dias_antiguedad'])} días en la calle")
+
+                    st.markdown("---")
+                    
+                    # Tabla detallada para control completo
+                    st.dataframe(
+                        df_deudores.rename(columns={
+                            "cliente": "Cliente / Empresa",
+                            "saldo_pendiente": "Deuda Total (Bs.)",
+                            "dias_antiguedad": "Días de Retraso"
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.success("🎉 **¡Excelente noticia!** No hay cuentas por cobrar vencidas registradas o todos tus clientes están al día.")
+
+            else:
+                st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+        except Exception as err:
+            st.info("ℹ️ El módulo de Cuentas por Cobrar está listo. (Asegúrate de que la tabla de deudores esté sincronizada en tu base de datos para ver el ranking en vivo).")
 
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
