@@ -10705,6 +10705,40 @@ def generar_pdf_flujo_efectivo(nombre_empresa, datos_efectivo, cpc_info=None):
     buffer.seek(0)
     return buffer.getvalue()
 
+def obtener_datos_punto_equilibrio(db_nombre, anio, mes):
+    """
+    Extrae los Ingresos, Costos Variables y Costos Fijos del mes 
+    directamente desde los asientos contables de MySQL/TiDB Cloud.
+    """
+    conn = conectar_db(db_nombre)
+    if not conn:
+        return 0.0, 0.0, 0.0
+    
+    try:
+        query = """
+            SELECT 
+                SUM(CASE WHEN plan_cuentas LIKE '3%' THEN (haber - debe) ELSE 0 END) AS total_ventas,
+                SUM(CASE WHEN plan_cuentas LIKE '4%' THEN (debe - haber) ELSE 0 END) AS costos_variables,
+                SUM(CASE WHEN plan_cuentas LIKE '5%' OR plan_cuentas LIKE '6%' THEN (debe - haber) ELSE 0 END) AS costos_fijos
+            FROM asientos_contables
+            WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s
+        """
+        import pandas as pd
+        df_eq = pd.read_sql(query, conn, params=(anio, mes))
+        
+        if not df_eq.empty:
+            ventas = float(df_eq['total_ventas'].iloc[0] or 0.0)
+            c_vars = float(df_eq['costos_variables'].iloc[0] or 0.0)
+            c_fijos = float(df_eq['costos_fijos'].iloc[0] or 0.0)
+            return ventas, c_vars, c_fijos
+    except Exception as e:
+        print(f"Error calculando punto de equilibrio: {e}")
+    finally:
+        conn.close()
+        
+    return 0.0, 0.0, 0.0
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -11407,6 +11441,61 @@ if opcion_menu == "🏠 Inicio":
                     st.error("No se pudo establecer conexión con la base de datos seleccionada.")
             except Exception as err:
                 st.error(f"Ocurrió un error al procesar el reporte: {err}")
+
+
+    #Puntode Equilibrio
+    import streamlit as st
+    import datetime
+
+    def mostrar_widget_punto_equilibrio(db_nombre):
+        st.subheader("🎯 Meta del Mes: Punto de Equilibrio")
+        
+        # Tomar año y mes actual por defecto
+        hoy = datetime.date.today()
+        ventas_reales, costos_variables, costos_fijos = obtener_datos_punto_equilibrio(db_nombre, hoy.year, hoy.month)
+        
+        # 1. Cálculo del Margen de Contribución
+        if ventas_reales > 0:
+            margen_contribucion_pct = (ventas_reales - costos_variables) / ventas_reales
+        else:
+            margen_contribucion_pct = 0.0  # Evitar división por cero
+            
+        # 2. Cálculo del Punto de Equilibrio en Dinero
+        if margen_contribucion_pct > 0:
+            punto_equilibrio_monto = costos_fijos / margen_contribucion_pct
+        else:
+            punto_equilibrio_monto = 0.0
+            
+        # 3. Porcentaje de cumplimiento actual
+        if punto_equilibrio_monto > 0:
+            progreso_pct = min(ventas_reales / punto_equilibrio_monto, 1.0)
+        else:
+            progreso_pct = 0.0
+
+        # --- RENDERIZADO VISUAL EN STREAMLIT ---
+        col1, col2, col3 = st.columns(3)
+        
+        def formato_bs(v):
+            return f"Bs. {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+        col1.metric("Costos Fijos del Mes", formato_bs(costos_fijos), help="Suma de alquileres, nómina fija y gastos operativos.")
+        col2.metric("Ventas Actuales", formato_bs(ventas_reales), help="Ingresos facturados en lo que va del mes.")
+        col3.metric("Meta de Equilibrio", formato_bs(punto_equilibrio_monto), help="Monto exacto donde la empresa no gana ni pierde.")
+
+        st.markdown("---")
+        
+        # Barra de progreso intuitiva
+        if ventas_reales >= punto_equilibrio_monto and punto_equilibrio_monto > 0:
+            st.success(f"🚀 **¡Objetivo cumplido!** Tu empresa ya superó el punto de equilibrio. Todo lo que vendas a partir de ahora es **ganancia neta**.")
+            st.progress(1.0)
+        elif punto_equilibrio_monto > 0:
+            faltante = punto_equilibrio_monto - ventas_reales
+            st.warning(f"⚠️ **En proceso:** Te faltan **{formato_bs(faltante)}** en ventas este mes para cubrir todos tus costos.")
+            st.progress(progreso_pct)
+        else:
+            st.info("ℹ️ Configura tus cuentas de ingresos y gastos para calcular automáticamente el punto de equilibrio.")
+
+
 
     st.divider()
     # Estado de Flujo de Efectivo (IFRS / VEN-NIF)
