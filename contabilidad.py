@@ -11443,7 +11443,10 @@ if opcion_menu == "🏠 Inicio":
                 st.error(f"Ocurrió un error al procesar el reporte: {err}")
 
 
-    #Puntode Equilibrio
+    import datetime
+    import pandas as pd
+    import streamlit as st
+
     # ==============================================================================
     # MÓDULO: PUNTO DE EQUILIBRIO OPERATIVO (ESTÁNDAR GYLFI SOFTWARE)
     # ==============================================================================
@@ -11463,59 +11466,62 @@ if opcion_menu == "🏠 Inicio":
         st.markdown("### 🎯 Análisis de Punto de Equilibrio Operativo")
         st.caption("Visualiza rápidamente si tu negocio está cubriendo sus costos fijos y alcanzando la rentabilidad.")
         
+        # Selectores de fecha (por defecto el mes actual)
+        hoy = datetime.today() if hasattr(datetime, "today") else datetime.date.today()
+        
         col_f1, col_f2 = st.columns(2)
         with col_f1:
             fecha_ini_pe = st.date_input("Fecha Desde:", datetime(2026, 5, 1), key="pe_f_ini")
         with col_f2:
             fecha_fin_pe = st.date_input("Fecha Hasta:", datetime(2026, 5, 31), key="pe_f_fin")
 
-        if st.button("🔄 Calcular Punto de Equilibrio", key="btn_calcular_punto_eq"):
-            if fecha_ini_pe > fecha_fin_pe:
-                st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
-            else:
-                try:
-                    conn = conectar_db(db)
-                    if conn:
-                        conn.ping(reconnect=True)
-                        
-                        # Consulta robusta adaptada a tus rangos de fecha personalizados
-                        query_pe = """
-                            SELECT 
-                                COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) AS total_ventas,
-                                COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN (debe - haber) ELSE 0 END), 0) AS costos_variables,
-                                COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' OR TRIM(plan_cuentas) LIKE '6%' THEN (debe - haber) ELSE 0 END), 0) AS costos_fijos
-                            FROM asientos_contables
-                            WHERE fecha BETWEEN %s AND %s
-                        """
-                        import pandas as pd
-                        df_pe = pd.read_sql(query_pe, conn, params=(fecha_ini_pe.strftime('%Y-%m-%d'), fecha_fin_pe.strftime('%Y-%m-%d')))
-                        conn.close()
+        if fecha_ini_pe > fecha_fin_pe:
+            st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
+        else:
+            try:
+                conn = conectar_db(db)
+                if conn:
+                    conn.ping(reconnect=True)
+                    
+                    # Consulta SQL optimizada para el rango de fechas
+                    query_pe = """
+                        SELECT 
+                            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) AS total_ventas,
+                            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN (debe - haber) ELSE 0 END), 0) AS costos_variables,
+                            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' OR TRIM(plan_cuentas) LIKE '6%' THEN (debe - haber) ELSE 0 END), 0) AS costos_fijos
+                        FROM asientos_contables
+                        WHERE fecha BETWEEN %s AND %s
+                    """
+                    df_pe = pd.read_sql(query_pe, conn, params=(fecha_ini_pe.strftime('%Y-%m-%d'), fecha_fin_pe.strftime('%Y-%m-%d')))
+                    conn.close()
 
-                        if not df_pe.empty:
-                            ventas = float(df_pe['total_ventas'].iloc[0] or 0.0)
-                            costos_vars = float(df_pe['costos_variables'].iloc[0] or 0.0)
-                            costos_fijos = float(df_pe['costos_fijos'].iloc[0] or 0.0)
-                        else:
-                            ventas, costos_vars, costos_fijos = 0.0, 0.0, 0.0
+                    if not df_pe.empty:
+                        ventas = float(df_pe['total_ventas'].iloc[0] or 0.0)
+                        costos_vars = float(df_pe['costos_variables'].iloc[0] or 0.0)
+                        costos_fijos = float(df_pe['costos_fijos'].iloc[0] or 0.0)
+                    else:
+                        ventas, costos_vars, costos_fijos = 0.0, 0.0, 0.0
 
-                        # Cálculos financieros clave
-                        utilidad_bruta = ventas - costos_vars
-                        margen_contribucion = (utilidad_bruta / ventas) if ventas > 0 else 0.0
-                        
-                        if margen_contribucion > 0:
-                            punto_equilibrio = costos_fijos / margen_contribucion
-                        else:
-                            punto_equilibrio = costos_fijos
+                    # Cálculos financieros clave
+                    utilidad_bruta = ventas - costos_vars
+                    margen_contribucion = (utilidad_bruta / ventas) if ventas > 0 else 0.0
+                    
+                    if margen_contribucion > 0:
+                        punto_equilibrio = costos_fijos / margen_contribucion
+                    else:
+                        punto_equilibrio = costos_fijos
 
-                        # Función de formato monetario venezolano (34.789,52)
-                        def formato_venezuela_pe(val):
-                            try:
-                                s = f"{float(val):,.2f}"
-                                return "Bs. " + s.replace(',', 'X').replace('.', ',').replace('X', '.')
-                            except:
-                                return "Bs. 0,00"
+                    # Función de formato monetario venezolano (34.789,52)
+                    def formato_venezuela_pe(val):
+                        try:
+                            s = f"{float(val):,.2f}"
+                            return "Bs. " + s.replace(',', 'X').replace('.', ',').replace('X', '.')
+                        except Exception:
+                            return "Bs. 0,00"
 
-                        # Mostramos métricas clave en pantalla
+                    # Contenedor visual del dashboard
+                    with st.container(border=True):
+                        # Mostramos métricas clave en pantalla de forma permanente
                         m1, m2, m3, m4 = st.columns(4)
                         m1.metric("Costos Fijos", formato_venezuela_pe(costos_fijos))
                         m2.metric("Margen Contribución", f"{margen_contribucion * 100:.1f}%")
@@ -11551,10 +11557,10 @@ if opcion_menu == "🏠 Inicio":
                         else:
                             st.info("ℹ️ No se registran suficientes movimientos de ingresos o costos en el rango de fechas seleccionado para calcular el punto de equilibrio.")
 
-                    else:
-                        st.error("No se pudo establecer conexión con la base de datos seleccionada.")
-                except Exception as err:
-                    st.error(f"Ocurrió un error al procesar el cálculo del punto de equilibrio: {err}")
+                else:
+                    st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+            except Exception as err:
+                st.error(f"Ocurrió un error al procesar el cálculo del punto de equilibrio: {err}")
 
 
 
