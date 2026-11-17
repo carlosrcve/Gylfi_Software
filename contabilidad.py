@@ -21584,134 +21584,141 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                 conn_aux.close()
 
         if df_auxiliar is not None and not df_auxiliar.empty:
-            # FILTRO ESTRICTO: ÚNICAMENTE CUENTA 2.1.1.01.001 (Proveedores Nacionales)
+            # 1. LIMPIEZA INTELIGENTE GLOBAL SOBRE TODO EL AUXILIAR (INCLUYE CONTRAPARTIDAS)
             df_auxiliar['Plan_Cuentas_Clean'] = df_auxiliar['Plan Cuentas'].astype(str).str.strip()
+
+            def extraer_proveedor_inteligente(row):
+                prov = str(row['Proveedor']).strip()
+                desc = str(row['Descripción']).upper()
+                
+                if prov in ["", "GENERAL / OTROS"] and "PAGO A PROVEEDOR" in desc:
+                    try:
+                        partes = desc.split("PAGO A PROVEEDOR")
+                        if len(partes) > 1:
+                            sub = partes[1].split("- FACTURA")[0].split(" - FAC")[0].strip()
+                            if sub:
+                                return sub
+                    except Exception:
+                        pass
+                elif prov in ["", "GENERAL / OTROS"] and "CANCELACIÓN DE PAGO A" in desc:
+                    try:
+                        partes = desc.split("CANCELACIÓN DE PAGO A")
+                        if len(partes) > 1:
+                            sub = partes[1].split("- FACTURA")[0].split(" - FAC")[0].strip()
+                            if sub:
+                                return sub
+                    except Exception:
+                        pass
+                        
+                return prov if prov not in ["", "None"] else "GENERAL / OTROS"
+
+            df_auxiliar['Proveedor'] = df_auxiliar.apply(extraer_proveedor_inteligente, axis=1)
+
+            # Subconjunto exclusivo de la cuenta 2.1.1.01.001 para el cálculo neto (Tab 2)
             df_prov_nac = df_auxiliar[df_auxiliar['Plan_Cuentas_Clean'] == '2.1.1.01.001'].copy()
 
-            if not df_prov_nac.empty:
-                # ==============================================================
-                # FUNCIÓN INTELIGENTE PARA LIMPIAR "GENERAL / OTROS" DESDE LA DESCRIPCIÓN
-                # ==============================================================
-                import re
-                def extraer_proveedor_inteligente(row):
-                    prov = str(row['Proveedor']).strip()
-                    desc = str(row['Descripción']).upper()
-                    
-                    if prov in ["", "GENERAL / OTROS"] and "PAGO A PROVEEDOR" in desc:
-                        try:
-                            partes = desc.split("PAGO A PROVEEDOR")
-                            if len(partes) > 1:
-                                sub = partes[1].split("- FACTURA")[0].split(" - FAC")[0].strip()
-                                if sub:
-                                    return sub
-                        except Exception:
-                            pass
-                    elif prov in ["", "GENERAL / OTROS"] and "CANCELACIÓN DE PAGO A" in desc:
-                        try:
-                            partes = desc.split("CANCELACIÓN DE PAGO A")
-                            if len(partes) > 1:
-                                sub = partes[1].split("- FACTURA")[0].split(" - FAC")[0].strip()
-                                if sub:
-                                    return sub
-                        except Exception:
-                            pass
-                            
-                    return prov if prov not in ["", "None"] else "GENERAL / OTROS"
+            # CREACIÓN DE LAS DOS PESTAÑAS
+            tab1, tab2 = st.tabs(["📄 Auxiliar Detallado (Historial Comprobantes)", "📊 Neto de Deuda por Proveedor (2.1.1.01.001)"])
 
-                # ¡AQUÍ ESTABA EL DETALLE! APLICAMOS LA FUNCIÓN A TODO EL DATAFRAME
-                df_prov_nac['Proveedor'] = df_prov_nac.apply(extraer_proveedor_inteligente, axis=1)
+            # ==============================================================
+            # PESTAÑA 1: AUXILIAR DETALLADO CON TODAS LAS CUENTAS ASOCIADAS
+            # ==============================================================
+            with tab1:
+                proveedores_unicos = df_auxiliar['Proveedor'].dropna().astype(str).str.strip()
+                proveedores_unicos = proveedores_unicos[
+                    (proveedores_unicos != "") & 
+                    (proveedores_unicos != "GENERAL / OTROS") & 
+                    (~proveedores_unicos.str.upper().str.startswith("PAGO"))
+                ]
+                
+                lista_proveedores = ["TODOS"] + sorted(proveedores_unicos.unique().tolist())
+                prov_seleccionado = st.selectbox("Filtrar por Proveedor Específico:", lista_proveedores, key="select_filtro_prov_nacional_tab1")
 
-                # CREACIÓN DE LAS DOS PESTAÑAS
-                tab1, tab2 = st.tabs(["📄 Auxiliar Detallado", "📊 Neto de Deuda por Proveedor"])
+                # Usamos df_auxiliar completo para ver todas las cuentas asociadas al comprobante
+                df_vista = df_auxiliar.copy()
+                if prov_seleccionado != "TODOS":
+                    # Opcional: si deseas traer todas las líneas de los comprobantes donde participa este proveedor
+                    comprobantes_prov = df_vista[df_vista['Proveedor'] == prov_seleccionado]['Comprobante'].unique()
+                    df_vista = df_vista[df_vista['Comprobante'].isin(comprobantes_prov)].copy()
+                
+                # El saldo acumulado sigue afectándose únicamente por los movimientos de la 2.1.1.01.001
+                df_vista['mov_temp'] = 0.0
+                es_cxp_m = df_vista['Plan_Cuentas_Clean'] == '2.1.1.01.001'
+                df_vista.loc[es_cxp_m, 'mov_temp'] = df_vista.loc[es_cxp_m, 'Haber'] - df_vista.loc[es_cxp_m, 'Debe']
+                df_vista['Saldo'] = df_vista['mov_temp'].cumsum()
+                
+                if 'mov_temp' in df_vista.columns:
+                    df_vista = df_vista.drop(columns=['mov_temp'])
+                if 'Plan_Cuentas_Clean' in df_vista.columns:
+                    df_vista = df_vista.drop(columns=['Plan_Cuentas_Clean'])
 
-                # ==============================================================
-                # PESTAÑA 1: AUXILIAR DETALLADO
-                # ==============================================================
-                with tab1:
-                    proveedores_unicos = df_prov_nac['Proveedor'].dropna().astype(str).str.strip()
-                    proveedores_unicos = proveedores_unicos[
-                        (proveedores_unicos != "") & 
-                        (proveedores_unicos != "GENERAL / OTROS") & 
-                        (~proveedores_unicos.str.upper().str.startswith("PAGO"))
-                    ]
-                    
-                    lista_proveedores = ["TODOS"] + sorted(proveedores_unicos.unique().tolist())
-                    prov_seleccionado = st.selectbox("Filtrar por Proveedor Específico:", lista_proveedores, key="select_filtro_prov_nacional_tab1")
+                st.dataframe(
+                    df_vista,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Debe": st.column_config.NumberColumn("Debe (Contrapartidas / Pagos)", format="%,.2f"),
+                        "Haber": st.column_config.NumberColumn("Haber (Deudas)", format="%,.2f"),
+                        "Saldo": st.column_config.NumberColumn(format="%,.2f", help="Saldo pendiente real de la cuenta 2.1.1.01.001")
+                    }
+                )
+                
+                # Métricas calculadas estrictamente sobre la cuenta de pasivo 2.1.1.01.001 para cuadrar con Tab 2
+                df_cxp_puro = df_vista[df_vista['Plan Cuentas'].astype(str).str.strip() == '2.1.1.01.001']
+                
+                total_pagos_cxp = df_cxp_puro['Debe'].sum()
+                total_haber = df_cxp_puro['Haber'].sum()
+                saldo_final_total = total_haber - total_pagos_cxp
+                
+                col_t1, col_t2, col_t3 = st.columns(3)
+                col_t1.metric("Pagos / Notas Débito (2.1.1.01.001)", f"Bs. {total_pagos_cxp:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                col_t2.metric("Total Deudas (Haber 2.1.1.01.001)", f"Bs. {total_haber:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                col_t3.metric("Deuda Total Pendiente", f"Bs. {saldo_final_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
 
-                    df_vista = df_prov_nac.copy()
-                    if prov_seleccionado != "TODOS":
-                        df_vista = df_vista[df_vista['Proveedor'] == prov_seleccionado].copy()
-                    
-                    df_vista['mov_temp'] = df_vista['Haber'] - df_vista['Debe']
-                    df_vista['Saldo'] = df_vista['mov_temp'].cumsum()
-                    if 'mov_temp' in df_vista.columns:
-                        df_vista = df_vista.drop(columns=['mov_temp'])
-                    if 'Plan_Cuentas_Clean' in df_vista.columns:
-                        df_vista = df_vista.drop(columns=['Plan_Cuentas_Clean'])
+                st.divider()
 
-                    st.dataframe(
-                        df_vista,
+                st.write("### 📥 Exportar Auxiliar del Proveedor")
+                col_ex, col_pdf = st.columns(2)
+
+                nombre_prov_clean = str(prov_seleccionado).replace(' ', '_').replace('/', '_')
+
+                output_aux = io.BytesIO()
+                cols_exp = ['Fecha', 'Comprobante', 'Plan Cuentas', 'Cuenta Contable', 'Referencia / Factura', 'Descripción', 'Proveedor', 'Debe', 'Haber', 'Saldo']
+                df_exportar = df_vista[[c for c in cols_exp if c in df_vista.columns]]
+
+                with pd.ExcelWriter(output_aux, engine='xlsxwriter') as writer:
+                    df_exportar.to_excel(writer, index=False, sheet_name='Auxiliar_CxP_Completo')
+                
+                col_ex.download_button(
+                    label="📥 Descargar Excel",
+                    data=output_aux.getvalue(),
+                    file_name=f"Auxiliar_CxP_{nombre_prov_clean}_{EMPRESA}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="btn_excel_prov_tab1"
+                )
+
+                pdf_bytes = generar_pdf_auxiliar_cxp(df_vista, prov_seleccionado, EMPRESA, f_desde, f_hasta)
+                
+                if pdf_bytes:
+                    col_pdf.download_button(
+                        label="📄 Descargar PDF (Estado de Cuenta)",
+                        data=pdf_bytes,
+                        file_name=f"Auxiliar_CxP_{nombre_prov_clean}_{EMPRESA}.pdf",
+                        mime="application/pdf",
                         use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            "Debe": st.column_config.NumberColumn("Pagos / Notas (Disminuye)", format="%,.2f"),
-                            "Haber": st.column_config.NumberColumn("Facturas / Deudas (Aumenta)", format="%,.2f"),
-                            "Saldo": st.column_config.NumberColumn(format="%,.2f", help="Saldo pendiente con el proveedor")
-                        }
+                        key="btn_pdf_prov_tab1"
                     )
-                    
-                    total_pagos_cxp = df_vista['Debe'].sum()
-                    total_haber = df_vista['Haber'].sum()
-                    saldo_final_total = total_haber - total_pagos_cxp
-                    
-                    col_t1, col_t2, col_t3 = st.columns(3)
-                    col_t1.metric("Pagos / Aplicaciones", f"Bs. {total_pagos_cxp:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-                    col_t2.metric("Total Deudas (Haber)", f"Bs. {total_haber:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-                    col_t3.metric("Deuda Total Pendiente", f"Bs. {saldo_final_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                else:
+                    col_pdf.error("❌ No se pudo generar el archivo PDF.")
 
-                    st.divider()
-
-                    st.write("### 📥 Exportar Auxiliar del Proveedor")
-                    col_ex, col_pdf = st.columns(2)
-
-                    nombre_prov_clean = str(prov_seleccionado).replace(' ', '_').replace('/', '_')
-
-                    output_aux = io.BytesIO()
-                    cols_exp = ['Fecha', 'Comprobante', 'Plan Cuentas', 'Cuenta Contable', 'Referencia / Factura', 'Descripción', 'Proveedor', 'Debe', 'Haber', 'Saldo']
-                    df_exportar = df_vista[[c for c in cols_exp if c in df_vista.columns]]
-
-                    with pd.ExcelWriter(output_aux, engine='xlsxwriter') as writer:
-                        df_exportar.to_excel(writer, index=False, sheet_name='Auxiliar_Prov_Nacionales')
-                    
-                    col_ex.download_button(
-                        label="📥 Descargar Excel",
-                        data=output_aux.getvalue(),
-                        file_name=f"Auxiliar_ProvNacionales_{nombre_prov_clean}_{EMPRESA}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True,
-                        key="btn_excel_prov_tab1"
-                    )
-
-                    pdf_bytes = generar_pdf_auxiliar_cxp(df_vista, prov_seleccionado, EMPRESA, f_desde, f_hasta)
-                    
-                    if pdf_bytes:
-                        col_pdf.download_button(
-                            label="📄 Descargar PDF (Estado de Cuenta)",
-                            data=pdf_bytes,
-                            file_name=f"Auxiliar_ProvNacionales_{nombre_prov_clean}_{EMPRESA}.pdf",
-                            mime="application/pdf",
-                            use_container_width=True,
-                            key="btn_pdf_prov_tab1"
-                        )
-                    else:
-                        col_pdf.error("❌ No se pudo generar el archivo PDF.")
-
-                # ==============================================================
-                # PESTAÑA 2: NETO DE DEUDA POR PROVEEDOR
-                # ==============================================================
-                with tab2:
+            # ==============================================================
+            # PESTAÑA 2: NETO DE DEUDA POR PROVEEDOR (SOLO 2.1.1.01.001)
+            # ==============================================================
+            with tab2:
+                if not df_prov_nac.empty:
                     st.markdown("#### 📋 Resumen Consolidado: Neto de Deuda por Proveedor")
-                    st.caption(f"Calculado del {f_desde.strftime('%d/%m/%Y')} al {f_hasta.strftime('%d/%m/%Y')} para la cuenta 2.1.1.01.001.")
+                    st.caption(f"Calculado del {f_desde.strftime('%d/%m/%Y')} al {f_hasta.strftime('%d/%m/%Y')} exclusivamente para la cuenta 2.1.1.01.001.")
 
                     df_neto_agrupado = df_prov_nac.groupby('Proveedor').agg(
                         Total_Haber=('Haber', 'sum'),
@@ -21757,10 +21764,8 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                         use_container_width=True,
                         key="btn_excel_neto_proveedores_col"
                     )
-            else:
-                st.info("ℹ️ No se registraron movimientos específicos en la cuenta 2.1.1.01.001 (Proveedores Nacionales) para este rango de fechas.")
-        else:
-            st.info("ℹ️ No se encontraron registros contables de cuentas por pagar para el periodo seleccionado.")
+                else:
+                    st.info("ℹ️ No se registraron movimientos específicos en la cuenta 2.1.1.01.001 para este rango de fechas.")
 
 
 
