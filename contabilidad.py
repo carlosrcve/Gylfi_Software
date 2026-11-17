@@ -21676,62 +21676,67 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                     else:
                         col_pdf.error("❌ No se pudo generar el archivo PDF.")
                 # ==============================================================
-                # PESTAÑA 2: NETO DE DEUDA POR PROVEEDOR (CON DESCARGA A EXCEL)
-                # ==============================================================
-                # ==============================================================
-                # PESTAÑA 2: AUXILIAR DETALLADO Y NETO POR MOVIMIENTO (SIN AGRUPAR)
+                # PESTAÑA 2: NETO DE DEUDA CONSOLIDADO POR PROVEEDOR (UNA FILA POR PROVEEDOR)
                 # ==============================================================
                 with tab2:
-                    st.markdown("#### 📋 Detalle Completo de Movimientos: Cuenta 2.1.1.01.001")
-                    st.caption(f"Calculado del {f_desde.strftime('%d/%m/%Y')} al {f_hasta.strftime('%d/%m/%Y')} (Detalle línea por línea sin agrupar).")
+                    st.markdown("#### 📋 Resumen Consolidado: Neto de Deuda por Proveedor")
+                    st.caption(f"Calculado del {f_desde.strftime('%d/%m/%Y')} al {f_hasta.strftime('%d/%m/%Y')} para la cuenta 2.1.1.01.001 (Una fila por proveedor).")
 
-                    # Copiamos la base de proveedores nacionales y limpiamos nulos para visualización limpia
-                    df_detallado = df_prov_nac.copy()
-                    df_detallado['Proveedor'] = df_detallado['Proveedor'].fillna("GENERAL / OTROS").astype(str).str.strip()
-                    df_detallado.loc[df_detallado['Proveedor'] == "", 'Proveedor'] = "GENERAL / OTROS"
+                    # Copiamos la base y normalizamos el nombre del proveedor
+                    df_neto_base = df_prov_nac.copy()
+                    df_neto_base['Proveedor'] = df_neto_base['Proveedor'].fillna("GENERAL / OTROS").astype(str).str.strip()
+                    df_neto_base.loc[df_neto_base['Proveedor'] == "", 'Proveedor'] = "GENERAL / OTROS"
 
-                    # Calculamos el neto individual por cada línea de asiento (Haber - Debe)
-                    df_detallado['Deuda_Neta_Movimiento'] = df_detallado['Haber'] - df_detallado['Debe']
+                    # Agrupamos por proveedor sumando el Haber y el Debe
+                    df_neto_agrupado = df_neto_base.groupby('Proveedor').agg(
+                        Total_Haber=('Haber', 'sum'),
+                        Total_Debe=('Debe', 'sum')
+                    ).reset_index()
 
-                    # Seleccionamos las columnas clave para mostrar todo el detalle
-                    cols_mostrar = ['Fecha', 'Comprobante', 'Referencia / Factura', 'Descripción', 'Proveedor', 'Haber', 'Debe', 'Deuda_Neta_Movimiento']
-                    df_vista_det = df_detallado[[c for c in cols_mostrar if c in df_detallado.columns]].copy()
+                    # Calculamos el neto en una sola columna (Haber menos Debe para pasivos)
+                    df_neto_agrupado['Deuda_Neta'] = df_neto_agrupado['Total_Haber'] - df_neto_agrupado['Total_Debe']
 
-                    # Ordenamos por fecha
-                    df_vista_det = df_vista_det.sort_values(by='Fecha', ascending=True)
+                    # Ordenamos de mayor a menor deuda neta pendiente
+                    df_neto_agrupado = df_neto_agrupado.sort_values(by='Deuda_Neta', ascending=False)
 
-                    # DataFrame para visualizar en pantalla con formato de bolívares
-                    df_show = df_vista_det.copy()
-                    df_show['Haber (Deudas)'] = df_show['Haber'].apply(lambda x: f"Bs. {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-                    df_show['Debe (Pagos)'] = df_show['Debe'].apply(lambda x: f"Bs. {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-                    df_show['Deuda Neta'] = df_show['Deuda_Neta_Movimiento'].apply(lambda x: f"Bs. {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-
-                    st.dataframe(
-                        df_show[['Fecha', 'Comprobante', 'Referencia / Factura', 'Descripción', 'Proveedor', 'Haber (Deudas)', 'Debe (Pagos)', 'Deuda Neta']],
-                        use_container_width=True,
-                        hide_index=True
+                    # DataFrame para visualizar en pantalla con formato de bolívares en una sola columna neta
+                    df_neto_show = df_neto_agrupado.copy()
+                    df_neto_show['Deuda Neta Pendiente'] = df_neto_show['Deuda_Neta'].apply(
+                        lambda x: f"Bs. {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
                     )
 
-                    # Métrica global total (coincidirá exactamente con la Pestaña 1)
-                    gran_total_deuda = df_detallado['Deuda_Neta_Movimiento'].sum()
-                    st.metric("Deuda Neta Consolidada (Proveedores Nacionales)", f"Bs. {gran_total_deuda:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                    st.dataframe(
+                        df_neto_show[['Proveedor', 'Deuda Neta Pendiente']],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "Deuda Neta Pendiente": st.column_config.TextColumn("Deuda Neta (Haber - Debe)")
+                        }
+                    )
+
+                    # Métrica global total de la deuda neta consolidada
+                    gran_total_deuda = df_neto_agrupado['Deuda_Neta'].sum()
+                    st.metric(
+                        "Deuda Neta Consolidada (Proveedores Nacionales)", 
+                        f"Bs. {gran_total_deuda:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                    )
 
                     st.divider()
 
-                    # BOTÓN DE DESCARGA EN EXCEL PARA EL REPORTE DETALLADO
-                    st.write("### 📥 Exportar Detalle de Proveedores en Excel")
+                    # BOTÓN DE DESCARGA EN EXCEL PARA EL RESUMEN NETO POR PROVEEDOR
+                    st.write("### 📥 Exportar Resumen Neto por Proveedor en Excel")
                     
                     output_neto = io.BytesIO()
                     with pd.ExcelWriter(output_neto, engine='xlsxwriter') as writer:
-                        df_vista_det.to_excel(writer, index=False, sheet_name='Detalle_Proveedores_Nacionales')
+                        df_neto_agrupado[['Proveedor', 'Deuda_Neta']].to_excel(writer, index=False, sheet_name='Neto_Proveedores')
                     
                     st.download_button(
-                        label="📥 Descargar Detalle Completo en Excel",
+                        label="📥 Descargar Resumen Neto en Excel",
                         data=output_neto.getvalue(),
-                        file_name=f"Detalle_Proveedores_Nacionales_{EMPRESA}.xlsx",
+                        file_name=f"Neto_Proveedores_Nacionales_{EMPRESA}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True,
-                        key="btn_excel_detalle_proveedores"
+                        key="btn_excel_neto_proveedores_col"
                     )
             else:
                 st.info("ℹ️ No se registraron movimientos específicos en la cuenta 2.1.1.01.001 (Proveedores Nacionales) para este rango de fechas.")
