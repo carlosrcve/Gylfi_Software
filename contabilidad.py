@@ -11520,42 +11520,43 @@ if opcion_menu == "🏠 Inicio":
                 st.error(f"Ocurrió un error al procesar el reporte de flujo de efectivo: {err}")
 
     st.divider()
-    import datetime
-    import pandas as pd
-    import streamlit as st
 
-    # ==============================================================================
-    # MÓDULO: PUNTO DE EQUILIBRIO OPERATIVO (ESTÁNDAR GYLFI SOFTWARE)
-    # ==============================================================================
+import datetime
+import pandas as pd
+import streamlit as st
 
-    # Sincronizamos la base de datos activa desde la sesión
-    db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
+# ==============================================================================
+# MÓDULO: PUNTO DE EQUILIBRIO OPERATIVO (ESTÁNDAR GYLFI SOFTWARE)
+# ==============================================================================
 
-    if not db or db == "{db}" or db == "None" or str(db).strip() == "":
-        st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
+# Sincronizamos la base de datos activa desde la sesión
+db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
+
+if not db or db == "{db}" or db == "None" or str(db).strip() == "":
+    st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
+else:
+    try:
+        empresa_actual = obtener_datos_empresa_activa() if 'obtener_datos_empresa_activa' in globals() else {"nombre": str(db).upper()}
+    except Exception:
+        empresa_actual = {"nombre": str(db).upper()}
+        
+    st.markdown("### 🎯 Análisis de Punto de Equilibrio Operativo")
+    st.caption("Visualiza rápidamente si tu negocio está cubriendo sus costos fijos y alcanzando la rentabilidad.")
+    
+    # 🕒 Fechas dinámicas automáticas (sin fechas manuales)
+    hoy = datetime.date.today()
+    primer_dia_mes = hoy.replace(day=1)
+    
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        fecha_ini_pe = st.date_input("Fecha Desde:", primer_dia_mes, key="pe_f_ini")
+    with col_f2:
+        fecha_fin_pe = st.date_input("Fecha Hasta:", hoy, key="pe_f_fin")
+
+    if fecha_ini_pe > fecha_fin_pe:
+        st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
     else:
         try:
-            empresa_actual = obtener_datos_empresa_activa() if 'obtener_datos_empresa_activa' in globals() else {"nombre": str(db).upper()}
-        except Exception:
-            empresa_actual = {"nombre": str(db).upper()}
-            
-        st.markdown("### 🎯 Análisis de Punto de Equilibrio Operativo")
-        st.caption("Visualiza rápidamente si tu negocio está cubriendo sus costos fijos y alcanzando la rentabilidad.")
-        
-        # 🕒 Fechas dinámicas automáticas (sin fechas manuales)
-        hoy = datetime.date.today()
-        primer_dia_mes = hoy.replace(day=1)
-        
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            fecha_ini_pe = st.date_input("Fecha Desde:", primer_dia_mes, key="pe_f_ini")
-        with col_f2:
-            fecha_fin_pe = st.date_input("Fecha Hasta:", hoy, key="pe_f_fin")
-
-        if fecha_ini_pe > fecha_fin_pe:
-            st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
-        else:
-            try:
             conn = conectar_db(db)
             if conn:
                 conn.ping(reconnect=True)
