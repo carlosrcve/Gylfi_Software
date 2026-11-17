@@ -11529,7 +11529,6 @@ if opcion_menu == "🏠 Inicio":
     # MÓDULO: PUNTO DE EQUILIBRIO OPERATIVO (ESTÁNDAR GYLFI SOFTWARE)
     # ==============================================================================
 
-    # Sincronizamos la base de datos activa desde la sesión
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
 
     if not db or db == "{db}" or db == "None" or str(db).strip() == "":
@@ -11543,7 +11542,6 @@ if opcion_menu == "🏠 Inicio":
         st.markdown("### 🎯 Análisis de Punto de Equilibrio Operativo")
         st.caption("Visualiza rápidamente si tu negocio está cubriendo sus costos fijos y alcanzando la rentabilidad.")
         
-        # 🕒 Fechas dinámicas automáticas (sin fechas manuales)
         hoy = datetime.date.today()
         primer_dia_mes = hoy.replace(day=1)
         
@@ -11561,15 +11559,15 @@ if opcion_menu == "🏠 Inicio":
                 if conn:
                     conn.ping(reconnect=True)
                     
-                    # Consulta SQL limpia y blindada
-                    query_pe = (
-                        "SELECT "
-                        "COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) AS total_ventas, "
-                        "COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN (debe - haber) ELSE 0 END), 0) AS costos_variables, "
-                        "COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' OR TRIM(plan_cuentas) LIKE '6%' THEN (debe - haber) ELSE 0 END), 0) AS costos_fijos "
-                        "FROM asientos_contables "
-                        "WHERE fecha BETWEEN %s AND %s"
-                    )
+                    # Consulta SQL limpia usando triple comilla doble (evita errores de formato)
+                    query_pe = """
+                        SELECT 
+                            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) AS total_ventas,
+                            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN (debe - haber) ELSE 0 END), 0) AS costos_variables,
+                            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' OR TRIM(plan_cuentas) LIKE '6%' THEN (debe - haber) ELSE 0 END), 0) AS costos_fijos
+                        FROM asientos_contables
+                        WHERE fecha BETWEEN %s AND %s
+                    """
                     
                     df_pe = pd.read_sql(
                         query_pe, 
