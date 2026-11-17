@@ -11975,11 +11975,12 @@ if opcion_menu == "🏠 Inicio":
                         LIMIT 5
                     """
                     
+                    # --- BLOQUE DE DIAGNÓSTICO RÁPIDO ---
                     try:
-                        df_gastos = pd.read_sql(query_cuentas_cc, conn)
-                    except Exception as sql_err:
-                        st.error(f"Error en la consulta SQL: {sql_err}")
-                        df_gastos = pd.DataFrame(columns=["cuenta_contable", "nombre_cuenta", "total_gasto"])
+                        df_prueba = pd.read_sql("SELECT cuenta_contable, debe, haber, fecha FROM asientos_contables LIMIT 10", conn)
+                        st.write("🔍 **Valores encontrados en la base de datos (primeras 10 filas):**", df_prueba)
+                    except Exception as e:
+                        st.error(f"Error al leer la tabla: {e}")
                     
                     conn.close()
 
