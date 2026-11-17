@@ -21676,13 +21676,13 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                     else:
                         col_pdf.error("❌ No se pudo generar el archivo PDF.")
                 # ==============================================================
-                # PESTAÑA 2: NETO DE DEUDA POR PROVEEDOR (CORREGIDA)
+                # PESTAÑA 2: NETO DE DEUDA POR PROVEEDOR (CON DESCARGA A EXCEL)
                 # ==============================================================
                 with tab2:
                     st.markdown("#### 📋 Resumen Consolidado: Neto de Deuda por Proveedor")
                     st.caption(f"Calculado del {f_desde.strftime('%d/%m/%Y')} al {f_hasta.strftime('%d/%m/%Y')} para la cuenta 2.1.1.01.001.")
 
-                    # Copiamos para no alterar el auxiliar y rellenamos nulos o vacíos para que no se pierda nada
+                    # Copiamos para no alterar el auxiliar y rellenamos nulos o vacíos
                     df_neto_base = df_prov_nac.copy()
                     df_neto_base['Proveedor'] = df_neto_base['Proveedor'].fillna("GENERAL / OTROS").astype(str).str.strip()
                     df_neto_base.loc[df_neto_base['Proveedor'] == "", 'Proveedor'] = "GENERAL / OTROS"
@@ -21698,7 +21698,7 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                     # Ordenamos de mayor a menor deuda neta pendiente
                     df_neto = df_neto.sort_values(by='Deuda_Neta_Pendiente', ascending=False)
 
-                    # Mostramos tabla resumen con formato en bolívares
+                    # DataFrame para visualizar en pantalla con formato de bolívares
                     df_neto_show = df_neto.copy()
                     df_neto_show['Total Facturado (Haber)'] = df_neto_show['Total_Facturado_Haber'].apply(lambda x: f"Bs. {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
                     df_neto_show['Total Pagado (Debe)'] = df_neto_show['Total_Pagado_Debe'].apply(lambda x: f"Bs. {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
@@ -21710,10 +21710,28 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                         hide_index=True
                     )
 
-                    # Métrica global de toda la deuda neta (ahora sí cuadrará exactamente con los Bs. 2.631.347,51)
+                    # Métrica global de toda la deuda neta
                     gran_total_deuda = df_neto['Deuda_Neta_Pendiente'].sum()
                     st.metric("Deuda Neta Consolidada (Proveedores Nacionales)", f"Bs. {gran_total_deuda:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
 
+                    st.divider()
+
+                    # BOTÓN DE DESCARGA EN EXCEL PARA EL RESUMEN NETO
+                    st.write("### 📥 Exportar Resumen Neto de Proveedores")
+                    
+                    output_neto = io.BytesIO()
+                    # Exportamos directamente el DataFrame con valores numéricos limpios para que el archivo sea profesional
+                    with pd.ExcelWriter(output_neto, engine='xlsxwriter') as writer:
+                        df_neto.to_excel(writer, index=False, sheet_name='Neto_Deuda_Proveedores')
+                    
+                    st.download_button(
+                        label="📥 Descargar Resumen Neto en Excel",
+                        data=output_neto.getvalue(),
+                        file_name=f"Neto_Deuda_Proveedores_Nacionales_{EMPRESA}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        key="btn_excel_neto_proveedores"
+                    )
             else:
                 st.info("ℹ️ No se registraron movimientos específicos en la cuenta 2.1.1.01.001 (Proveedores Nacionales) para este rango de fechas.")
         else:
