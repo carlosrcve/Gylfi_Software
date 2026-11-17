@@ -11916,11 +11916,12 @@ if opcion_menu == "🏠 Inicio":
     st.divider()
 
     import datetime
+    import textwrap
     import pandas as pd
     import streamlit as st
 
     # ==============================================================================
-    # MÓDULO: TOP 5 COSTOS Y GASTOS (AGRUPADO DIRECTAMENTE POR CUENTA_CONTABLE)
+    # MÓDULO: TOP 5 COSTOS Y GASTOS (TABLA HTML ESTILIZADA Y LIMPIA)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11929,18 +11930,18 @@ if opcion_menu == "🏠 Inicio":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
         st.markdown("### 📊 Top 5 Cuentas de Costos y Gastos")
-        st.caption("Estructura consolidada por categoría de cuenta contable.")
+        st.caption("Estructura consolidada por cuenta contable.")
 
         hoy_g = datetime.date.today()
         primer_dia_g = hoy_g.replace(day=1)
         
         col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
         with col_g1:
-            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_txt_cc")
+            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_html_fixed")
         with col_g2:
-            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_txt_cc")
+            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_html_fixed")
         with col_g3:
-            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_txt_cc", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
+            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_html_fixed", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
 
         if fecha_ini_g > fecha_fin_g:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
@@ -11955,7 +11956,7 @@ if opcion_menu == "🏠 Inicio":
                     
                     filtro_fecha_sql = "" if ver_historico_p else f"WHERE fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
                     
-                    # Consulta agrupando directamente por la columna cuenta_contable (que contiene los textos)
+                    # Consulta agrupando directamente por cuenta_contable
                     query_cuentas_txt = f"""
                         SELECT 
                             cuenta_contable AS nombre_cuenta,
@@ -11992,8 +11993,23 @@ if opcion_menu == "🏠 Inicio":
 
                         st.markdown("#### 📋 Detalle de Cuentas Contables y Egresos")
                         
-                        # Construcción de la Tabla HTML estilizada de alta gama
-                        html_table = """
+                        # Generamos las filas de la tabla de forma dinámica
+                        filas_html = ""
+                        for idx, row in df_gastos.iterrows():
+                            bg_color = "#fdfdfd" if idx % 2 == 0 else "#ffffff"
+                            monto_fmt = formato_venezuela_gasto(row['total_gasto'])
+                            porc_fmt = f"{row['porcentaje']:.1f}%"
+                            
+                            filas_html += f"""
+                            <tr style="background-color: {bg_color}; border-bottom: 1px solid #f1f1f1;">
+                                <td style="padding: 12px; font-weight: 500; color: #2A9D8F;">{row['nombre_cuenta']}</td>
+                                <td style="padding: 12px; text-align: right; font-weight: 600; color: #264653;">{monto_fmt}</td>
+                                <td style="padding: 12px; text-align: right; color: #666666;">{porc_fmt}</td>
+                            </tr>
+                            """
+
+                        # Estructura HTML principal limpia y sin sangrías que confundan a Streamlit
+                        html_table = textwrap.dedent(f"""
                         <div style="overflow-x: auto; border-radius: 8px; border: 1px solid #e0e0e0; background-color: #ffffff; padding: 4px; margin-bottom: 20px;">
                             <table style="width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; color: #333333;">
                                 <thead>
@@ -12004,27 +12020,13 @@ if opcion_menu == "🏠 Inicio":
                                     </tr>
                                 </thead>
                                 <tbody>
-                        """
-                        
-                        for idx, row in df_gastos.iterrows():
-                            bg_color = "#fdfdfd" if idx % 2 == 0 else "#ffffff"
-                            monto_fmt = formato_venezuela_gasto(row['total_gasto'])
-                            porc_fmt = f"{row['porcentaje']:.1f}%"
-                            
-                            html_table += f"""
-                                    <tr style="background-color: {bg_color}; border-bottom: 1px solid #f1f1f1;">
-                                        <td style="padding: 11px; font-weight: 500; color: #2A9D8F;">{row['nombre_cuenta']}</td>
-                                        <td style="padding: 11px; text-align: right; font-weight: 600; color: #264653;">{monto_fmt}</td>
-                                        <td style="padding: 11px; text-align: right; color: #666666;">{porc_fmt}</td>
-                                    </tr>
-                            """
-                        
-                        html_table += """
+                                    {filas_html}
                                 </tbody>
                             </table>
                         </div>
-                        """
+                        """)
                         
+                        # Renderizamos correctamente como HTML puro
                         st.markdown(html_table, unsafe_allow_html=True)
 
                     else:
