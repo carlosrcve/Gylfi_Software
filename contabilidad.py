@@ -21551,13 +21551,12 @@ if opcion_menu == "📄 Factura Preimpresa":
 
 
 
-
-
 # ==============================================================================
-# 3. VISTA FRONTEND EN STREAMLIT
+# 3. VISTA FRONTEND EN STREAMLIT: AUXILIAR PROVEEDORES NACIONALES (2.1.1.01.001)
 # ==============================================================================
-if opcion_menu == "📄 Auxiliar Cta por Pagar":
-    st.markdown("### 📊 Auxiliar de Cuentas por Pagar (Proveedores)")
+if opcion_menu == "📄 Auxiliar Proveedores Nacionales":
+    st.markdown("### 📊 Auxiliar y Neto de Deuda - Proveedores Nacionales (2.1.1.01.001)")
+    st.caption("Detalle analítico de movimientos, saldos y deudas pendientes filtrado exclusivamente para la cuenta de Proveedores Nacionales.")
 
     EMPRESA = st.session_state.get('CLIENTE_NOMBRE', 'EMPRESA')
     db_actual = st.session_state.get('DB_ACTUAL')
@@ -21567,13 +21566,14 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
     else:
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            f_desde = st.date_input("Auxiliar Desde", value=date.today().replace(day=1), key="aux_cxp_desde")
+            f_desde = st.date_input("Auxiliar Desde", value=date.today().replace(day=1), key="aux_prov_nac_desde")
         with col_f2:
-            f_hasta = st.date_input("Auxiliar Hasta", value=date.today(), key="aux_cxp_hasta")
+            f_hasta = st.date_input("Auxiliar Hasta", value=date.today(), key="aux_prov_nac_hasta")
 
         conn_aux = None
         try:
             conn_aux = conectar_db(db_actual)
+            # Llamamos a tu generador general de CxP
             df_auxiliar = generar_auxiliar_cxp(conn_aux, f_desde, f_hasta)
         except Exception as err:
             st.error(f"❌ Error al conectar o consultar la base de datos: {err}")
@@ -21583,85 +21583,92 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                 conn_aux.close()
 
         if df_auxiliar is not None and not df_auxiliar.empty:
-            proveedores_unicos = df_auxiliar['Proveedor'].dropna().astype(str).str.strip()
-            proveedores_unicos = proveedores_unicos[
-                (proveedores_unicos != "") & 
-                (proveedores_unicos != "GENERAL / OTROS") & 
-                (~proveedores_unicos.str.upper().str.startswith("PAGO"))
-            ]
-            
-            lista_proveedores = ["TODOS"] + sorted(proveedores_unicos.unique().tolist())
-            prov_seleccionado = st.selectbox("Filtrar por Proveedor Específico:", lista_proveedores, key="select_filtro_proveedor")
+            # FILTRO ESTRICTO: ÚNICAMENTE CUENTA 2.1.1.01.001
+            df_auxiliar['Plan_Cuentas_Clean'] = df_auxiliar['Plan Cuentas'].astype(str).str.strip()
+            df_prov_nac = df_auxiliar[df_auxiliar['Plan_Cuentas_Clean'] == '2.1.1.01.001'].copy()
 
-            df_vista = df_auxiliar.copy()
-            if prov_seleccionado != "TODOS":
-                df_vista = df_vista[df_vista['Proveedor'] == prov_seleccionado].copy()
-                df_vista['mov_temp'] = 0.0
-                es_cxp_m = df_vista['Plan Cuentas'].astype(str).str.strip() == '2.1.1.01.001'
-                df_vista.loc[es_cxp_m, 'mov_temp'] = df_vista.loc[es_cxp_m, 'Haber'] - df_vista.loc[es_cxp_m, 'Debe']
+            if not df_prov_nac.empty:
+                proveedores_unicos = df_prov_nac['Proveedor'].dropna().astype(str).str.strip()
+                proveedores_unicos = proveedores_unicos[
+                    (proveedores_unicos != "") & 
+                    (proveedores_unicos != "GENERAL / OTROS") & 
+                    (~proveedores_unicos.str.upper().str.startswith("PAGO"))
+                ]
+                
+                lista_proveedores = ["TODOS"] + sorted(proveedores_unicos.unique().tolist())
+                prov_seleccionado = st.selectbox("Filtrar por Proveedor Específico:", lista_proveedores, key="select_filtro_prov_nacional")
+
+                df_vista = df_prov_nac.copy()
+                if prov_seleccionado != "TODOS":
+                    df_vista = df_vista[df_vista['Proveedor'] == prov_seleccionado].copy()
+                
+                # Cálculo de saldo acumulado de pasivo (Haber aumenta la deuda, Debe la disminuye/paga)
+                df_vista['mov_temp'] = df_vista['Haber'] - df_vista['Debe']
                 df_vista['Saldo'] = df_vista['mov_temp'].cumsum()
                 if 'mov_temp' in df_vista.columns:
                     df_vista = df_vista.drop(columns=['mov_temp'])
+                if 'Plan_Cuentas_Clean' in df_vista.columns:
+                    df_vista = df_vista.drop(columns=['Plan_Cuentas_Clean'])
 
-            st.dataframe(
-                df_vista,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Debe": st.column_config.NumberColumn("Debe (Contrapartidas / Pagos)", format="%,.2f"),
-                    "Haber": st.column_config.NumberColumn("Haber (Deudas)", format="%,.2f"),
-                    "Saldo": st.column_config.NumberColumn(format="%,.2f", help="Saldo pendiente con el proveedor")
-                }
-            )
-            
-            df_cxp_puro = df_vista[df_vista['Plan Cuentas'].astype(str).str.strip() == '2.1.1.01.001']
-            
-            total_pagos_cxp = df_cxp_puro['Debe'].sum()
-            total_haber = df_cxp_puro['Haber'].sum()
-            saldo_final_total = total_haber - total_pagos_cxp
-            
-            col_t1, col_t2, col_t3 = st.columns(3)
-            col_t1.metric("Pagos / Notas Débito (CxP)", f"{total_pagos_cxp:,.2f}")
-            col_t2.metric("Total Deudas (Haber)", f"{total_haber:,.2f}")
-            col_t3.metric("Deuda Total Pendiente", f"{saldo_final_total:,.2f}")
+                st.dataframe(
+                    df_vista,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Debe": st.column_config.NumberColumn("Pagos / Notas (Disminuye Deuda)", format="%,.2f"),
+                        "Haber": st.column_config.NumberColumn("Facturas / Deudas (Aumenta Deuda)", format="%,.2f"),
+                        "Saldo": st.column_config.NumberColumn(format="%,.2f", help="Saldo neto pendiente con el proveedor")
+                    }
+                )
+                
+                # Métricas de resumen neto en el rango de fechas
+                total_pagos = df_vista['Debe'].sum()
+                total_deudas = df_vista['Haber'].sum()
+                deuda_neta_total = total_deudas - total_pagos
+                
+                col_t1, col_t2, col_t3 = st.columns(3)
+                col_t1.metric("Total Pagos / Aplicaciones", f"Bs. {total_pagos:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                col_t2.metric("Total Deudas (Haber)", f"Bs. {total_deudas:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+                col_t3.metric("Deuda Neta Pendiente", f"Bs. {deuda_neta_total:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
 
-            st.divider()
+                st.divider()
 
-            st.write("### 📥 Exportar Auxiliar del Proveedor")
-            col_ex, col_pdf = st.columns(2)
+                st.write("### 📥 Exportar Auxiliar de Proveedores Nacionales")
+                col_ex, col_pdf = st.columns(2)
 
-            nombre_prov_clean = str(prov_seleccionado).replace(' ', '_').replace('/', '_')
+                nombre_prov_clean = str(prov_seleccionado).replace(' ', '_').replace('/', '_')
 
-            output_aux = io.BytesIO()
-            cols_exp = ['Fecha', 'Comprobante', 'Plan Cuentas', 'Cuenta Contable', 'Referencia / Factura', 'Descripción', 'Proveedor', 'Debe', 'Haber', 'Saldo']
-            df_exportar = df_vista[[c for c in cols_exp if c in df_vista.columns]]
+                output_aux = io.BytesIO()
+                cols_exp = ['Fecha', 'Comprobante', 'Plan Cuentas', 'Cuenta Contable', 'Referencia / Factura', 'Descripción', 'Proveedor', 'Debe', 'Haber', 'Saldo']
+                df_exportar = df_vista[[c for c in cols_exp if c in df_vista.columns]]
 
-            with pd.ExcelWriter(output_aux, engine='xlsxwriter') as writer:
-                df_exportar.to_excel(writer, index=False, sheet_name='Auxiliar_CxP')
-            
-            col_ex.download_button(
-                label="📥 Descargar Excel",
-                data=output_aux.getvalue(),
-                file_name=f"Auxiliar_CxP_{nombre_prov_clean}_{EMPRESA}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-
-            pdf_bytes = generar_pdf_auxiliar_cxp(df_vista, prov_seleccionado, EMPRESA, f_desde, f_hasta)
-            
-            if pdf_bytes:
-                col_pdf.download_button(
-                    label="📄 Descargar PDF (Estado de Cuenta)",
-                    data=pdf_bytes,
-                    file_name=f"Auxiliar_CxP_{nombre_prov_clean}_{EMPRESA}.pdf",
-                    mime="application/pdf",
+                with pd.ExcelWriter(output_aux, engine='xlsxwriter') as writer:
+                    df_exportar.to_excel(writer, index=False, sheet_name='Aux_Proveedores_Nacionales')
+                
+                col_ex.download_button(
+                    label="📥 Descargar Excel",
+                    data=output_aux.getvalue(),
+                    file_name=f"Auxiliar_ProvNacionales_{nombre_prov_clean}_{EMPRESA}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
-            else:
-                col_pdf.error("❌ No se pudo generar el archivo PDF.")
 
+                pdf_bytes = generar_pdf_auxiliar_cxp(df_vista, prov_seleccionado, EMPRESA, f_desde, f_hasta)
+                
+                if pdf_bytes:
+                    col_pdf.download_button(
+                        label="📄 Descargar PDF (Estado de Cuenta)",
+                        data=pdf_bytes,
+                        file_name=f"Auxiliar_ProvNacionales_{nombre_prov_clean}_{EMPRESA}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                else:
+                    col_pdf.error("❌ No se pudo generar el archivo PDF.")
+            else:
+                st.info("ℹ️ No se registraron movimientos específicos en la cuenta 2.1.1.01.001 (Proveedores Nacionales) para este rango de fechas.")
         else:
-            st.info("ℹ️ No se encontraron movimientos en cuentas de pasivo para el rango de fechas seleccionado.")
+            st.info("ℹ️ No se encontraron registros contables de cuentas por pagar para el periodo seleccionado.")
 
 
 
