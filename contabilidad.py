@@ -11545,7 +11545,6 @@ if opcion_menu == "🏠 Inicio":
         hoy = datetime.date.today()
         primer_dia_mes = hoy.replace(day=1)
         
-        # LLAVES 100% ÚNICAS PARA EVITAR CUALQUIER DUPLICADO EN EL ARCHIVO
         col_f1, col_f2 = st.columns(2)
         with col_f1:
             fecha_ini_pe = st.date_input("Fecha Desde:", primer_dia_mes, key="pe_equilibrio_ini_final")
@@ -11630,12 +11629,12 @@ if opcion_menu == "🏠 Inicio":
                                     f"dentro de este rango de fechas para cubrir el 100% de tus compromisos fijos."
                                 )
 
-                            # GUÍA PEDAGÓGICA UBICADA JUSTO AQUÍ EN EL BLOQUE DE RESULTADOS
+                            # GUÍA PEDAGÓGICA UBICADA JUSTO AQUÍ DESPUÉS DE LA ALERTA/ÉXITO
                             with st.expander("📖 ¿Cómo interpretar este resultado financiero?"):
                                 st.markdown("""
                                 * **Meta de Equilibrio:** Es el monto mínimo que tu empresa debe vender para **no perder dinero** (cubrir el 100% de los costos fijos). 
                                 * **Si tu porcentaje de logro es menor al 100%:** Estás operando a pérdidas temporales o requieres un mayor impulso comercial en el periodo.
-                                * **Si tu porcentaje je es mayor al 100%:** ¡El negocio ya es autosostenible y cada bolívar adicional genera **Ganancia Neta Operativa** pura!
+                                * **Si tu porcentaje es mayor al 100%:** ¡El negocio ya es autosostenible y cada bolívar adicional genera **Ganancia Neta Operativa** pura!
                                 """)
 
                         else:
