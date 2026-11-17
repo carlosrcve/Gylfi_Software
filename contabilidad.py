@@ -11920,7 +11920,7 @@ if opcion_menu == "🏠 Inicio":
     import streamlit as st
 
     # ==============================================================================
-    # MÓDULO: TOP 5 GASTOS Y COSTOS PAGADOS POR BANCOS (CON OPCIÓN HISTÓRICA)
+    # MÓDULO: TOP 5 GASTOS Y COSTOS PAGADOS POR BANCOS (ESTRUCTURA 1.1.1.02)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11929,18 +11929,18 @@ if opcion_menu == "🏠 Inicio":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
         st.markdown("### 📊 Top 5 Gastos y Costos Pagados por Bancos")
-        st.caption("Filtra los egresos operativos (5 y 6) que se pagaron mediante salidas directas de tus cuentas bancarias (1.1.1).")
+        st.caption("Cruza tus egresos operativos (5 y 6) con las salidas reales de dinero desde tus cuentas bancarias (1.1.1.02).")
 
         hoy_g = datetime.date.today()
         primer_dia_g = hoy_g.replace(day=1)
         
         col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
         with col_g1:
-            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_bancos_v2")
+            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_banco_real")
         with col_g2:
-            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_bancos_v2")
+            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_banco_real")
         with col_g3:
-            ver_historico_b = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_bancos", help="Muestra todo el histórico si el mes actual no tiene registros de pagos bancarios.")
+            ver_historico_b = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_banco_real", help="Muestra todo el histórico si el periodo actual está vacío.")
 
         if fecha_ini_g > fecha_fin_g:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
@@ -11955,7 +11955,7 @@ if opcion_menu == "🏠 Inicio":
                     
                     filtro_fecha_sql = "" if ver_historico_b else f"AND g.fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
                     
-                    # Consulta robusta cruzando comprobantes de gastos con salidas de banco
+                    # Consulta ajustada a tu plan de cuentas real: Bancos bajo 1.1.1.02%
                     query_gastos_bancos = f"""
                         SELECT 
                             g.plan_cuentas,
@@ -11967,7 +11967,7 @@ if opcion_menu == "🏠 Inicio":
                           AND g.comprobante IN (
                               SELECT b.comprobante 
                               FROM asientos_contables b 
-                              WHERE b.plan_cuentas LIKE '1.1.1%' 
+                              WHERE b.plan_cuentas LIKE '1.1.1.02%' 
                                 AND b.haber > 0
                           )
                         GROUP BY g.plan_cuentas
@@ -11995,9 +11995,9 @@ if opcion_menu == "🏠 Inicio":
                         df_gastos['porcentaje'] = (df_gastos['total_gasto'] / total_general_gastos) * 100
 
                         with st.container(border=True):
-                            st.metric("Total Gastos Pagados por Banco", formato_venezuela_gasto(total_general_gastos))
+                            st.metric("Total Gastos Pagados por Bancos", formato_venezuela_gasto(total_general_gastos))
 
-                        st.markdown("#### 💳 Principales Salidas Operativas por Banco")
+                        st.markdown("#### 💳 Principales Salidas Operativas por Bancos")
                         
                         df_gastos['etiqueta'] = df_gastos['plan_cuentas'] + " - " + df_gastos['cuenta_o_concepto']
                         df_chart = df_gastos.set_index('etiqueta')['total_gasto']
@@ -12027,8 +12027,8 @@ if opcion_menu == "🏠 Inicio":
                     else:
                         with st.container(border=True):
                             st.info(
-                                "ℹ️ **No se encontraron registros de gastos pagados por bancos en este periodo.** "
-                                "Prueba marcando la casilla **'¿Ver Todo?'** arriba a la derecha por si tus datos de prueba corresponden a fechas anteriores."
+                                "ℹ️ **No se encontraron registros de gastos (5 y 6) vinculados a salidas de las cuentas 1.1.1.02%.** "
+                                "Prueba tildando la casilla **'¿Ver Todo?'** arriba a la derecha por si los asientos corresponden a meses anteriores."
                             )
 
                 else:
