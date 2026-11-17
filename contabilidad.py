@@ -11921,7 +11921,7 @@ if opcion_menu == "🏠 Inicio":
     import plotly.express as px
 
     # ==============================================================================
-    # MÓDULO: TOP 5 GASTOS Y COSTOS (GRÁFICO PLOTLY CON MONTOS Y CUENTAS)
+    # MÓDULO: TOP 5 GASTOS Y COSTOS (AGRUPADO ESTRICTAMENTE POR CUENTA CONTABLE)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11930,18 +11930,18 @@ if opcion_menu == "🏠 Inicio":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
         st.markdown("### 📊 Top 5 Gastos y Costos Operativos")
-        st.caption("Estructura de egresos con visualización detallada de montos y cuentas contables.")
+        st.caption("Estructura de egresos agrupada por cuenta contable oficial y su monto total acumulado.")
 
         hoy_g = datetime.date.today()
         primer_dia_g = hoy_g.replace(day=1)
         
         col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
         with col_g1:
-            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_plotly")
+            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_cta")
         with col_g2:
-            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_plotly")
+            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_cta")
         with col_g3:
-            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_plotly", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
+            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_cta", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
 
         if fecha_ini_g > fecha_fin_g:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
@@ -11954,56 +11954,52 @@ if opcion_menu == "🏠 Inicio":
                     f_ini_str_g = fecha_ini_g.strftime('%Y-%m-%d')
                     f_fin_str_g = fecha_fin_g.strftime('%Y-%m-%d')
                     
-                    filtro_fecha_sql = "" if ver_historico_p else f"AND g.fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
+                    filtro_fecha_sql = "" if ver_historico_p else f"AND fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
                     
-                    # 1. Intento con cruce bancario (1.1.1.02%)
-                    query_cruce_bancos = f"""
+                    # Consulta mejorada: Agrupa puramente por plan_cuentas trayendo el nombre limpio de la cuenta
+                    query_gastos_cuentas = f"""
                         SELECT 
-                            g.plan_cuentas,
-                            MAX(g.descripcion) AS cuenta_o_concepto,
-                            SUM(g.debe - g.haber) AS total_gasto
-                        FROM asientos_contables g
-                        WHERE (g.plan_cuentas LIKE '5%' OR g.plan_cuentas LIKE '6%')
+                            plan_cuentas,
+                            (
+                                SELECT COALESCE(nombre, descripcion) 
+                                FROM plan_de_cuentas 
+                                WHERE codigo = asientos_contables.plan_cuentas 
+                                LIMIT 1
+                            ) AS nombre_cuenta,
+                            SUM(debe - haber) AS total_gasto
+                        FROM asientos_contables
+                        WHERE (plan_cuentas LIKE '5%' OR plan_cuentas LIKE '6%')
                           {filtro_fecha_sql}
-                          AND g.comprobante IN (
-                              SELECT b.comprobante 
-                              FROM asientos_contables b 
-                              WHERE b.plan_cuentas LIKE '1.1.1.02%' 
-                                AND b.haber > 0
-                          )
-                        GROUP BY g.plan_cuentas
+                        GROUP BY plan_cuentas
                         HAVING total_gasto > 0
                         ORDER BY total_gasto DESC
                         LIMIT 5
                     """
                     
                     try:
-                        df_gastos = pd.read_sql(query_cruce_bancos, conn)
-                        modo_usado = "Pagados por Bancos (1.1.1.02)"
+                        df_gastos = pd.read_sql(query_gastos_cuentas, conn)
+                        # Si la tabla plan_de_cuentas no existe o no devuelve el nombre, respaldamos con la descripción más corta o el código
+                        if 'nombre_cuenta' not in df_gastos.columns or df_gastos['nombre_cuenta'].isnull().all():
+                            raise Exception("Usando respaldo de nombres")
                     except Exception:
-                        df_gastos = pd.DataFrame()
-                    
-                    # 2. Respaldo directo si el cruce está vacío
-                    if df_gastos.empty or len(df_gastos) == 0:
-                        filtro_fecha_dir = "" if ver_historico_p else f"AND fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
-                        query_respaldo_directo = f"""
+                        # Respaldo por si la tabla de plan de cuentas tiene otro nombre o estructura
+                        query_respaldo = f"""
                             SELECT 
                                 plan_cuentas,
-                                MAX(descripcion) AS cuenta_o_concepto,
+                                SUBSTRING_INDEX(MIN(descripcion), '-', 1) AS nombre_cuenta,
                                 SUM(debe - haber) AS total_gasto
                             FROM asientos_contables
                             WHERE (plan_cuentas LIKE '5%' OR plan_cuentas LIKE '6%')
-                              {filtro_fecha_dir}
+                              {filtro_fecha_sql}
                             GROUP BY plan_cuentas
                             HAVING total_gasto > 0
                             ORDER BY total_gasto DESC
                             LIMIT 5
                         """
                         try:
-                            df_gastos = pd.read_sql(query_respaldo_directo, conn)
-                            modo_usado = "Egresos Totales Operativos (Cuentas 5 y 6)"
+                            df_gastos = pd.read_sql(query_respaldo, conn)
                         except Exception:
-                            df_gastos = pd.DataFrame(columns=["plan_cuentas", "cuenta_o_concepto", "total_gasto"])
+                            df_gastos = pd.DataFrame(columns=["plan_cuentas", "nombre_cuenta", "total_gasto"])
                     
                     conn.close()
 
@@ -12018,27 +12014,23 @@ if opcion_menu == "🏠 Inicio":
                         total_general_gastos = df_gastos['total_gasto'].sum()
                         df_gastos['porcentaje'] = (df_gastos['total_gasto'] / total_general_gastos) * 100
 
-                        # Formatear el texto de los montos para que aparezcan en las barras
+                        # Formateo de etiquetas limpias para el gráfico y tabla
                         df_gastos['monto_formateado'] = df_gastos['total_gasto'].apply(formato_venezuela_gasto)
-                        df_gastos['etiqueta_cuenta'] = df_gastos['plan_cuentas'] + " - " + df_gastos['cuenta_o_concepto']
+                        df_gastos['etiqueta_cuenta'] = df_gastos['plan_cuentas'] + " - " + df_gastos['nombre_cuenta'].fillna("Cuenta Operativa")
 
                         with st.container(border=True):
-                            col_m1, col_m2 = st.columns([2, 1])
-                            with col_m1:
-                                st.metric("Total Salidas Operativas", formato_venezuela_gasto(total_general_gastos))
-                            with col_m2:
-                                st.caption(f"📌 **Modo:**\n{modo_usado}")
+                            st.metric("Total Salidas Operativas", formato_venezuela_gasto(total_general_gastos))
 
-                        st.markdown("#### 📉 Distribución con Detalle de Cuentas y Montos")
+                        st.markdown("#### 📉 Distribución por Cuenta Contable y Monto Total")
                         
-                        # Gráfico interactivo con Plotly (Muestra nombres de cuentas y montos en las barras)
+                        # Gráfico interactivo con Plotly limpio (Solo cuentas contables y montos totales)
                         fig = px.bar(
                             df_gastos.sort_values('total_gasto', ascending=True),
                             x='total_gasto',
                             y='etiqueta_cuenta',
                             orientation='h',
                             text='monto_formateado',
-                            labels={'total_gasto': 'Monto Total (Bs.)', 'etiqueta_cuenta': 'Cuenta Contable y Concepto'},
+                            labels={'total_gasto': 'Monto Total (Bs.)', 'etiqueta_cuenta': 'Cuenta Contable'},
                             template='plotly_white'
                         )
                         
@@ -12068,12 +12060,12 @@ if opcion_menu == "🏠 Inicio":
                         st.dataframe(
                             df_tabla_gastos[[
                                 "plan_cuentas", 
-                                "cuenta_o_concepto", 
+                                "nombre_cuenta", 
                                 "total_gasto", 
                                 "porcentaje"
                             ]].rename(columns={
-                                "plan_cuentas": "Cuenta",
-                                "cuenta_o_concepto": "Concepto / Descripción",
+                                "plan_cuentas": "Código Cuenta",
+                                "nombre_cuenta": "Nombre de la Cuenta Contable",
                                 "total_gasto": "Monto Total (Bs.)",
                                 "porcentaje": "Peso (%)"
                             }),
