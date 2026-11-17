@@ -21589,7 +21589,9 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
             df_prov_nac = df_auxiliar[df_auxiliar['Plan_Cuentas_Clean'] == '2.1.1.01.001'].copy()
 
             if not df_prov_nac.empty:
-                # 1. APLICAMOS LA EXTRACCIÓN INTELIGENTE GLOBALMENTE PARA QUE AMBAS TABS COINCIDAN
+                # ==============================================================
+                # FUNCIÓN INTELIGENTE PARA LIMPIAR "GENERAL / OTROS" DESDE LA DESCRIPCIÓN
+                # ==============================================================
                 import re
                 def extraer_proveedor_inteligente(row):
                     prov = str(row['Proveedor']).strip()
@@ -21616,6 +21618,7 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                             
                     return prov if prov not in ["", "None"] else "GENERAL / OTROS"
 
+                # ¡AQUÍ ESTABA EL DETALLE! APLICAMOS LA FUNCIÓN A TODO EL DATAFRAME
                 df_prov_nac['Proveedor'] = df_prov_nac.apply(extraer_proveedor_inteligente, axis=1)
 
                 # CREACIÓN DE LAS DOS PESTAÑAS
