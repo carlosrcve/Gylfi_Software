@@ -11920,7 +11920,7 @@ if opcion_menu == "🏠 Inicio":
     import streamlit as st
 
     # ==============================================================================
-    # MÓDULO: DIAGNÓSTICO Y TOP 5 COSTOS Y GASTOS (HTML ESTILIZADO)
+    # MÓDULO: TOP 5 COSTOS Y GASTOS (AGRUPADO DIRECTAMENTE POR CUENTA_CONTABLE)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11928,131 +11928,113 @@ if opcion_menu == "🏠 Inicio":
     if not db or db == "{db}" or db == "None" or str(db).strip() == "":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
-        st.markdown("### 📊 Top 5 Cuentas de Costos y Gastos (Diagnóstico)")
+        st.markdown("### 📊 Top 5 Cuentas de Costos y Gastos")
+        st.caption("Estructura consolidada por categoría de cuenta contable.")
 
         hoy_g = datetime.date.today()
         primer_dia_g = hoy_g.replace(day=1)
         
         col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
         with col_g1:
-            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="diag_ini")
+            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_txt_cc")
         with col_g2:
-            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="diag_fin")
+            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_txt_cc")
         with col_g3:
-            ver_historico_p = st.checkbox("¿Ver Todo?", value=True, key="diag_hist", help="Marcado por defecto para ver si hay datos históricos.")
+            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_txt_cc", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
 
-        try:
-            conn = conectar_db(db)
-            if conn:
-                conn.ping(reconnect=True)
-                
-                # --- PASO 1: DIAGNÓSTICO DE DATOS EN LA TABLA ---
-                st.markdown("---")
-                st.subheader("🔍 Diagnóstico de la Tabla `asientos_contables`")
-                
-                query_test = "SELECT cuenta_contable, debe, haber, fecha FROM asientos_contables LIMIT 5"
-                try:
-                    df_test = pd.read_sql(query_test, conn)
-                    if df_test.empty:
-                        st.error("❌ La tabla `asientos_contables` está completamente vacía en esta base de datos.")
-                    else:
-                        st.success("✅ Se encontraron registros en la tabla. Aquí tienes una muestra de los primeros códigos de cuenta:")
-                        st.dataframe(df_test, use_container_width=True, hide_index=True)
-                except Exception as test_err:
-                    st.error(f"❌ Error al consultar la tabla `asientos_contables`: {test_err}")
-                st.markdown("---")
-
-                # --- PASO 2: CONSULTA PRINCIPAL ---
-                f_ini_str_g = fecha_ini_g.strftime('%Y-%m-%d')
-                f_fin_str_g = fecha_fin_g.strftime('%Y-%m-%d')
-                
-                filtro_fecha_sql = "" if ver_historico_p else f"AND fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
-                
-                query_cuentas_cc = f"""
-                    SELECT 
-                        cuenta_contable,
-                        CASE 
-                            WHEN cuenta_contable LIKE '5%' THEN CONCAT('Costo Operativo - ', cuenta_contable)
-                            WHEN cuenta_contable LIKE '6%' THEN CONCAT('Gasto Operativo - ', cuenta_contable)
-                            ELSE CONCAT('Cuenta - ', cuenta_contable)
-                        END AS nombre_cuenta,
-                        SUM(debe - haber) AS total_gasto
-                    FROM asientos_contables
-                    WHERE (cuenta_contable LIKE '5%' OR cuenta_contable LIKE '6%')
-                      {filtro_fecha_sql}
-                    GROUP BY cuenta_contable
-                    HAVING total_gasto > 0
-                    ORDER BY total_gasto DESC
-                    LIMIT 5
-                """
-                
-                df_gastos = pd.DataFrame()
-                try:
-                    df_gastos = pd.read_sql(query_cuentas_cc, conn)
-                except Exception as sql_err:
-                    st.error(f"Error en la consulta SQL principal: {sql_err}")
-                
-                conn.close()
-
-                def formato_venezuela_gasto(val):
+        if fecha_ini_g > fecha_fin_g:
+            st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
+        else:
+            try:
+                conn = conectar_db(db)
+                if conn:
+                    conn.ping(reconnect=True)
+                    
+                    f_ini_str_g = fecha_ini_g.strftime('%Y-%m-%d')
+                    f_fin_str_g = fecha_fin_g.strftime('%Y-%m-%d')
+                    
+                    filtro_fecha_sql = "" if ver_historico_p else f"WHERE fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
+                    
+                    # Consulta agrupando directamente por la columna cuenta_contable (que contiene los textos)
+                    query_cuentas_txt = f"""
+                        SELECT 
+                            cuenta_contable AS nombre_cuenta,
+                            SUM(debe - haber) AS total_gasto
+                        FROM asientos_contables
+                        {filtro_fecha_sql}
+                        GROUP BY cuenta_contable
+                        HAVING total_gasto > 0
+                        ORDER BY total_gasto DESC
+                        LIMIT 5
+                    """
+                    
+                    df_gastos = pd.DataFrame()
                     try:
-                        s = f"{float(val):,.2f}"
-                        return "Bs. " + s.replace(',', 'X').replace('.', ',').replace('X', '.')
-                    except Exception:
-                        return "Bs. 0,00"
-
-                if not df_gastos.empty and len(df_gastos) > 0:
-                    total_general_gastos = df_gastos['total_gasto'].sum()
-                    df_gastos['porcentaje'] = (df_gastos['total_gasto'] / total_general_gastos) * 100
-
-                    with st.container(border=True):
-                        st.metric("Total General Acumulado", formato_venezuela_gasto(total_general_gastos))
-
-                    st.markdown("#### 📋 Detalle de Cuentas Contables y Egresos")
+                        df_gastos = pd.read_sql(query_cuentas_txt, conn)
+                    except Exception as sql_err:
+                        st.error(f"Error en la consulta SQL: {sql_err}")
                     
-                    html_table = """
-                    <div style="overflow-x: auto; border-radius: 8px; border: 1px solid #e0e0e0; background-color: #ffffff; padding: 4px; margin-bottom: 20px;">
-                        <table style="width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; color: #333333;">
-                            <thead>
-                                <tr style="background-color: #f8f9fa; border-bottom: 2px solid #dee2e6; text-align: left;">
-                                    <th style="padding: 12px; font-weight: 600; color: #2c3e50;">Código Cuenta</th>
-                                    <th style="padding: 12px; font-weight: 600; color: #2c3e50;">Denominación Contable</th>
-                                    <th style="padding: 12px; font-weight: 600; color: #2c3e50; text-align: right;">Total Cuenta (Bs.)</th>
-                                    <th style="padding: 12px; font-weight: 600; color: #2c3e50; text-align: right;">Peso (%)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                    """
-                    
-                    for idx, row in df_gastos.iterrows():
-                        bg_color = "#fdfdfd" if idx % 2 == 0 else "#ffffff"
-                        monto_fmt = formato_venezuela_gasto(row['total_gasto'])
-                        porc_fmt = f"{row['porcentaje']:.1f}%"
+                    conn.close()
+
+                    def formato_venezuela_gasto(val):
+                        try:
+                            s = f"{float(val):,.2f}"
+                            return "Bs. " + s.replace(',', 'X').replace('.', ',').replace('X', '.')
+                        except Exception:
+                            return "Bs. 0,00"
+
+                    if not df_gastos.empty and len(df_gastos) > 0:
+                        total_general_gastos = df_gastos['total_gasto'].sum()
+                        df_gastos['porcentaje'] = (df_gastos['total_gasto'] / total_general_gastos) * 100
+
+                        with st.container(border=True):
+                            st.metric("Total General Acumulado", formato_venezuela_gasto(total_general_gastos))
+
+                        st.markdown("#### 📋 Detalle de Cuentas Contables y Egresos")
                         
-                        html_table += f"""
-                                <tr style="background-color: {bg_color}; border-bottom: 1px solid #f1f1f1;">
-                                    <td style="padding: 11px; font-family: monospace; font-weight: bold; color: #2A9D8F;">{row['cuenta_contable']}</td>
-                                    <td style="padding: 11px;">{row['nombre_cuenta']}</td>
-                                    <td style="padding: 11px; text-align: right; font-weight: 600; color: #264653;">{monto_fmt}</td>
-                                    <td style="padding: 11px; text-align: right; color: #666666;">{porc_fmt}</td>
-                                </tr>
+                        # Construcción de la Tabla HTML estilizada de alta gama
+                        html_table = """
+                        <div style="overflow-x: auto; border-radius: 8px; border: 1px solid #e0e0e0; background-color: #ffffff; padding: 4px; margin-bottom: 20px;">
+                            <table style="width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; color: #333333;">
+                                <thead>
+                                    <tr style="background-color: #f8f9fa; border-bottom: 2px solid #dee2e6; text-align: left;">
+                                        <th style="padding: 12px; font-weight: 600; color: #2c3e50;">Denominación Contable</th>
+                                        <th style="padding: 12px; font-weight: 600; color: #2c3e50; text-align: right;">Total Cuenta (Bs.)</th>
+                                        <th style="padding: 12px; font-weight: 600; color: #2c3e50; text-align: right;">Peso (%)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
                         """
-                    
-                    html_table += """
-                            </tbody>
-                        </table>
-                    </div>
-                    """
-                    st.markdown(html_table, unsafe_allow_html=True)
+                        
+                        for idx, row in df_gastos.iterrows():
+                            bg_color = "#fdfdfd" if idx % 2 == 0 else "#ffffff"
+                            monto_fmt = formato_venezuela_gasto(row['total_gasto'])
+                            porc_fmt = f"{row['porcentaje']:.1f}%"
+                            
+                            html_table += f"""
+                                    <tr style="background-color: {bg_color}; border-bottom: 1px solid #f1f1f1;">
+                                        <td style="padding: 11px; font-weight: 500; color: #2A9D8F;">{row['nombre_cuenta']}</td>
+                                        <td style="padding: 11px; text-align: right; font-weight: 600; color: #264653;">{monto_fmt}</td>
+                                        <td style="padding: 11px; text-align: right; color: #666666;">{porc_fmt}</td>
+                                    </tr>
+                            """
+                        
+                        html_table += """
+                                </tbody>
+                            </table>
+                        </div>
+                        """
+                        
+                        st.markdown(html_table, unsafe_allow_html=True)
+
+                    else:
+                        with st.container(border=True):
+                            st.info("ℹ️ No se registran movimientos con los filtros actuales para este periodo.")
 
                 else:
-                    with st.container(border=True):
-                        st.info("ℹ️ No se registran movimientos con los filtros actuales (cuentas que comiencen por 5 o 6). Revisa la tabla de diagnóstico arriba para ver qué códigos de cuenta están guardados en tu base de datos.")
-
-            else:
-                st.error("No se pudo establecer conexión con la base de datos seleccionada.")
-        except Exception as err:
-            st.error(f"Ocurrió un error general: {err}")
+                    st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+            except Exception as err:
+                st.error(f"Ocurrió un error al cargar el análisis: {err}")
 
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
