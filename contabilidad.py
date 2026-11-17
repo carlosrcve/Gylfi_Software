@@ -11957,19 +11957,19 @@ if opcion_menu == "🏠 Inicio":
                     filtro_fecha_sql = "" if ver_historico_p else f"AND fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
                     
                     # Consulta limpia agrupando netamente por plan_cuentas sin tocar descripciones de proveedores
-                    query_cuentas_purer = f"""
+                    query_cuentas_cc = f"""
                         SELECT 
-                            plan_cuentas,
+                            cuenta_contable,
                             CASE 
-                                WHEN plan_cuentas LIKE '5%' THEN CONCAT('Costo Operativo - ', plan_cuentas)
-                                WHEN plan_cuentas LIKE '6%' THEN CONCAT('Gasto Operativo - ', plan_cuentas)
-                                ELSE CONCAT('Cuenta - ', plan_cuentas)
+                                WHEN cuenta_contable LIKE '5%' THEN CONCAT('Costo Operativo - ', cuenta_contable)
+                                WHEN cuenta_contable LIKE '6%' THEN CONCAT('Gasto Operativo - ', cuenta_contable)
+                                ELSE CONCAT('Cuenta - ', cuenta_contable)
                             END AS nombre_cuenta,
                             SUM(debe - haber) AS total_gasto
                         FROM asientos_contables
-                        WHERE (plan_cuentas LIKE '5%' OR plan_cuentas LIKE '6%')
+                        WHERE (cuenta_contable LIKE '5%' OR cuenta_contable LIKE '6%')
                           {filtro_fecha_sql}
-                        GROUP BY plan_cuentas
+                        GROUP BY cuenta_contable
                         HAVING total_gasto > 0
                         ORDER BY total_gasto DESC
                         LIMIT 5
