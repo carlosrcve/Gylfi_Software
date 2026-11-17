@@ -11918,10 +11918,9 @@ if opcion_menu == "🏠 Inicio":
     import datetime
     import pandas as pd
     import streamlit as st
-    import plotly.express as px
 
     # ==============================================================================
-    # MÓDULO: TOP 5 COSTOS Y GASTOS (ESTRICTAMENTE HTML Y CUENTA_CONTABLE)
+    # MÓDULO: TOP 5 COSTOS Y GASTOS (SEGURO Y CON TABLA HTML ESTILIZADA)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11937,11 +11936,11 @@ if opcion_menu == "🏠 Inicio":
         
         col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
         with col_g1:
-            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_html_cc")
+            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_html_cc_v2")
         with col_g2:
-            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_html_cc")
+            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_html_cc_v2")
         with col_g3:
-            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_html_cc", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
+            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_html_cc_v2", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
 
         if fecha_ini_g > fecha_fin_g:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
@@ -11956,7 +11955,7 @@ if opcion_menu == "🏠 Inicio":
                     
                     filtro_fecha_sql = "" if ver_historico_p else f"AND fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
                     
-                    # Consulta limpia agrupando estrictamente por cuenta_contable
+                    # Consulta SQL agrupando estrictamente por cuenta_contable
                     query_cuentas_cc = f"""
                         SELECT 
                             cuenta_contable,
@@ -11967,7 +11966,7 @@ if opcion_menu == "🏠 Inicio":
                             END AS nombre_cuenta,
                             SUM(debe - haber) AS total_gasto
                         FROM asientos_contables
-                        WHERE (cuenta_contable LIKE '5%' OR cuenta_contable LIKE '6%' OR cuenta_contable LIKE '4%')
+                        WHERE (cuenta_contable LIKE '5%' OR cuenta_contable LIKE '6%')
                           {filtro_fecha_sql}
                         GROUP BY cuenta_contable
                         HAVING total_gasto > 0
@@ -11975,12 +11974,13 @@ if opcion_menu == "🏠 Inicio":
                         LIMIT 5
                     """
                     
-                    # --- BLOQUE DE DIAGNÓSTICO RÁPIDO ---
+                    # Inicializamos df_gastos vacio por seguridad preventiva
+                    df_gastos = pd.DataFrame()
+                    
                     try:
-                        df_prueba = pd.read_sql("SELECT cuenta_contable, debe, haber, fecha FROM asientos_contables LIMIT 10", conn)
-                        st.write("🔍 **Valores encontrados en la base de datos (primeras 10 filas):**", df_prueba)
-                    except Exception as e:
-                        st.error(f"Error al leer la tabla: {e}")
+                        df_gastos = pd.read_sql(query_cuentas_cc, conn)
+                    except Exception as sql_err:
+                        st.error(f"Error en la consulta SQL: {sql_err}")
                     
                     conn.close()
 
@@ -12000,7 +12000,7 @@ if opcion_menu == "🏠 Inicio":
 
                         st.markdown("#### 📋 Detalle de Cuentas Contables y Egresos")
                         
-                        # Construcción de la Tabla HTML con estética gerencial corporativa
+                        # Construcción de la Tabla HTML estilizada de alta gama
                         html_table = """
                         <div style="overflow-x: auto; border-radius: 8px; border: 1px solid #e0e0e0; background-color: #ffffff; padding: 4px; margin-bottom: 20px;">
                             <table style="width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; color: #333333;">
@@ -12035,7 +12035,6 @@ if opcion_menu == "🏠 Inicio":
                         </div>
                         """
                         
-                        # Renderizar la tabla HTML personalizada en Streamlit
                         st.markdown(html_table, unsafe_allow_html=True)
 
                     else:
