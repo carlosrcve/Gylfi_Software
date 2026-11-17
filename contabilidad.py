@@ -11916,12 +11916,11 @@ if opcion_menu == "🏠 Inicio":
     st.divider()
 
     import datetime
-    import textwrap
     import pandas as pd
     import streamlit as st
 
     # ==============================================================================
-    # MÓDULO: TOP 5 COSTOS Y GASTOS (TABLA HTML ESTILIZADA Y LIMPIA)
+    # MÓDULO: TOP 5 COSTOS Y GASTOS (TABLA NATIVA PROFESIONAL)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11937,11 +11936,11 @@ if opcion_menu == "🏠 Inicio":
         
         col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
         with col_g1:
-            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_html_fixed")
+            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_native")
         with col_g2:
-            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_html_fixed")
+            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_native")
         with col_g3:
-            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_html_fixed", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
+            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_native", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
 
         if fecha_ini_g > fecha_fin_g:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
@@ -11993,41 +11992,26 @@ if opcion_menu == "🏠 Inicio":
 
                         st.markdown("#### 📋 Detalle de Cuentas Contables y Egresos")
                         
-                        # Generamos las filas de la tabla de forma dinámica
-                        filas_html = ""
-                        for idx, row in df_gastos.iterrows():
-                            bg_color = "#fdfdfd" if idx % 2 == 0 else "#ffffff"
-                            monto_fmt = formato_venezuela_gasto(row['total_gasto'])
-                            porc_fmt = f"{row['porcentaje']:.1f}%"
-                            
-                            filas_html += f"""
-                            <tr style="background-color: {bg_color}; border-bottom: 1px solid #f1f1f1;">
-                                <td style="padding: 12px; font-weight: 500; color: #2A9D8F;">{row['nombre_cuenta']}</td>
-                                <td style="padding: 12px; text-align: right; font-weight: 600; color: #264653;">{monto_fmt}</td>
-                                <td style="padding: 12px; text-align: right; color: #666666;">{porc_fmt}</td>
-                            </tr>
-                            """
-
-                        # Estructura HTML principal limpia y sin sangrías que confundan a Streamlit
-                        html_table = textwrap.dedent(f"""
-                        <div style="overflow-x: auto; border-radius: 8px; border: 1px solid #e0e0e0; background-color: #ffffff; padding: 4px; margin-bottom: 20px;">
-                            <table style="width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; color: #333333;">
-                                <thead>
-                                    <tr style="background-color: #f8f9fa; border-bottom: 2px solid #dee2e6; text-align: left;">
-                                        <th style="padding: 12px; font-weight: 600; color: #2c3e50;">Denominación Contable</th>
-                                        <th style="padding: 12px; font-weight: 600; color: #2c3e50; text-align: right;">Total Cuenta (Bs.)</th>
-                                        <th style="padding: 12px; font-weight: 600; color: #2c3e50; text-align: right;">Peso (%)</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {filas_html}
-                                </tbody>
-                            </table>
-                        </div>
-                        """)
+                        # Preparamos el DataFrame limpio para presentación ejecutiva
+                        df_presentacion = df_gastos.copy()
+                        df_presentacion['Porcentaje'] = df_presentacion['porcentaje'].apply(lambda x: f"{x:.1f}%")
+                        df_presentacion['Total Cuenta (Bs.)'] = df_presentacion['total_gasto'].apply(formato_venezuela_gasto)
                         
-                        # Renderizamos correctamente como HTML puro
-                        st.markdown(html_table, unsafe_allow_html=True)
+                        # Renombramos las columnas para la vista final
+                        df_final = df_presentacion[[
+                            "nombre_cuenta", 
+                            "Total Cuenta (Bs.)", 
+                            "Porcentaje"
+                        ]].rename(columns={
+                            "nombre_cuenta": "Denominación Contable"
+                        })
+                        
+                        # Renderizamos con la tabla nativa elegante de Streamlit
+                        st.dataframe(
+                            df_final,
+                            use_container_width=True,
+                            hide_index=True
+                        )
 
                     else:
                         with st.container(border=True):
