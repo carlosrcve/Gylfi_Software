@@ -11920,7 +11920,7 @@ if opcion_menu == "🏠 Inicio":
     import streamlit as st
 
     # ==============================================================================
-    # MÓDULO: TOP 5 GASTOS Y COSTOS PAGADOS POR BANCOS (ESTRUCTURA 1.1.1.02)
+    # MÓDULO BLINDADO: TOP 5 GASTOS Y COSTOS (CON CRUCE BANCARIO Y RESPALDO DIRECTO)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11928,19 +11928,19 @@ if opcion_menu == "🏠 Inicio":
     if not db or db == "{db}" or db == "None" or str(db).strip() == "":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
-        st.markdown("### 📊 Top 5 Gastos y Costos Pagados por Bancos")
-        st.caption("Cruza tus egresos operativos (5 y 6) con las salidas reales de dinero desde tus cuentas bancarias (1.1.1.02).")
+        st.markdown("### 📊 Top 5 Gastos y Costos Operativos")
+        st.caption("Análisis de egresos operativos (5 y 6) con validación inteligente de salidas bancarias y respaldo automático.")
 
         hoy_g = datetime.date.today()
         primer_dia_g = hoy_g.replace(day=1)
         
         col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
         with col_g1:
-            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_banco_real")
+            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_blindado")
         with col_g2:
-            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_banco_real")
+            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_blindado")
         with col_g3:
-            ver_historico_b = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_banco_real", help="Muestra todo el histórico si el periodo actual está vacío.")
+            ver_historico_bl = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_blindado", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
 
         if fecha_ini_g > fecha_fin_g:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
@@ -11953,10 +11953,10 @@ if opcion_menu == "🏠 Inicio":
                     f_ini_str_g = fecha_ini_g.strftime('%Y-%m-%d')
                     f_fin_str_g = fecha_fin_g.strftime('%Y-%m-%d')
                     
-                    filtro_fecha_sql = "" if ver_historico_b else f"AND g.fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
+                    filtro_fecha_sql = "" if ver_historico_bl else f"AND g.fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
                     
-                    # Consulta ajustada a tu plan de cuentas real: Bancos bajo 1.1.1.02%
-                    query_gastos_bancos = f"""
+                    # 1. Intentamos primero el cruce estricto por comprobante con bancos (1.1.1.02%)
+                    query_cruce_bancos = f"""
                         SELECT 
                             g.plan_cuentas,
                             MAX(g.descripcion) AS cuenta_o_concepto,
@@ -11977,9 +11977,32 @@ if opcion_menu == "🏠 Inicio":
                     """
                     
                     try:
-                        df_gastos = pd.read_sql(query_gastos_bancos, conn)
+                        df_gastos = pd.read_sql(query_cruce_bancos, conn)
+                        modo_usado = "Pagados por Bancos (1.1.1.02)"
                     except Exception:
-                        df_gastos = pd.DataFrame(columns=["plan_cuentas", "cuenta_o_concepto", "total_gasto"])
+                        df_gastos = pd.DataFrame()
+                    
+                    # 2. PLAN DE RESPALDO: Si el cruce bancario devuelve 0 registros, cargamos las cuentas 5 y 6 directamente
+                    if df_gastos.empty or len(df_gastos) == 0:
+                        filtro_fecha_dir = "" if ver_historico_bl else f"AND fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
+                        query_respaldo_directo = f"""
+                            SELECT 
+                                plan_cuentas,
+                                MAX(descripcion) AS cuenta_o_concepto,
+                                SUM(debe - haber) AS total_gasto
+                            FROM asientos_contables
+                            WHERE (plan_cuentas LIKE '5%' OR plan_cuentas LIKE '6%')
+                              {filtro_fecha_dir}
+                            GROUP BY plan_cuentas
+                            HAVING total_gasto > 0
+                            ORDER BY total_gasto DESC
+                            LIMIT 5
+                        """
+                        try:
+                            df_gastos = pd.read_sql(query_respaldo_directo, conn)
+                            modo_usado = "Egresos Totales Operativos (Cuentas 5 y 6)"
+                        except Exception:
+                            df_gastos = pd.DataFrame(columns=["plan_cuentas", "cuenta_o_concepto", "total_gasto"])
                     
                     conn.close()
 
@@ -11995,9 +12018,13 @@ if opcion_menu == "🏠 Inicio":
                         df_gastos['porcentaje'] = (df_gastos['total_gasto'] / total_general_gastos) * 100
 
                         with st.container(border=True):
-                            st.metric("Total Gastos Pagados por Bancos", formato_venezuela_gasto(total_general_gastos))
+                            col_m1, col_m2 = st.columns([2, 1])
+                            with col_m1:
+                                st.metric("Total Salidas Operativas", formato_venezuela_gasto(total_general_gastos))
+                            with col_m2:
+                                st.caption(f"📌 **Modo de lectura:**\n{modo_usado}")
 
-                        st.markdown("#### 💳 Principales Salidas Operativas por Bancos")
+                        st.markdown("#### 📉 Principales Rubros de Salida")
                         
                         df_gastos['etiqueta'] = df_gastos['plan_cuentas'] + " - " + df_gastos['cuenta_o_concepto']
                         df_chart = df_gastos.set_index('etiqueta')['total_gasto']
@@ -12018,7 +12045,7 @@ if opcion_menu == "🏠 Inicio":
                             ]].rename(columns={
                                 "plan_cuentas": "Cuenta",
                                 "cuenta_o_concepto": "Concepto / Descripción",
-                                "total_gasto": "Monto Pagado (Bs.)",
+                                "total_gasto": "Monto Total (Bs.)",
                                 "porcentaje": "Peso (%)"
                             }),
                             use_container_width=True,
@@ -12027,8 +12054,8 @@ if opcion_menu == "🏠 Inicio":
                     else:
                         with st.container(border=True):
                             st.info(
-                                "ℹ️ **No se encontraron registros de gastos (5 y 6) vinculados a salidas de las cuentas 1.1.1.02%.** "
-                                "Prueba tildando la casilla **'¿Ver Todo?'** arriba a la derecha por si los asientos corresponden a meses anteriores."
+                                "ℹ️ **No se registran movimientos en las cuentas de costos y gastos (5 y 6).** "
+                                "Verifica si los asientos de esta empresa utilizan otra codificación para los egresos."
                             )
 
                 else:
