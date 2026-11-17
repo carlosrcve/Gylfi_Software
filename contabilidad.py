@@ -11823,6 +11823,96 @@ if opcion_menu == "🏠 Inicio":
         except Exception as err:
             st.error(f"Ocurrió un error al procesar el cálculo del capital de trabajo: {err}")
 
+    st.divider()
+
+    import datetime
+    import pandas as pd
+    import streamlit as st
+
+    # ==============================================================================
+    # MÓDULO: PRÓXIMOS PAGOS CRÍTICOS (CUENTAS POR PAGAR E IMPUESTOS VENEZUELA)
+    # ==============================================================================
+
+    db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
+
+    if not db or db == "{db}" or db == "None" or str(db).strip() == "":
+        st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
+    else:
+        st.markdown("### 🔔 Próximos Pagos Críticos (Proveedores e Impuestos)")
+        st.caption("Controla tus compromisos inminentes de la semana con proveedores, servicios y obligaciones de ley (SENIAT/Alcaldías) para evitar multas.")
+
+        try:
+            conn = conectar_db(db)
+            if conn:
+                conn.ping(reconnect=True)
+                
+                # Consulta SQL para extraer obligaciones pendientes (Pasivos / Proveedores / Impuestos por Pagar)
+                # Analizando las cuentas del pasivo circulante (rango 2.1)
+                query_pagos = """
+                    SELECT 
+                        descripcion AS concepto_pago,
+                        plan_cuentas,
+                        SUM(haber - debe) AS monto_pendiente,
+                        MIN(fecha) AS fecha_emision
+                    FROM asientos_contables
+                    WHERE plan_cuentas LIKE '2.1%'
+                    GROUP BY descripcion, plan_cuentas
+                    HAVING monto_pendiente > 0
+                    ORDER BY monto_pendiente DESC
+                    LIMIT 5
+                """
+                
+                try:
+                    df_pagos = pd.read_sql(query_pagos, conn)
+                except Exception:
+                    df_pagos = pd.DataFrame(columns=["concepto_pago", "plan_cuentas", "monto_pendiente", "fecha_emision"])
+                
+                conn.close()
+
+                def formato_venezuela_pago(val):
+                    try:
+                        s = f"{float(val):,.2f}"
+                        return "Bs. " + s.replace(',', 'X').replace('.', ',').replace('X', '.')
+                    except Exception:
+                        return "Bs. 0,00"
+
+                if not df_pagos.empty and len(df_pagos) > 0:
+                    st.markdown("#### 🚨 Obligaciones Inmediatas Registradas")
+                    
+                    # Tarjetas de resumen rápido para los 3 pagos más altos o críticos
+                    cols = st.columns(min(len(df_pagos), 3))
+                    for idx, row in df_pagos.head(3).iterrows():
+                        with cols[idx]:
+                            with st.container(border=True):
+                                st.markdown(f"**{row['concepto_pago']}**")
+                                st.metric("Monto a Pagar", formato_venezuela_pago(row['monto_pendiente']))
+                                st.caption(f"📌 Cuenta: {row['plan_cuentas']}")
+
+                    st.markdown("---")
+                    
+                    # Tabla detallada de pagos críticos
+                    df_tabla_pagos = df_pagos.copy()
+                    df_tabla_pagos['monto_pendiente'] = df_tabla_pagos['monto_pendiente'].apply(formato_venezuela_pago)
+                    
+                    st.dataframe(
+                        df_tabla_pagos.rename(columns={
+                            "concepto_pago": "Concepto / Proveedor / Tributo",
+                            "plan_cuentas": "Cuenta Contable",
+                            "monto_pendiente": "Monto Total (Bs.)",
+                            "fecha_emision": "Fecha Registro"
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    with st.container(border=True):
+                        st.success("🎉 **¡Todo al día!** No se registran cuentas por pagar ni compromisos fiscales pendientes en las cuentas de pasivo analizadas.")
+
+            else:
+                st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+        except Exception as err:
+            st.error(f"Ocurrió un error al cargar los pagos críticos: {err}")
+
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
     
