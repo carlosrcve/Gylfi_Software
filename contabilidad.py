@@ -11920,7 +11920,7 @@ if opcion_menu == "🏠 Inicio":
     import streamlit as st
 
     # ==============================================================================
-    # MÓDULO: TOP 5 GASTOS Y COSTOS PAGADOS POR BANCOS - GYLFI SOFTWARE
+    # MÓDULO: TOP 5 GASTOS Y COSTOS PAGADOS POR BANCOS (CON OPCIÓN HISTÓRICA)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11929,16 +11929,18 @@ if opcion_menu == "🏠 Inicio":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
         st.markdown("### 📊 Top 5 Gastos y Costos Pagados por Bancos")
-        st.caption("Filtra los egresos operativos (5 y 6) que efectivamente salieron de tus cuentas bancarias (1.1.1) en el periodo.")
+        st.caption("Filtra los egresos operativos (5 y 6) que se pagaron mediante salidas directas de tus cuentas bancarias (1.1.1).")
 
         hoy_g = datetime.date.today()
         primer_dia_g = hoy_g.replace(day=1)
         
-        col_g1, col_g2 = st.columns(2)
+        col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
         with col_g1:
-            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_bancos_real")
+            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_bancos_v2")
         with col_g2:
-            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_bancos_real")
+            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_bancos_v2")
+        with col_g3:
+            ver_historico_b = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_bancos", help="Muestra todo el histórico si el mes actual no tiene registros de pagos bancarios.")
 
         if fecha_ini_g > fecha_fin_g:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
@@ -11951,8 +11953,9 @@ if opcion_menu == "🏠 Inicio":
                     f_ini_str_g = fecha_ini_g.strftime('%Y-%m-%d')
                     f_fin_str_g = fecha_fin_g.strftime('%Y-%m-%d')
                     
-                    # Consulta limpia: Trae las cuentas de gastos/costos (5 y 6) que comparten comprobante 
-                    # con una salida de dinero en bancos (1.1.1 por el haber)
+                    filtro_fecha_sql = "" if ver_historico_b else f"AND g.fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
+                    
+                    # Consulta robusta cruzando comprobantes de gastos con salidas de banco
                     query_gastos_bancos = f"""
                         SELECT 
                             g.plan_cuentas,
@@ -11960,13 +11963,12 @@ if opcion_menu == "🏠 Inicio":
                             SUM(g.debe - g.haber) AS total_gasto
                         FROM asientos_contables g
                         WHERE (g.plan_cuentas LIKE '5%' OR g.plan_cuentas LIKE '6%')
-                          AND g.fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'
+                          {filtro_fecha_sql}
                           AND g.comprobante IN (
                               SELECT b.comprobante 
                               FROM asientos_contables b 
                               WHERE b.plan_cuentas LIKE '1.1.1%' 
                                 AND b.haber > 0
-                                AND b.fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'
                           )
                         GROUP BY g.plan_cuentas
                         HAVING total_gasto > 0
@@ -12024,12 +12026,15 @@ if opcion_menu == "🏠 Inicio":
                         )
                     else:
                         with st.container(border=True):
-                            st.info("ℹ️ No se encontraron asientos donde los gastos de las cuentas 5 y 6 se hayan pagado directamente con salidas de las cuentas bancarias (1.1.1) en este rango de fechas.")
+                            st.info(
+                                "ℹ️ **No se encontraron registros de gastos pagados por bancos en este periodo.** "
+                                "Prueba marcando la casilla **'¿Ver Todo?'** arriba a la derecha por si tus datos de prueba corresponden a fechas anteriores."
+                            )
 
-                else:
-                    st.error("No se pudo establecer conexión con la base de datos seleccionada.")
-            except Exception as err:
-                st.error(f"Ocurrió un error al cargar el análisis: {err}")
+            else:
+                st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+        except Exception as err:
+            st.error(f"Ocurrió un error al cargar el análisis: {err}")
 
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
