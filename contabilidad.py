@@ -21716,19 +21716,33 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
             # PESTAÑA 2: NETO DE DEUDA POR PROVEEDOR (SOLO 2.1.1.01.001)
             # ==============================================================
             with tab2:
-                if not df_prov_nac.empty:
-                    st.markdown("#### 📋 Resumen Consolidado: Neto de Deuda por Proveedor")
-                    st.caption(f"Calculado del {f_desde.strftime('%d/%m/%Y')} al {f_hasta.strftime('%d/%m/%Y')} exclusivamente para la cuenta 2.1.1.01.001.")
+                # Blindaje estricto: forzamos el filtro únicamente a la cuenta 2.1.1.01.001
+                df_solo_21101 = df_auxiliar[
+                    df_auxiliar['Plan Cuentas'].astype(str).str.strip() == '2.1.1.01.001'
+                ].copy()
 
-                    df_neto_agrupado = df_prov_nac.groupby('Proveedor').agg(
+                if not df_solo_21101.empty:
+                    st.markdown("#### 📋 Resumen Consolidado: Neto de Deuda por Proveedor (2.1.1.01.001)")
+                    st.caption(f"Calculado del {f_desde.strftime('%d/%m/%Y')} al {f_hasta.strftime('%d/%m/%Y')} únicamente sobre la cuenta 2.1.1.01.001 - Proveedores Nacionales.")
+
+                    # Aseguramos que Haber y Debe sean numéricos puros antes de agrupar
+                    df_solo_21101['Haber'] = pd.to_numeric(df_solo_21101['Haber'], errors='coerce').fillna(0.0)
+                    df_solo_21101['Debe'] = pd.to_numeric(df_solo_21101['Debe'], errors='coerce').fillna(0.0)
+
+                    # Agrupamos estrictamente por Proveedor sumando solo movimientos de la 2.1.1.01.001
+                    df_neto_agrupado = df_solo_21101.groupby('Proveedor', as_index=False).agg(
                         Total_Haber=('Haber', 'sum'),
                         Total_Debe=('Debe', 'sum')
-                    ).reset_index()
+                    )
 
+                    # Calculamos el Neto de la cuenta de pasivo (Haber - Debe)
                     df_neto_agrupado['Deuda_Neta'] = df_neto_agrupado['Total_Haber'] - df_neto_agrupado['Total_Debe']
+                    
+                    # Ordenamos de mayor a menor deuda neta
                     df_neto_agrupado = df_neto_agrupado.sort_values(by='Deuda_Neta', ascending=False)
 
-                    df_neto_show = df_neto_agrupado.copy()
+                    # Formato de moneda venezolana para visualización en pantalla
+                    df_neto_show = df_neto_agrupado[['Proveedor', 'Deuda_Neta']].copy()
                     df_neto_show['Deuda Neta Pendiente'] = df_neto_show['Deuda_Neta'].apply(
                         lambda x: f"Bs. {x:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
                     )
@@ -21738,35 +21752,38 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                         use_container_width=True,
                         hide_index=True,
                         column_config={
-                            "Deuda Neta Pendiente": st.column_config.TextColumn("Deuda Neta (Haber - Debe)")
+                            "Proveedor": st.column_config.TextColumn("Proveedor Nacional"),
+                            "Deuda Neta Pendiente": st.column_config.TextColumn("Neto Cuenta 2.1.1.01.001 (Haber - Debe)")
                         }
                     )
 
                     gran_total_deuda = df_neto_agrupado['Deuda_Neta'].sum()
                     st.metric(
-                        "Deuda Neta Consolidada (Proveedores Nacionales)", 
+                        "Total Neto Cuenta 2.1.1.01.001 (Proveedores Nacionales)", 
                         f"Bs. {gran_total_deuda:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
                     )
 
                     st.divider()
 
-                    st.write("### 📥 Exportar Resumen Neto por Proveedor en Excel")
+                    st.write("### 📥 Exportar Neto de Proveedores Nacionales (2.1.1.01.001)")
                     
                     output_neto = io.BytesIO()
+                    df_excel_neto = df_neto_agrupado[['Proveedor', 'Deuda_Neta']].rename(
+                        columns={'Deuda_Neta': 'Neto_Deuda_2_1_1_01_001'}
+                    )
                     with pd.ExcelWriter(output_neto, engine='xlsxwriter') as writer:
-                        df_neto_agrupado[['Proveedor', 'Deuda_Neta']].to_excel(writer, index=False, sheet_name='Neto_Proveedores')
+                        df_excel_neto.to_excel(writer, index=False, sheet_name='Neto_2_1_1_01_001')
                     
                     st.download_button(
                         label="📥 Descargar Resumen Neto en Excel",
                         data=output_neto.getvalue(),
-                        file_name=f"Neto_Proveedores_Nacionales_{EMPRESA}.xlsx",
+                        file_name=f"Neto_21101001_Proveedores_{EMPRESA}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True,
                         key="btn_excel_neto_proveedores_col"
                     )
                 else:
-                    st.info("ℹ️ No se registraron movimientos específicos en la cuenta 2.1.1.01.001 para este rango de fechas.")
-
+                    st.info("ℹ️ No se registraron movimientos en la cuenta 2.1.1.01.001 (Proveedores Nacionales) para este rango de fechas.")
 
 
 # ==============================================================================
