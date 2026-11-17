@@ -11921,7 +11921,7 @@ if opcion_menu == "🏠 Inicio":
     import plotly.express as px
 
     # ==============================================================================
-    # MÓDULO: TOP 5 COSTOS Y GASTOS (NOMBRES DE CUENTA SEGUROS Y SIN PROVEEDORES)
+    # MÓDULO: TOP 5 COSTOS Y GASTOS (ESTRICTAMENTE POR CUENTA CONTABLE)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11930,18 +11930,18 @@ if opcion_menu == "🏠 Inicio":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
         st.markdown("### 📊 Top 5 Cuentas de Costos y Gastos")
-        st.caption("Estructura consolidada exclusivamente por código y nombre de la cuenta contable.")
+        st.caption("Estructura consolidada exclusivamente por código y denominación de cuenta contable.")
 
         hoy_g = datetime.date.today()
         primer_dia_g = hoy_g.replace(day=1)
         
         col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
         with col_g1:
-            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_seguro")
+            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_puro_cta")
         with col_g2:
-            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_seguro")
+            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_puro_cta")
         with col_g3:
-            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_seguro", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
+            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_puro_cta", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
 
         if fecha_ini_g > fecha_fin_g:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
@@ -11956,21 +11956,15 @@ if opcion_menu == "🏠 Inicio":
                     
                     filtro_fecha_sql = "" if ver_historico_p else f"AND fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
                     
-                    # Consulta segura y limpia: Agrupa por plan_cuentas y busca una descripción que NO sea de proveedor
-                    query_segura = f"""
+                    # Consulta limpia agrupando netamente por plan_cuentas sin tocar descripciones de proveedores
+                    query_cuentas_purer = f"""
                         SELECT 
                             plan_cuentas,
-                            COALESCE(
-                                (
-                                    SELECT descripcion 
-                                    FROM asientos_contables a2 
-                                    WHERE a2.plan_cuentas = asientos_contables.plan_cuentas 
-                                      AND a2.descripcion NOT LIKE '%Proveedor%' 
-                                      AND a2.descripcion NOT LIKE '%Factura%' 
-                                    LIMIT 1
-                                ),
-                                MIN(descripcion)
-                            ) AS nombre_cuenta,
+                            CASE 
+                                WHEN plan_cuentas LIKE '5%' THEN CONCAT('Costo Operativo - ', plan_cuentas)
+                                WHEN plan_cuentas LIKE '6%' THEN CONCAT('Gasto Operativo - ', plan_cuentas)
+                                ELSE CONCAT('Cuenta - ', plan_cuentas)
+                            END AS nombre_cuenta,
                             SUM(debe - haber) AS total_gasto
                         FROM asientos_contables
                         WHERE (plan_cuentas LIKE '5%' OR plan_cuentas LIKE '6%')
@@ -11982,7 +11976,7 @@ if opcion_menu == "🏠 Inicio":
                     """
                     
                     try:
-                        df_gastos = pd.read_sql(query_segura, conn)
+                        df_gastos = pd.read_sql(query_cuentas_purer, conn)
                     except Exception:
                         df_gastos = pd.DataFrame(columns=["plan_cuentas", "nombre_cuenta", "total_gasto"])
                     
@@ -11999,27 +11993,23 @@ if opcion_menu == "🏠 Inicio":
                         total_general_gastos = df_gastos['total_gasto'].sum()
                         df_gastos['porcentaje'] = (df_gastos['total_gasto'] / total_general_gastos) * 100
 
-                        # Limpieza final de nombres para evitar textos largos de facturas
-                        df_gastos['nombre_cuenta'] = df_gastos['nombre_cuenta'].apply(
-                            lambda x: str(x).split('-')[0].strip() if x else "Cuenta Contable"
-                        )
-                        
+                        # Formateo y etiquetas puras de la cuenta
                         df_gastos['monto_formateado'] = df_gastos['total_gasto'].apply(formato_venezuela_gasto)
-                        df_gastos['etiqueta_cuenta'] = df_gastos['plan_cuentas'] + " - " + df_gastos['nombre_cuenta']
+                        df_gastos['etiqueta_cuenta'] = df_gastos['plan_cuentas'] + " (" + df_gastos['nombre_cuenta'] + ")"
 
                         with st.container(border=True):
                             st.metric("Total General Acumulado", formato_venezuela_gasto(total_general_gastos))
 
                         st.markdown("#### 📉 Total Costos y Gastos por Cuenta Contable")
                         
-                        # Gráfico de barras horizontales con Plotly
+                        # Gráfico de barras horizontales limpio con Plotly
                         fig = px.bar(
                             df_gastos.sort_values('total_gasto', ascending=True),
                             x='total_gasto',
                             y='etiqueta_cuenta',
                             orientation='h',
                             text='monto_formateado',
-                            labels={'total_gasto': 'Monto Total (Bs.)', 'etiqueta_cuenta': 'Cuenta Contable'},
+                            labels={'total_gasto': 'Monto Total (Bs.)', 'etiqueta_cuenta': 'Código y Cuenta'},
                             template='plotly_white'
                         )
                         
@@ -12054,7 +12044,7 @@ if opcion_menu == "🏠 Inicio":
                                 "porcentaje"
                             ]].rename(columns={
                                 "plan_cuentas": "Código Cuenta",
-                                "nombre_cuenta": "Nombre de la Cuenta",
+                                "nombre_cuenta": "Denominación Contable",
                                 "total_gasto": "Total Cuenta (Bs.)",
                                 "porcentaje": "Peso (%)"
                             }),
