@@ -11921,7 +11921,7 @@ if opcion_menu == "🏠 Inicio":
     import plotly.express as px
 
     # ==============================================================================
-    # MÓDULO: TOP 5 COSTOS Y GASTOS (ESTRICTAMENTE POR CUENTA CONTABLE)
+    # MÓDULO: TOP 5 COSTOS Y GASTOS (ESTRICTAMENTE USANDO CUENTA_CONTABLE)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11937,11 +11937,11 @@ if opcion_menu == "🏠 Inicio":
         
         col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
         with col_g1:
-            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_puro_cta")
+            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_puro_cc")
         with col_g2:
-            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_puro_cta")
+            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_puro_cc")
         with col_g3:
-            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_puro_cta", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
+            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_puro_cc", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
 
         if fecha_ini_g > fecha_fin_g:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
@@ -11956,7 +11956,7 @@ if opcion_menu == "🏠 Inicio":
                     
                     filtro_fecha_sql = "" if ver_historico_p else f"AND fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
                     
-                    # Consulta limpia agrupando netamente por plan_cuentas sin tocar descripciones de proveedores
+                    # Consulta limpia utilizando estrictamente cuenta_contable
                     query_cuentas_cc = f"""
                         SELECT 
                             cuenta_contable,
@@ -11976,9 +11976,11 @@ if opcion_menu == "🏠 Inicio":
                     """
                     
                     try:
-                        df_gastos = pd.read_sql(query_cuentas_purer, conn)
-                    except Exception:
-                        df_gastos = pd.DataFrame(columns=["plan_cuentas", "nombre_cuenta", "total_gasto"])
+                        df_gastos = pd.read_sql(query_cuentas_cc, conn)
+                    except Exception as sql_err:
+                        # Mostramos el error real de SQL por si ocurre, para que no se oculte
+                        st.error(f"Error en la consulta SQL: {sql_err}")
+                        df_gastos = pd.DataFrame(columns=["cuenta_contable", "nombre_cuenta", "total_gasto"])
                     
                     conn.close()
 
@@ -11993,16 +11995,16 @@ if opcion_menu == "🏠 Inicio":
                         total_general_gastos = df_gastos['total_gasto'].sum()
                         df_gastos['porcentaje'] = (df_gastos['total_gasto'] / total_general_gastos) * 100
 
-                        # Formateo y etiquetas puras de la cuenta
+                        # Formateo y etiquetas usando cuenta_contable
                         df_gastos['monto_formateado'] = df_gastos['total_gasto'].apply(formato_venezuela_gasto)
-                        df_gastos['etiqueta_cuenta'] = df_gastos['plan_cuentas'] + " (" + df_gastos['nombre_cuenta'] + ")"
+                        df_gastos['etiqueta_cuenta'] = df_gastos['cuenta_contable'] + " (" + df_gastos['nombre_cuenta'] + ")"
 
                         with st.container(border=True):
                             st.metric("Total General Acumulado", formato_venezuela_gasto(total_general_gastos))
 
                         st.markdown("#### 📉 Total Costos y Gastos por Cuenta Contable")
                         
-                        # Gráfico de barras horizontales limpio con Plotly
+                        # Gráfico de barras horizontales con Plotly
                         fig = px.bar(
                             df_gastos.sort_values('total_gasto', ascending=True),
                             x='total_gasto',
@@ -12038,12 +12040,12 @@ if opcion_menu == "🏠 Inicio":
                         
                         st.dataframe(
                             df_tabla_gastos[[
-                                "plan_cuentas", 
+                                "cuenta_contable", 
                                 "nombre_cuenta", 
                                 "total_gasto", 
                                 "porcentaje"
                             ]].rename(columns={
-                                "plan_cuentas": "Código Cuenta",
+                                "cuenta_contable": "Código Cuenta",
                                 "nombre_cuenta": "Denominación Contable",
                                 "total_gasto": "Total Cuenta (Bs.)",
                                 "porcentaje": "Peso (%)"
