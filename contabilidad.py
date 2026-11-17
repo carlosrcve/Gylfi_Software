@@ -11920,7 +11920,7 @@ if opcion_menu == "🏠 Inicio":
     import streamlit as st
 
     # ==============================================================================
-    # MÓDULO: TOP 5 GASTOS VS SALIDAS DE BANCOS (REALIDAD DE CAJA) - GYLFI SOFTWARE
+    # MÓDULO: TOP 5 GASTOS Y COSTOS PAGADOS POR BANCOS - GYLFI SOFTWARE
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11928,17 +11928,17 @@ if opcion_menu == "🏠 Inicio":
     if not db or db == "{db}" or db == "None" or str(db).strip() == "":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
-        st.markdown("### 📊 Top 5 Gastos con Impacto en Bancos (Cuentas 5 y 6)")
-        st.caption("Filtra estrictamente los costos y gastos operativos vinculados a las salidas de efectivo reales de tus cuentas bancarias (1.1.1).")
+        st.markdown("### 📊 Top 5 Gastos y Costos Pagados por Bancos")
+        st.caption("Filtra los egresos operativos (5 y 6) que efectivamente salieron de tus cuentas bancarias (1.1.1) en el periodo.")
 
         hoy_g = datetime.date.today()
         primer_dia_g = hoy_g.replace(day=1)
         
         col_g1, col_g2 = st.columns(2)
         with col_g1:
-            fecha_ini_g = st.date_input("Fecha Desde (Gastos):", primer_dia_g, key="g_f_ini_bancos")
+            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_bancos_real")
         with col_g2:
-            fecha_fin_g = st.date_input("Fecha Hasta (Gastos):", hoy_g, key="g_f_fin_bancos")
+            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_bancos_real")
 
         if fecha_ini_g > fecha_fin_g:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
@@ -11951,8 +11951,8 @@ if opcion_menu == "🏠 Inicio":
                     f_ini_str_g = fecha_ini_g.strftime('%Y-%m-%d')
                     f_fin_str_g = fecha_fin_g.strftime('%Y-%m-%d')
                     
-                    # Consulta avanzada para relacionar gastos (5 y 6) con asientos que tuvieron salida de bancos (1.1.1)
-                    # O filtrando aquellos asientos del mismo comprobante/lote donde hubo afectación de banco
+                    # Consulta limpia: Trae las cuentas de gastos/costos (5 y 6) que comparten comprobante 
+                    # con una salida de dinero en bancos (1.1.1 por el haber)
                     query_gastos_bancos = f"""
                         SELECT 
                             g.plan_cuentas,
@@ -11962,7 +11962,7 @@ if opcion_menu == "🏠 Inicio":
                         WHERE (g.plan_cuentas LIKE '5%' OR g.plan_cuentas LIKE '6%')
                           AND g.fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'
                           AND g.comprobante IN (
-                              SELECT DISTINCT b.comprobante 
+                              SELECT b.comprobante 
                               FROM asientos_contables b 
                               WHERE b.plan_cuentas LIKE '1.1.1%' 
                                 AND b.haber > 0
@@ -11993,9 +11993,9 @@ if opcion_menu == "🏠 Inicio":
                         df_gastos['porcentaje'] = (df_gastos['total_gasto'] / total_general_gastos) * 100
 
                         with st.container(border=True):
-                            st.metric("Gastos Pagados con Salida de Bancos", formato_venezuela_gasto(total_general_gastos))
+                            st.metric("Total Gastos Pagados por Banco", formato_venezuela_gasto(total_general_gastos))
 
-                        st.markdown("#### 💳 Principales Salidas de Dinero con Impacto en Caja")
+                        st.markdown("#### 💳 Principales Salidas Operativas por Banco")
                         
                         df_gastos['etiqueta'] = df_gastos['plan_cuentas'] + " - " + df_gastos['cuenta_o_concepto']
                         df_chart = df_gastos.set_index('etiqueta')['total_gasto']
@@ -12024,12 +12024,12 @@ if opcion_menu == "🏠 Inicio":
                         )
                     else:
                         with st.container(border=True):
-                            st.info("ℹ️ No se encontraron gastos de las cuentas 5 y 6 que coincidan con desembolsos o salidas directas de bancos (1.1.1) en este período.")
+                            st.info("ℹ️ No se encontraron asientos donde los gastos de las cuentas 5 y 6 se hayan pagado directamente con salidas de las cuentas bancarias (1.1.1) en este rango de fechas.")
 
                 else:
                     st.error("No se pudo establecer conexión con la base de datos seleccionada.")
             except Exception as err:
-                st.error(f"Ocurrió un error al cargar el análisis de gastos bancarios: {err}")
+                st.error(f"Ocurrió un error al cargar el análisis: {err}")
 
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
