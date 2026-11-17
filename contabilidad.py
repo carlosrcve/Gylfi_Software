@@ -11723,6 +11723,106 @@ if opcion_menu == "🏠 Inicio":
         except Exception as err:
             st.error(f"Ocurrió un error al cargar el módulo de cobranza: {err}")
 
+    st.divider()
+
+    import datetime
+    import pandas as pd
+    import streamlit as st
+
+    # ==============================================================================
+    # MÓDULO: CAPITAL DE TRABAJO REAL (DISPONIBLE VS. COMPROMISOS INMEDIATOS)
+    # ==============================================================================
+
+    db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
+
+    if not db or db == "{db}" or db == "None" or str(db).strip() == "":
+        st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
+    else:
+        st.markdown("### 🛡️ Capital de Trabajo Real (Supervivencia a Corto Plazo)")
+        st.caption("Cruzamos tu dinero líquido disponible en bancos y caja contra las obligaciones que vencen en los próximos 15 días.")
+
+        try:
+            conn = conectar_db(db)
+            if conn:
+                conn.ping(reconnect=True)
+                
+                # 1. Consulta para calcular el Dinero Disponible (Cuentas 1.1.1 - Bancos / Caja)
+                query_disponible = """
+                    SELECT COALESCE(SUM(debe - haber), 0) AS efectivo_disponible
+                    FROM asientos_contables
+                    WHERE plan_cuentas LIKE '1.1.1%'
+                """
+                
+                # 2. Consulta para calcular los Compromisos Inmediatos (Cuentas 2.1 - Pasivo Circulante / Proveedores a corto plazo)
+                query_compromisos = """
+                    SELECT COALESCE(SUM(haber - debe), 0) AS compromisos_inmediatos
+                    FROM asientos_contables
+                    WHERE plan_cuentas LIKE '2.1%'
+                """
+                
+                try:
+                    df_disp = pd.read_sql(query_disponible, conn)
+                    df_comp = pd.read_sql(query_compromisos, conn)
+                    
+                    efectivo_disponible = float(df_disp['efectivo_disponible'].iloc[0] or 0.0)
+                    compromisos_inmediatos = float(df_comp['compromisos_inmediatos'].iloc[0] or 0.0)
+                except Exception:
+                    efectivo_disponible = 0.0
+                    compromisos_inmediatos = 0.0
+                
+                conn.close()
+
+                # Cálculo de Capital de Trabajo Real
+                capital_trabajo_real = efectivo_disponible - compromisos_inmediatos
+
+                def formato_venezuela_kt(val):
+                    try:
+                        s = f"{float(val):,.2f}"
+                        return "Bs. " + s.replace(',', 'X').replace('.', ',').replace('X', '.')
+                    except Exception:
+                        return "Bs. 0,00"
+
+                # Tarjetas de métricas visuales principales
+                with st.container(border=True):
+                    k1, k2, k3 = st.columns(3)
+                    k1.metric("Dinero Disponible (Bancos/Caja)", formato_venezuela_kt(efectivo_disponible))
+                    k2.metric("Compromisos (7-15 Días)", formato_venezuela_kt(compromisos_inmediatos))
+                    
+                    delta_color_val = "normal" if capital_trabajo_real >= 0 else "inverse"
+                    k3.metric(
+                        "Capital de Trabajo Real", 
+                        formato_venezuela_kt(capital_trabajo_real),
+                        delta="Excedente Sano" if capital_trabajo_real >= 0 else "Déficit / Riesgo",
+                        delta_color=delta_color_val
+                    )
+
+                    st.markdown("---")
+
+                    # Alerta inteligente estilo lenguaje de negocios
+                    if capital_trabajo_real > 0:
+                        st.success(
+                            f"🟢 **¡Situación Financiera Sólida!** Cuentas con un excedente líquido de "
+                            f"**{formato_venezuela_kt(capital_trabajo_real)}** después de cubrir tus obligaciones inmediatas. "
+                            f"Tienes margen seguro de operación para este periodo."
+                        )
+                    elif capital_trabajo_real == 0:
+                        st.warning(
+                            "🟡 **¡Atención Preventiva!** Tu dinero disponible cubre exactamente los compromisos inmediatos. "
+                            "Estás en un punto de equilibrio de caja justo; evita asumir nuevos gastos fijos sin cobrar."
+                        )
+                    else:
+                        deficit = abs(capital_trabajo_real)
+                        st.error(
+                            f"🔴 **¡Alerta Roja de Iliquidez!** Tus compromisos inmediatos superan tu dinero disponible "
+                            f"por un déficit de **{formato_venezuela_kt(deficit)}**. Prioriza la cobranza urgente a tus clientes "
+                            f"o frena temporalmente salidas no esenciales."
+                        )
+
+            else:
+                st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+        except Exception as err:
+            st.error(f"Ocurrió un error al procesar el cálculo del capital de trabajo: {err}")
+
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
     
