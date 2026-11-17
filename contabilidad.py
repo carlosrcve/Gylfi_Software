@@ -21551,10 +21551,12 @@ if opcion_menu == "📄 Factura Preimpresa":
 
 
 
+
+
 # ==============================================================================
-# 3. VISTA FRONTEND EN STREAMLIT: AUXILIAR PROVEEDORES NACIONALES (2.1.1.01.001)
+# 3. VISTA FRONTEND EN STREAMLIT
 # ==============================================================================
-if opcion_menu == "📄 Auxiliar Proveedores Nacionales":
+if opcion_menu == "📄 Auxiliar Cta por Pagar":
     st.markdown("### 📊 Auxiliar y Neto de Deuda - Proveedores Nacionales (2.1.1.01.001)")
     st.caption("Detalle analítico de movimientos, saldos y deudas pendientes filtrado exclusivamente para la cuenta de Proveedores Nacionales.")
 
