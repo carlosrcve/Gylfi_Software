@@ -11520,7 +11520,6 @@ if opcion_menu == "🏠 Inicio":
                 st.error(f"Ocurrió un error al procesar el reporte de flujo de efectivo: {err}")
 
     st.divider()
-
     import datetime
     import pandas as pd
     import streamlit as st
@@ -11559,21 +11558,21 @@ if opcion_menu == "🏠 Inicio":
                 if conn:
                     conn.ping(reconnect=True)
                     
-                    # Consulta SQL limpia usando triple comilla doble (evita errores de formato)
-                    query_pe = """
+                    # Convertimos las fechas a string plano para evitar cualquier conflicto de formato
+                    f_ini_str = fecha_ini_pe.strftime('%Y-%m-%d')
+                    f_fin_str = fecha_fin_pe.strftime('%Y-%m-%d')
+                    
+                    # Consulta SQL construida con f-string directa (sin %s que confundan a Python)
+                    query_pe = f"""
                         SELECT 
                             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) AS total_ventas,
                             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN (debe - haber) ELSE 0 END), 0) AS costos_variables,
                             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' OR TRIM(plan_cuentas) LIKE '6%' THEN (debe - haber) ELSE 0 END), 0) AS costos_fijos
                         FROM asientos_contables
-                        WHERE fecha BETWEEN %s AND %s
+                        WHERE fecha BETWEEN '{f_ini_str}' AND '{f_fin_str}'
                     """
                     
-                    df_pe = pd.read_sql(
-                        query_pe, 
-                        conn, 
-                        params=(fecha_ini_pe.strftime('%Y-%m-%d'), fecha_fin_pe.strftime('%Y-%m-%d'))
-                    )
+                    df_pe = pd.read_sql(query_pe, conn)
                     conn.close()
 
                     if not df_pe.empty:
