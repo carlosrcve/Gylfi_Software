@@ -11616,25 +11616,44 @@ if opcion_menu == "🏠 Inicio":
                             progreso = min(max(ratio_cumplimiento, 0.0), 1.0)
                             st.progress(progreso)
 
-                            if ventas >= punto_equilibrio:
+                            # CONDICIONES DINÁMICAS SEGÚN EL PORCENTAJE DE LOGRO Y RESULTADOS
+                            if ratio_cumplimiento >= 1.25:
+                                # Escenario 1: Alta Rentabilidad (Superávit mayor al 25%)
                                 excedente = ventas - punto_equilibrio
                                 st.success(
-                                    f"🚀 **¡Excelente noticia!** Has superado el punto de equilibrio para este período. "
-                                    f"Tus ventas superan la meta por **{formato_venezuela_pe(excedente)}** (Ganancia Neta Operativa)."
+                                    f"🌟 **¡Excelente desempeño (Superávit Sólido)!** Has superado con creces el punto de equilibrio. "
+                                    f"Tus ventas superan la meta por **{formato_venezuela_pe(excedente)}** ({ratio_cumplimiento * 100:.1f}% log.). "
+                                    f"El negocio está generando un excelente nivel de **Ganancia Neta Operativa**."
                                 )
-                            else:
+                            elif ratio_cumplimiento >= 1.0:
+                                # Escenario 2: Justo en la meta o superávit leve (100% a 124.9%)
+                                excedente = ventas - punto_equilibrio
+                                st.success(
+                                    f"🚀 **¡Meta cumplida (Zona de Éxito)!** Has cubierto el 100% de tus compromisos fijos. "
+                                    f"Generaste un excedente de **{formato_venezuela_pe(excedente)}** ({ratio_cumplimiento * 100:.1f}% log.) en Ganancia Neta."
+                                )
+                            elif ratio_cumplimiento >= 0.80:
+                                # Escenario 3: Alerta Temprana / Zona de Cierre (80% a 99.9%)
                                 faltante = punto_equilibrio - ventas
                                 st.warning(
-                                    f"⚠️ **En desarrollo:** Te faltan **{formato_venezuela_pe(faltante)}** en ventas "
-                                    f"dentro de este rango de fechas para cubrir el 100% de tus compromisos fijos."
+                                    f"⚠️ **Alerta de Cierre:** Estás muy cerca de la meta pero aún operas en déficit. "
+                                    f"Te faltan **{formato_venezuela_pe(faltante)}** para alcanzar el punto de equilibrio ({ratio_cumplimiento * 100:.1f}% log.). "
+                                    f"¡Acelera las ventas antes de que cierre el periodo!"
+                                )
+                            else:
+                                # Escenario 4: Déficit Crítico (Menor al 80%)
+                                faltante = punto_equilibrio - ventas
+                                st.error(
+                                    f"🔴 **Déficit Operativo Importante:** Las ventas actuales cubren solo el **{ratio_cumplimiento * 100:.1f}%** de los costos fijos. "
+                                    f"Faltan **{formato_venezuela_pe(faltante)}** en ventas. Es necesario revisar la estructura de costos o inyectar capital de trabajo."
                                 )
 
-                            # GUÍA PEDAGÓGICA UBICADA JUSTO AQUÍ DESPUÉS DE LA ALERTA/ÉXITO
-                            with st.expander("📖 ¿Cómo interpretar este resultado financiero?"):
+                            # GUÍA PEDAGÓGICA DINÁMICA
+                            with st.expander("📖 ¿Cómo interpretar este resultado financiero según tu porcentaje?"):
                                 st.markdown("""
-                                * **Meta de Equilibrio:** Es el monto mínimo que tu empresa debe vender para **no perder dinero** (cubrir el 100% de los costos fijos). 
-                                * **Si tu porcentaje de logro es menor al 100%:** Estás operando a pérdidas temporales o requieres un mayor impulso comercial en el periodo.
-                                * **Si tu porcentaje es mayor al 100%:** ¡El negocio ya es autosostenible y cada bolívar adicional genera **Ganancia Neta Operativa** pura!
+                                * **Logro del 100% o más:** El negocio es autosostenible; los costos fijos están pagados y cada bolívar extra es **Ganancia Neta**.
+                                * **Logro entre 80% y 99.9% (Alerta Temprana):** Estás a un paso de la meta, un empuje comercial de última hora puede salvar el ejercicio mensual.
+                                * **Logro menor al 80% (Déficit):** El volumen de ventas está muy por debajo de la estructura de gastos. Requiere medidas correctivas urgentes (recorte de costos fijos o estrategias agresivas de precios y mercado).
                                 """)
 
                         else:
