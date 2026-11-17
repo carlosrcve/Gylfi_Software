@@ -11542,22 +11542,14 @@ if opcion_menu == "🏠 Inicio":
         st.markdown("### 🎯 Análisis de Punto de Equilibrio Operativo")
         st.caption("Visualiza rápidamente si tu negocio está cubriendo sus costos fijos y alcanzando la rentabilidad.")
         
-        # Sección pedagógica desplegable para el usuario
-        with st.expander("📖 ¿Cómo interpretar este análisis financiero?"):
-            st.markdown("""
-            * **Meta de Equilibrio:** Es el monto mínimo que tu empresa debe vender para **no perder dinero**. 
-            * **Si tu porcentaje de logro es menor al 100%:** Estás operando a pérdidas temporales o requieres inyección de capital/mayor impulso comercial.
-            * **Si tu porcentaje es mayor al 100%:** ¡El negocio ya es autosostenible y genera excedentes de ganancia operativa!
-            """)
-            
         hoy = datetime.date.today()
         primer_dia_mes = hoy.replace(day=1)
         
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            fecha_ini_pe = st.date_input("Fecha Desde:", primer_dia_mes, key="pe_f_ini")
+            fecha_ini_pe = st.date_input("Fecha Desde:", primer_dia_mes, key="pe_eq_f_ini_v2")
         with col_f2:
-            fecha_fin_pe = st.date_input("Fecha Hasta:", hoy, key="pe_f_fin")
+            fecha_fin_pe = st.date_input("Fecha Hasta:", hoy, key="pe_eq_f_fin_v2")
 
         if fecha_ini_pe > fecha_fin_pe:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
@@ -11636,6 +11628,15 @@ if opcion_menu == "🏠 Inicio":
                                     f"⚠️ **En desarrollo:** Te faltan **{formato_venezuela_pe(faltante)}** en ventas "
                                     f"dentro de este rango de fechas para cubrir el 100% de tus compromisos fijos."
                                 )
+
+                            # GUÍA PEDAGÓGICA UBICADA JUSTO AQUÍ EN EL BLOQUE DE RESULTADOS
+                            with st.expander("📖 ¿Cómo interpretar este resultado financiero?"):
+                                st.markdown("""
+                                * **Meta de Equilibrio:** Es el monto mínimo que tu empresa debe vender para **no perder dinero** (cubrir el 100% de los costos fijos). 
+                                * **Si tu porcentaje de logro es menor al 100%:** Estás operando a pérdidas temporales o requieres un mayor impulso comercial en el periodo.
+                                * **Si tu porcentaje es mayor al 100%:** ¡El negocio ya es autosostenible y cada bolívar adicional genera **Ganancia Neta Operativa** pura!
+                                """)
+
                         else:
                             st.info("ℹ️ No se registran suficientes movimientos de ingresos en la cuenta 4 para el rango de fechas seleccionado.")
 
