@@ -13217,8 +13217,19 @@ elif opcion_menu == "📝 Asientos Contables":
                     except Exception as e:
                         st.error(f"Error al eliminar: {e}")
         # --- TAB 2: GESTIÓN Y GENERACIÓN DE ÓRDENES DE PAGO Y CRUCE ---
+        # --- TAB 2: GESTIÓN Y GENERACIÓN DE ÓRDENES DE PAGO Y CRUCE ---
         with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
+
+            # 🌟 DEFINIMOS EL MODO DE VISTA PARA EVITAR EL NAMEERROR
+            modo_vista = st.radio(
+                "Seleccione la acción:",
+                ("Emitir Nueva Orden de Pago", "Consultar / Gestionar Órdenes"),
+                horizontal=True,
+                key="radio_modo_vista_tab2"
+            )
+
+            st.markdown("---")
 
             # --- CARGAR PROVEEDORES SEGURO Y ORDENADOS A-Z ---
             def cargar_proveedores_seguro(empresa):
@@ -13227,7 +13238,6 @@ elif opcion_menu == "📝 Asientos Contables":
                     conn = conectar_db(empresa)
                     if conn:
                         cursor = conn.cursor()
-                        # 🌟 CORREGIDO: Filtramos por empresa y ordenamos ignorando mayúsculas/minúsculas
                         cursor.execute(
                             "SELECT id, nombre, rif, codigo_cuenta, descripcion_cuenta FROM proveedores_carga WHERE empresa_db = %s ORDER BY LOWER(nombre) ASC",
                             (str(empresa),)
@@ -13254,7 +13264,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                     'descripcion_cuenta': desc_cta
                                 }
                                 
-                    # 🌟 DOBLE BLINDAJE EN PYTHON: Ordenamiento estricto A-Z ignorando mayúsculas
                     p_lista = sorted(p_lista, key=lambda x: str(x).strip().lower())
 
                 except Exception as ex_prov:
@@ -13265,7 +13274,6 @@ elif opcion_menu == "📝 Asientos Contables":
             # --- CARGAR Y ORDENAR PROVEEDORES ALFABÉTICAMENTE RÁPIDO ---
             if "cache_lista_provs" not in st.session_state or "cache_dict_provs" not in st.session_state:
                 with st.spinner("Cargando catálogo de proveedores..."):
-                    # 🌟 CORREGIDO: Usamos la función local segura en lugar de la que causaba el NameError
                     p_lista, p_dict = cargar_proveedores_seguro(db_actual)
                     
                     st.session_state.cache_lista_provs = p_lista
@@ -13278,7 +13286,7 @@ elif opcion_menu == "📝 Asientos Contables":
             # 📋 OPCIÓN 1: EMITIR NUEVA ORDEN DE PAGO
             # ==========================================
             if modo_vista == "Emitir Nueva Orden de Pago":
-                if not st.session_state.orden_guardada_exito:
+                if not st.session_state.get('orden_guardada_exito', False):
                     st.markdown("### ✍️ Emitir Nueva Orden de Pago")
                     
                     modo_registro = st.radio(
