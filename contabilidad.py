@@ -11637,7 +11637,7 @@ if opcion_menu == "🏠 Inicio":
             except Exception as err:
                 st.error(f"Ocurrió un error al procesar el cálculo del punto de equilibrio: {err}")
 
-   st.divider()
+    st.divider()
 
     import datetime
     import pandas as pd
