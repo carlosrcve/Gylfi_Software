@@ -11963,6 +11963,7 @@ if opcion_menu == "🏠 Inicio":
                         FROM asientos_contables
                         WHERE (
                             cuenta_contable LIKE '%Costo%' OR 
+                            cuenta_contable LIKE '%Iva Credito Fiscal (Ingresos Exentos)%' OR 
                             cuenta_contable LIKE '%Gasto%' OR 
                             cuenta_contable LIKE '%Reparaciones%'
                         )
