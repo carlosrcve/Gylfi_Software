@@ -11651,7 +11651,7 @@ if opcion_menu == "🏠 Inicio":
     import streamlit as st
 
     # ==============================================================================
-    # MÓDULO: TOP CLIENTES QUE DEBEN (RANGO CUENTAS 1.1.2.01.001 AL 1.1.2.01.500)
+    # MÓDULO: PUNTO DE EQUILIBRIO OPERATIVO (ESTÁNDAR GYLFI SOFTWARE)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11659,76 +11659,115 @@ if opcion_menu == "🏠 Inicio":
     if not db or db == "{db}" or db == "None" or str(db).strip() == "":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
-        st.markdown("### 🚨 Top Clientes que Deben (Cuentas por Cobrar)")
-        st.caption("Visualiza los saldos pendientes del rango de cuentas 1.1.2.01.001 al 1.1.2.01.500 (Debe menos Haber).")
-
         try:
-            conn = conectar_db(db)
-            if conn:
-                conn.ping(reconnect=True)
-                
-                # Consulta SQL estricta por rango de plan de cuentas, considerando Debe - Haber y la descripción
-                query_cxp = """
-                    SELECT 
-                        descripcion AS cliente,
-                        SUM(debe - haber) AS saldo_pendiente,
-                        DATEDIFF(NOW(), MIN(fecha)) as dias_antiguedad
-                    FROM asientos_contables
-                    WHERE plan_cuentas BETWEEN '1.1.2.01.001' AND '1.1.2.01.500'
-                    GROUP BY descripcion
-                    HAVING saldo_pendiente > 0
-                    ORDER BY saldo_pendiente DESC
-                    LIMIT 5
-                """
-                
-                try:
-                    df_deudores = pd.read_sql(query_cxp, conn)
-                except Exception:
-                    df_deudores = pd.DataFrame(columns=["cliente", "saldo_pendiente", "dias_antiguedad"])
-                
-                conn.close()
+            empresa_actual = obtener_datos_empresa_activa() if 'obtener_datos_empresa_activa' in globals() else {"nombre": str(db).upper()}
+        except Exception:
+            empresa_actual = {"nombre": str(db).upper()}
+            
+        st.markdown("### 🎯 Análisis de Punto de Equilibrio Operativo")
+        st.caption("Visualiza rápidamente si tu negocio está cubriendo sus costos fijos y alcanzando la rentabilidad.")
+        
+        hoy = datetime.date.today()
+        primer_dia_mes = hoy.replace(day=1)
+        
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            fecha_ini_pe = st.date_input("Fecha Desde:", primer_dia_mes, key="pe_f_ini")
+        with col_f2:
+            fecha_fin_pe = st.date_input("Fecha Hasta:", hoy, key="pe_f_fin")
 
-                def formato_venezuela_deuda(val):
-                    try:
-                        s = f"{float(val):,.2f}"
-                        return "Bs. " + s.replace(',', 'X').replace('.', ',').replace('X', '.')
-                    except Exception:
-                        return "Bs. 0,00"
+        # Sección pedagógica desplegable ubicada justo debajo de los filtros de fecha
+        with st.expander("📖 ¿Cómo interpretar este análisis financiero? (Guía Pedagógica)"):
+            st.markdown("""
+            * **Meta de Equilibrio:** Es el monto mínimo que tu empresa debe vender para **no perder dinero** (cubrir el 100% de los costos fijos). 
+            * **Si tu porcentaje de logro es menor al 100%:** Estás operando a pérdidas temporales o requieres un mayor impulso comercial en el periodo.
+            * **Si tu porcentaje es mayor al 100%:** ¡El negocio ya es autosostenible y cada bolívar adicional genera **Ganancia Neta Operativa** pura!
+            """)
 
-                if not df_deudores.empty and len(df_deudores) > 0:
-                    st.markdown("#### 🏆 Top 5 Clientes con Mayor Saldo Pendiente")
+        if fecha_ini_pe > fecha_fin_pe:
+            st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
+        else:
+            try:
+                conn = conectar_db(db)
+                if conn:
+                    conn.ping(reconnect=True)
                     
-                    cols = st.columns(min(len(df_deudores), 3))
-                    for idx, row in df_deudores.head(3).iterrows():
-                        with cols[idx]:
-                            with st.container(border=True):
-                                st.markdown(f"**{row['cliente']}**")
-                                st.metric("Deuda Pendiente", formato_venezuela_deuda(row['saldo_pendiente']))
-                                st.caption(f"⏳ Aprox. {int(row['dias_antiguedad'])} días en la calle")
+                    f_ini_str = fecha_ini_pe.strftime('%Y-%m-%d')
+                    f_fin_str = fecha_fin_pe.strftime('%Y-%m-%d')
+                    
+                    query_pe = f"""
+                        SELECT 
+                            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN (haber - debe) ELSE 0 END), 0) AS total_ventas,
+                            0.0 AS costos_variables,
+                            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' OR TRIM(plan_cuentas) LIKE '6%' THEN (debe - haber) ELSE 0 END), 0) AS costos_fijos
+                        FROM asientos_contables
+                        WHERE fecha BETWEEN '{f_ini_str}' AND '{f_fin_str}'
+                    """
+                    
+                    df_pe = pd.read_sql(query_pe, conn)
+                    conn.close()
 
-                    st.markdown("---")
+                    if not df_pe.empty:
+                        ventas = float(df_pe['total_ventas'].iloc[0] or 0.0)
+                        costos_vars = float(df_pe['costos_variables'].iloc[0] or 0.0)
+                        costos_fijos = float(df_pe['costos_fijos'].iloc[0] or 0.0)
+                    else:
+                        ventas, costos_vars, costos_fijos = 0.0, 0.0, 0.0
+
+                    utilidad_bruta = ventas - costos_vars
+                    margen_contribucion = (utilidad_bruta / ventas) if ventas > 0 else 1.0
                     
-                    # Formateamos la columna numérica para que se vea con puntos de miles y comas decimales
-                    df_tabla = df_deudores.copy()
-                    df_tabla['saldo_pendiente'] = df_tabla['saldo_pendiente'].apply(formato_venezuela_deuda)
-                    
-                    st.dataframe(
-                        df_tabla.rename(columns={
-                            "cliente": "Detalle / Cliente",
-                            "saldo_pendiente": "Saldo Total (Bs.)",
-                            "dias_antiguedad": "Días de Antigüedad"
-                        }),
-                        use_container_width=True,
-                        hide_index=True
-                    )
-                else:
+                    if margen_contribucion > 0 and margen_contribucion <= 1.0:
+                        punto_equilibrio = costos_fijos / margen_contribucion
+                    else:
+                        punto_equilibrio = costos_fijos
+
+                    def formato_venezuela_pe(val):
+                        try:
+                            s = f"{float(val):,.2f}"
+                            return "Bs. " + s.replace(',', 'X').replace('.', ',').replace('X', '.')
+                        except Exception:
+                            return "Bs. 0,00"
+
                     with st.container(border=True):
-                        st.success("🎉 **¡Excelente noticia!** No se registran saldos pendientes de cobro en el rango de cuentas por cobrar analizado.")
+                        m1, m2, m3, m4 = st.columns(4)
+                        m1.metric("Costos Fijos", formato_venezuela_pe(costos_fijos))
+                        m2.metric("Margen Contribución", f"{margen_contribucion * 100:.1f}%")
+                        m3.metric("Ventas Reales", formato_venezuela_pe(ventas))
+                        
+                        ratio_cumplimiento = (ventas / punto_equilibrio) if punto_equilibrio > 0 else 0.0
+                        m4.metric(
+                            "Meta de Equilibrio", 
+                            formato_venezuela_pe(punto_equilibrio), 
+                            delta=f"{ratio_cumplimiento * 100:.1f}% log.",
+                            delta_color="normal" if ratio_cumplimiento >= 1.0 else "inverse"
+                        )
 
-            else:
-                st.error("No se pudo establecer conexión con la base de datos seleccionada.")
-        except Exception as err:
-            st.error(f"Ocurrió un error al cargar el módulo de cobranza: {err}")
+                        st.markdown("---")
+
+                        if punto_equilibrio > 0:
+                            progreso = min(max(ratio_cumplimiento, 0.0), 1.0)
+                            st.progress(progreso)
+
+                            if ventas >= punto_equilibrio:
+                                excedente = ventas - punto_equilibrio
+                                st.success(
+                                    f"🚀 **¡Excelente noticia!** Has superado el punto de equilibrio para este período. "
+                                    f"Tus ventas superan la meta por **{formato_venezuela_pe(excedente)}** (Ganancia Neta Operativa)."
+                                )
+                            else:
+                                faltante = punto_equilibrio - ventas
+                                st.warning(
+                                    f"⚠️ **En desarrollo:** Te faltan **{formato_venezuela_pe(faltante)}** en ventas "
+                                    f"dentro de este rango de fechas para cubrir el 100% de tus compromisos fijos."
+                                )
+                        else:
+                            st.info("ℹ️ No se registran suficientes movimientos de ingresos en la cuenta 4 para el rango de fechas seleccionado.")
+
+                else:
+                    st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+            except Exception as err:
+                st.error(f"Ocurrió un error al procesar el cálculo del punto de equilibrio: {err}")
 
     st.divider()
 
