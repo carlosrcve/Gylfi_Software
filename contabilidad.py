@@ -11913,6 +11913,102 @@ if opcion_menu == "🏠 Inicio":
         except Exception as err:
             st.error(f"Ocurrió un error al cargar los pagos críticos: {err}")
 
+    st.divider()
+
+    import datetime
+    import pandas as pd
+    import streamlit as st
+
+    # ==============================================================================
+    # MÓDULO: TOP 5 GASTOS DEL MES (ESTRUCTURA DE COSTOS Y GASTOS - CUENTAS 5 Y 6)
+    # ==============================================================================
+
+    db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
+
+    if not db or db == "{db}" or db == "None" or str(db).strip() == "":
+        st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
+    else:
+        st.markdown("### 📊 Top 5 Gastos del Mes (¿A dónde se va el dinero?)")
+        st.caption("Desglose visual e inmediato de tus mayores salidas de dinero (costos operativos, nómina, servicios) para entender tu rentabilidad real.")
+
+        hoy_g = datetime.date.today()
+        primer_dia_g = hoy_g.replace(day=1)
+        
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            fecha_ini_g = st.date_input("Fecha Desde (Gastos):", primer_dia_g, key="g_f_ini")
+        with col_g2:
+            fecha_fin_g = st.date_input("Fecha Hasta (Gastos):", hoy_g, key="g_f_fin")
+
+        if fecha_ini_g > fecha_fin_g:
+            st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
+        else:
+            try:
+                conn = conectar_db(db)
+                if conn:
+                    conn.ping(reconnect=True)
+                    
+                    f_ini_str_g = fecha_ini_g.strftime('%Y-%m-%d')
+                    f_fin_str_g = fecha_fin_g.strftime('%Y-%m-%d')
+                    
+                    # Consulta SQL para extraer el Top 5 de gastos de las cuentas 5 y 6
+                    query_gastos = f"""
+                        SELECT 
+                            descripcion AS concepto_gasto,
+                            SUM(debe - haber) AS total_gasto
+                        FROM asientos_contables
+                        WHERE (plan_cuentas LIKE '5%' OR plan_cuentas LIKE '6%')
+                          AND fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'
+                        GROUP BY descripcion
+                        HAVING total_gasto > 0
+                        ORDER BY total_gasto DESC
+                        LIMIT 5
+                    """
+                    
+                    try:
+                        df_gastos = pd.read_sql(query_gastos, conn)
+                    except Exception:
+                        df_gastos = pd.DataFrame(columns=["concepto_gasto", "total_gasto"])
+                    
+                    conn.close()
+
+                    def formato_venezuela_gasto(val):
+                        try:
+                            s = f"{float(val):,.2f}"
+                            return "Bs. " + s.replace(',', 'X').replace('.', ',').replace('X', '.')
+                        except Exception:
+                            return "Bs. 0,00"
+
+                    if not df_gastos.empty and len(df_gastos) > 0:
+                        st.markdown("#### 📉 Principales Rubros de Salida de Dinero")
+                        
+                        # Gráfico de barras nativo de Streamlit limpio y directo
+                        df_chart = df_gastos.set_index('concepto_gasto')['total_gasto']
+                        st.bar_chart(df_chart)
+
+                        st.markdown("---")
+                        
+                        # Tabla de detalle con formato numérico venezolano
+                        df_tabla_gastos = df_gastos.copy()
+                        df_tabla_gastos['total_gasto'] = df_tabla_gastos['total_gasto'].apply(formato_venezuela_gasto)
+                        
+                        st.dataframe(
+                            df_tabla_gastos.rename(columns={
+                                "concepto_gasto": "Concepto de Gasto / Proveedor",
+                                "total_gasto": "Monto Total (Bs.)"
+                            }),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                    else:
+                        with st.container(border=True):
+                            st.info("ℹ️ No se registran movimientos de costos o gastos operativos (cuentas 5 y 6) en el rango de fechas seleccionado.")
+
+                else:
+                    st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+            except Exception as err:
+                st.error(f"Ocurrió un error al cargar el gráfico de gastos: {err}")
+
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
     
