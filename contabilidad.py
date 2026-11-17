@@ -11642,7 +11642,7 @@ if opcion_menu == "🏠 Inicio":
                 else:
                     st.error("No se pudo establecer conexión con la base de datos seleccionada.")
             except Exception as err:
-            st.error(f"Ocurrió un error al procesar el cálculo del punto de equilibrio: {err}")
+                st.error(f"Ocurrió un error al procesar el cálculo del punto de equilibrio: {err}")
 
     st.divider()
 
