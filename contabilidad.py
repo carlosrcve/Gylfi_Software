@@ -11570,7 +11570,6 @@ if opcion_menu == "🏠 Inicio":
                     f_ini_str = fecha_ini_pe.strftime('%Y-%m-%d')
                     f_fin_str = fecha_fin_pe.strftime('%Y-%m-%d')
                     
-                    # CORRECCIÓN: Ventas en cuenta 4 (haber - debe), Costos fijos en cuentas 5 y 6 (debe - haber)
                     query_pe = f"""
                         SELECT 
                             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN (haber - debe) ELSE 0 END), 0) AS total_ventas,
@@ -11640,10 +11639,10 @@ if opcion_menu == "🏠 Inicio":
                         else:
                             st.info("ℹ️ No se registran suficientes movimientos de ingresos en la cuenta 4 para el rango de fechas seleccionado.")
 
-                    else:
-                        st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+                else:
+                    st.error("No se pudo establecer conexión con la base de datos seleccionada.")
             except Exception as err:
-                st.error(f"Ocurrió un error al procesar el cálculo del punto de equilibrio: {err}")
+            st.error(f"Ocurrió un error al procesar el cálculo del punto de equilibrio: {err}")
 
     st.divider()
 
