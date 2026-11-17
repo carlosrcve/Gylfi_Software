@@ -11520,6 +11520,7 @@ if opcion_menu == "🏠 Inicio":
                 st.error(f"Ocurrió un error al procesar el reporte de flujo de efectivo: {err}")
 
     st.divider()
+
     import datetime
     import pandas as pd
     import streamlit as st
@@ -11558,15 +11559,14 @@ if opcion_menu == "🏠 Inicio":
                 if conn:
                     conn.ping(reconnect=True)
                     
-                    # Convertimos las fechas a string plano para evitar cualquier conflicto de formato
                     f_ini_str = fecha_ini_pe.strftime('%Y-%m-%d')
                     f_fin_str = fecha_fin_pe.strftime('%Y-%m-%d')
                     
-                    # Consulta SQL construida con f-string directa (sin %s que confundan a Python)
+                    # CORRECCIÓN: Ventas en cuenta 4 (haber - debe), Costos fijos en cuentas 5 y 6 (debe - haber)
                     query_pe = f"""
                         SELECT 
-                            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) AS total_ventas,
-                            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN (debe - haber) ELSE 0 END), 0) AS costos_variables,
+                            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN (haber - debe) ELSE 0 END), 0) AS total_ventas,
+                            0.0 AS costos_variables,
                             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' OR TRIM(plan_cuentas) LIKE '6%' THEN (debe - haber) ELSE 0 END), 0) AS costos_fijos
                         FROM asientos_contables
                         WHERE fecha BETWEEN '{f_ini_str}' AND '{f_fin_str}'
@@ -11583,9 +11583,9 @@ if opcion_menu == "🏠 Inicio":
                         ventas, costos_vars, costos_fijos = 0.0, 0.0, 0.0
 
                     utilidad_bruta = ventas - costos_vars
-                    margen_contribucion = (utilidad_bruta / ventas) if ventas > 0 else 0.0
+                    margen_contribucion = (utilidad_bruta / ventas) if ventas > 0 else 1.0
                     
-                    if margen_contribucion > 0:
+                    if margen_contribucion > 0 and margen_contribucion <= 1.0:
                         punto_equilibrio = costos_fijos / margen_contribucion
                     else:
                         punto_equilibrio = costos_fijos
@@ -11630,7 +11630,7 @@ if opcion_menu == "🏠 Inicio":
                                     f"dentro de este rango de fechas para cubrir el 100% de tus compromisos fijos."
                                 )
                         else:
-                            st.info("ℹ️ No se registran suficientes movimientos de ingresos o costos en el rango de fechas seleccionado para calcular el punto de equilibrio.")
+                            st.info("ℹ️ No se registran suficientes movimientos de ingresos en la cuenta 4 para el rango de fechas seleccionado.")
 
                 else:
                     st.error("No se pudo establecer conexión con la base de datos seleccionada.")
