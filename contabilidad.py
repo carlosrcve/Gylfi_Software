@@ -11918,9 +11918,10 @@ if opcion_menu == "🏠 Inicio":
     import datetime
     import pandas as pd
     import streamlit as st
+    import plotly.express as px
 
     # ==============================================================================
-    # MÓDULO BLINDADO: TOP 5 GASTOS Y COSTOS (CON CRUCE BANCARIO Y RESPALDO DIRECTO)
+    # MÓDULO: TOP 5 GASTOS Y COSTOS (GRÁFICO PLOTLY CON MONTONES Y CUENTAS)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11929,18 +11930,18 @@ if opcion_menu == "🏠 Inicio":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
         st.markdown("### 📊 Top 5 Gastos y Costos Operativos")
-        st.caption("Análisis de egresos operativos (5 y 6) con validación inteligente de salidas bancarias y respaldo automático.")
+        st.caption("Estructura de egresos con visualización detallada de montos y cuentas contables.")
 
         hoy_g = datetime.date.today()
         primer_dia_g = hoy_g.replace(day=1)
         
         col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
         with col_g1:
-            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_blindado")
+            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_plotly")
         with col_g2:
-            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_blindado")
+            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_plotly")
         with col_g3:
-            ver_historico_bl = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_blindado", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
+            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_plotly", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
 
         if fecha_ini_g > fecha_fin_g:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
@@ -11953,9 +11954,9 @@ if opcion_menu == "🏠 Inicio":
                     f_ini_str_g = fecha_ini_g.strftime('%Y-%m-%d')
                     f_fin_str_g = fecha_fin_g.strftime('%Y-%m-%d')
                     
-                    filtro_fecha_sql = "" if ver_historico_bl else f"AND g.fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
+                    filtro_fecha_sql = "" if ver_historico_p else f"AND g.fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
                     
-                    # 1. Intentamos primero el cruce estricto por comprobante con bancos (1.1.1.02%)
+                    # 1. Intento con cruce bancario (1.1.1.02%)
                     query_cruce_bancos = f"""
                         SELECT 
                             g.plan_cuentas,
@@ -11982,9 +11983,9 @@ if opcion_menu == "🏠 Inicio":
                     except Exception:
                         df_gastos = pd.DataFrame()
                     
-                    # 2. PLAN DE RESPALDO: Si el cruce bancario devuelve 0 registros, cargamos las cuentas 5 y 6 directamente
+                    # 2. Respaldo directo si el cruce está vacío
                     if df_gastos.empty or len(df_gastos) == 0:
-                        filtro_fecha_dir = "" if ver_historico_bl else f"AND fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
+                        filtro_fecha_dir = "" if ver_historico_p else f"AND fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
                         query_respaldo_directo = f"""
                             SELECT 
                                 plan_cuentas,
@@ -12017,18 +12018,46 @@ if opcion_menu == "🏠 Inicio":
                         total_general_gastos = df_gastos['total_gasto'].sum()
                         df_gastos['porcentaje'] = (df_gastos['total_gasto'] / total_general_gastos) * 100
 
+                        # Formatear el texto de los montos para que aparezcan en las barras
+                        df_gastos['monto_formateado'] = df_gastos['total_gasto'].apply(formato_venezuela_gasto)
+                        df_gastos['etiqueta_cuenta'] = df_gastos['plan_cuentas'] + " - " + df_gastos['cuenta_o_concepto']
+
                         with st.container(border=True):
                             col_m1, col_m2 = st.columns([2, 1])
                             with col_m1:
                                 st.metric("Total Salidas Operativas", formato_venezuela_gasto(total_general_gastos))
                             with col_m2:
-                                st.caption(f"📌 **Modo de lectura:**\n{modo_usado}")
+                                st.caption(f"📌 **Modo:**\n{modo_usado}")
 
-                        st.markdown("#### 📉 Principales Rubros de Salida")
+                        st.markdown("#### 📉 Distribución con Detalle de Cuentas y Montos")
                         
-                        df_gastos['etiqueta'] = df_gastos['plan_cuentas'] + " - " + df_gastos['cuenta_o_concepto']
-                        df_chart = df_gastos.set_index('etiqueta')['total_gasto']
-                        st.bar_chart(df_chart)
+                        # Gráfico interactivo con Plotly (Muestra nombres de cuentas y montos en las barras)
+                        fig = px.bar(
+                            df_gastos.sort_values('total_gasto', ascending=True),
+                            x='total_gasto',
+                            y='etiqueta_cuenta',
+                            orientation='h',
+                            text='monto_formateado',
+                            labels={'total_gasto': 'Monto Total (Bs.)', 'etiqueta_cuenta': 'Cuenta Contable y Concepto'},
+                            template='plotly_white'
+                        )
+                        
+                        fig.update_traces(
+                            texttemplate='%{text}', 
+                            textposition='outside',
+                            marker_color='#FF4B4B'
+                        )
+                        
+                        fig.update_layout(
+                            xaxis_title="Monto Total en Bolívares",
+                            yaxis_title="",
+                            uniformtext_minsize=8, 
+                            uniformtext_mode='hide',
+                            height=400,
+                            margin=dict(l=10, r=10, t=10, b=10)
+                        )
+                        
+                        st.plotly_chart(fig, use_container_width=True)
 
                         st.markdown("---")
                         
@@ -12053,15 +12082,12 @@ if opcion_menu == "🏠 Inicio":
                         )
                     else:
                         with st.container(border=True):
-                            st.info(
-                                "ℹ️ **No se registran movimientos en las cuentas de costos y gastos (5 y 6).** "
-                                "Verifica si los asientos de esta empresa utilizan otra codificación para los egresos."
-                            )
+                            st.info("ℹ️ No se registran movimientos en las cuentas de costos y gastos (5 y 6) para este periodo.")
 
                 else:
                     st.error("No se pudo establecer conexión con la base de datos seleccionada.")
             except Exception as err:
-                st.error(f"Ocurrió un error al cargar el análisis: {err}")
+            st.error(f"Ocurrió un error al cargar el análisis: {err}")
 
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
