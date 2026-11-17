@@ -11638,13 +11638,12 @@ if opcion_menu == "🏠 Inicio":
                 st.error(f"Ocurrió un error al procesar el cálculo del punto de equilibrio: {err}")
 
     st.divider()
-
     import datetime
     import pandas as pd
     import streamlit as st
 
     # ==============================================================================
-    # MÓDULO: TOP CLIENTES QUE DEBEN (CUENTAS POR COBRAR) - GYLFI SOFTWARE
+    # MÓDULO: TOP CLIENTES QUE DEBEN (DESDE ASIENTOS CONTABLES - CUENTA X)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11653,22 +11652,23 @@ if opcion_menu == "🏠 Inicio":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
         st.markdown("### 🚨 Top Clientes que Deben (Cuentas por Cobrar)")
-        st.caption("Visualiza rápidamente a los clientes con mayores saldos pendientes y evita que el dinero se quede en la calle.")
+        st.caption("Visualiza rápidamente los saldos pendientes desde el libro diario para gestionar la cobranza a tiempo.")
 
         try:
             conn = conectar_db(db)
             if conn:
                 conn.ping(reconnect=True)
                 
-                # Consulta segura validando si la tabla existe o usando tu tabla de clientes
+                # Consulta directa a asientos_contables agrupando por descripción/cliente o auxiliar
+                # (Ajusta 'descripcion' o el campo que utilices para identificar al cliente en los asientos)
                 query_cxp = """
                     SELECT 
-                        cliente,
+                        descripcion AS cliente,
                         SUM(debe - haber) AS saldo_pendiente,
                         DATEDIFF(NOW(), MIN(fecha)) as dias_antiguedad
-                    FROM cuentas_por_cobrar
-                    WHERE estado != 'Pagado'
-                    GROUP BY cliente
+                    FROM asientos_contables
+                    WHERE plan_cuentas LIKE '1.1%' OR plan_cuentas LIKE '1%'
+                    GROUP BY descripcion
                     HAVING saldo_pendiente > 0
                     ORDER BY saldo_pendiente DESC
                     LIMIT 5
@@ -11677,7 +11677,6 @@ if opcion_menu == "🏠 Inicio":
                 try:
                     df_deudores = pd.read_sql(query_cxp, conn)
                 except Exception:
-                    # Plan de respaldo por si la tabla física 'cuentas_por_cobrar' aún no ha sido creada en esta BD
                     df_deudores = pd.DataFrame(columns=["cliente", "saldo_pendiente", "dias_antiguedad"])
                 
                 conn.close()
@@ -11689,8 +11688,8 @@ if opcion_menu == "🏠 Inicio":
                     except Exception:
                         return "Bs. 0,00"
 
-                if not df_deudores.empty:
-                    st.markdown("#### 🏆 Top 5 Clientes con Mayor Atraso")
+                if not df_deudores.empty and len(df_deudores) > 0:
+                    st.markdown("#### 🏆 Top 5 Clientes con Mayor Saldo Pendiente")
                     
                     cols = st.columns(min(len(df_deudores), 3))
                     for idx, row in df_deudores.head(3).iterrows():
@@ -11698,23 +11697,22 @@ if opcion_menu == "🏠 Inicio":
                             with st.container(border=True):
                                 st.markdown(f"**{row['cliente']}**")
                                 st.metric("Deuda Pendiente", formato_venezuela_deuda(row['saldo_pendiente']))
-                                st.caption(f"⏳ Aprox. {int(row['dias_antiguedad'])} días en la calle")
+                                st.caption(f"⏳ Aprox. {int(row['dias_antiguedad'])} días")
 
                     st.markdown("---")
                     
                     st.dataframe(
                         df_deudores.rename(columns={
-                            "cliente": "Cliente / Empresa",
-                            "saldo_pendiente": "Deuda Total (Bs.)",
-                            "dias_antiguedad": "Días de Retraso"
+                            "cliente": "Detalle / Cliente",
+                            "saldo_pendiente": "Saldo Total (Bs.)",
+                            "dias_antiguedad": "Días de Antigüedad"
                         }),
                         use_container_width=True,
                         hide_index=True
                     )
                 else:
-                    # Mensaje amigable cuando la tabla está vacía o pendiente de poblar
                     with st.container(border=True):
-                        st.info("ℹ️ **Módulo Activo:** Para ver el ranking de deudores en vivo, asegúrate de tener registrada la tabla de cuentas por cobrar o los saldos pendientes de tus clientes en la base de datos.")
+                        st.success("🎉 **¡Excelente noticia!** No se registran saldos pendientes de cobro en este momento según los asientos contables analizados.")
 
             else:
                 st.error("No se pudo establecer conexión con la base de datos seleccionada.")
