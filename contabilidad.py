@@ -21676,18 +21676,48 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                     else:
                         col_pdf.error("❌ No se pudo generar el archivo PDF.")
                 # ==============================================================
-                # PESTAÑA 2: NETO DE DEUDA CONSOLIDADO POR PROVEEDOR (UNA FILA POR PROVEEDOR)
+                # PESTAÑA 2: NETO DE DEUDA CONSOLIDADO POR PROVEEDOR REAL
                 # ==============================================================
                 with tab2:
                     st.markdown("#### 📋 Resumen Consolidado: Neto de Deuda por Proveedor")
-                    st.caption(f"Calculado del {f_desde.strftime('%d/%m/%Y')} al {f_hasta.strftime('%d/%m/%Y')} para la cuenta 2.1.1.01.001 (Una fila por proveedor).")
+                    st.caption(f"Calculado del {f_desde.strftime('%d/%m/%Y')} al {f_hasta.strftime('%d/%m/%Y')} para la cuenta 2.1.1.01.001.")
 
-                    # Copiamos la base y normalizamos el nombre del proveedor
+                    # Copiamos la base de proveedores nacionales
                     df_neto_base = df_prov_nac.copy()
-                    df_neto_base['Proveedor'] = df_neto_base['Proveedor'].fillna("GENERAL / OTROS").astype(str).str.strip()
-                    df_neto_base.loc[df_neto_base['Proveedor'] == "", 'Proveedor'] = "GENERAL / OTROS"
+                    
+                    # FUNCIÓN INTELIGENTE PARA EXTRAER EL PROVEEDOR DESDE LA DESCRIPCIÓN SI DICE "GENERAL / OTROS"
+                    import re
+                    def extraer_proveedor_inteligente(row):
+                        prov = str(row['Proveedor']).strip()
+                        desc = str(row['Descripción']).upper()
+                        
+                        # Si el proveedor es genérico pero la descripción tiene el patrón de pago
+                        if prov in ["", "GENERAL / OTROS"] and "PAGO A PROVEEDOR" in desc:
+                            # Intenta extraer el texto entre "PAGO A PROVEEDOR" y " - FACTURA" o al final
+                            try:
+                                partes = desc.split("PAGO A PROVEEDOR")
+                                if len(partes) > 1:
+                                    sub = partes[1].split("- FACTURA")[0].split(" - FAC")[0].strip()
+                                    if sub:
+                                        return sub
+                            except Exception:
+                                pass
+                        elif prov in ["", "GENERAL / OTROS"] and "CANCELACIÓN DE PAGO A" in desc:
+                            try:
+                                partes = desc.split("CANCELACIÓN DE PAGO A")
+                                if len(partes) > 1:
+                                    sub = partes[1].split("- FACTURA")[0].split(" - FAC")[0].strip()
+                                    if sub:
+                                        return sub
+                            except Exception:
+                                pass
+                                
+                        return prov if prov not in ["", "None"] else "GENERAL / OTROS"
 
-                    # Agrupamos por proveedor sumando el Haber y el Debe
+                    # Aplicamos la extracción inteligente a cada fila
+                    df_neto_base['Proveedor'] = df_neto_base.apply(extraer_proveedor_inteligente, axis=1)
+
+                    # Agrupamos por proveedor real sumando el Haber (deudas) y el Debe (pagos)
                     df_neto_agrupado = df_neto_base.groupby('Proveedor').agg(
                         Total_Haber=('Haber', 'sum'),
                         Total_Debe=('Debe', 'sum')
