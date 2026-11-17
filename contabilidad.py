@@ -11921,7 +11921,7 @@ if opcion_menu == "🏠 Inicio":
     import plotly.express as px
 
     # ==============================================================================
-    # MÓDULO: TOP 5 COSTOS Y GASTOS (USANDO CUENTA_CONTABLE)
+    # MÓDULO: TOP 5 COSTOS Y GASTOS (ESTRICTAMENTE POR CUENTA CONTABLE)
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11956,20 +11956,20 @@ if opcion_menu == "🏠 Inicio":
                     
                     filtro_fecha_sql = "" if ver_historico_p else f"AND fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
                     
-                    # Consulta limpia agrupando netamente por cuenta_contable
+                    # Consulta limpia agrupando netamente por plan_cuentas sin tocar descripciones de proveedores
                     query_cuentas_purer = f"""
                         SELECT 
-                            cuenta_contable,
+                            plan_cuentas,
                             CASE 
-                                WHEN cuenta_contable LIKE '5%' THEN CONCAT('Costo Operativo - ', cuenta_contable)
-                                WHEN cuenta_contable LIKE '6%' THEN CONCAT('Gasto Operativo - ', cuenta_contable)
-                                ELSE CONCAT('Cuenta - ', cuenta_contable)
+                                WHEN plan_cuentas LIKE '5%' THEN CONCAT('Costo Operativo - ', plan_cuentas)
+                                WHEN plan_cuentas LIKE '6%' THEN CONCAT('Gasto Operativo - ', plan_cuentas)
+                                ELSE CONCAT('Cuenta - ', plan_cuentas)
                             END AS nombre_cuenta,
                             SUM(debe - haber) AS total_gasto
                         FROM asientos_contables
-                        WHERE (cuenta_contable LIKE '5%' OR cuenta_contable LIKE '6%')
+                        WHERE (plan_cuentas LIKE '5%' OR plan_cuentas LIKE '6%')
                           {filtro_fecha_sql}
-                        GROUP BY cuenta_contable
+                        GROUP BY plan_cuentas
                         HAVING total_gasto > 0
                         ORDER BY total_gasto DESC
                         LIMIT 5
@@ -11978,7 +11978,7 @@ if opcion_menu == "🏠 Inicio":
                     try:
                         df_gastos = pd.read_sql(query_cuentas_purer, conn)
                     except Exception:
-                        df_gastos = pd.DataFrame(columns=["cuenta_contable", "nombre_cuenta", "total_gasto"])
+                        df_gastos = pd.DataFrame(columns=["plan_cuentas", "nombre_cuenta", "total_gasto"])
                     
                     conn.close()
 
@@ -11993,9 +11993,9 @@ if opcion_menu == "🏠 Inicio":
                         total_general_gastos = df_gastos['total_gasto'].sum()
                         df_gastos['porcentaje'] = (df_gastos['total_gasto'] / total_general_gastos) * 100
 
-                        # Formateo y etiquetas utilizando cuenta_contable
+                        # Formateo y etiquetas puras de la cuenta
                         df_gastos['monto_formateado'] = df_gastos['total_gasto'].apply(formato_venezuela_gasto)
-                        df_gastos['etiqueta_cuenta'] = df_gastos['cuenta_contable'] + " (" + df_gastos['nombre_cuenta'] + ")"
+                        df_gastos['etiqueta_cuenta'] = df_gastos['plan_cuentas'] + " (" + df_gastos['nombre_cuenta'] + ")"
 
                         with st.container(border=True):
                             st.metric("Total General Acumulado", formato_venezuela_gasto(total_general_gastos))
@@ -12038,12 +12038,12 @@ if opcion_menu == "🏠 Inicio":
                         
                         st.dataframe(
                             df_tabla_gastos[[
-                                "cuenta_contable", 
+                                "plan_cuentas", 
                                 "nombre_cuenta", 
                                 "total_gasto", 
                                 "porcentaje"
                             ]].rename(columns={
-                                "cuenta_contable": "Código Cuenta",
+                                "plan_cuentas": "Código Cuenta",
                                 "nombre_cuenta": "Denominación Contable",
                                 "total_gasto": "Total Cuenta (Bs.)",
                                 "porcentaje": "Peso (%)"
