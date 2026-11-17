@@ -11457,7 +11457,6 @@ if opcion_menu == "🏠 Inicio":
     if not db or db == "{db}" or db == "None" or str(db).strip() == "":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
-        # Intentamos obtener los datos de la empresa si tu función existe
         try:
             empresa_actual = obtener_datos_empresa_activa() if 'obtener_datos_empresa_activa' in globals() else {"nombre": str(db).upper()}
         except Exception:
@@ -11466,14 +11465,15 @@ if opcion_menu == "🏠 Inicio":
         st.markdown("### 🎯 Análisis de Punto de Equilibrio Operativo")
         st.caption("Visualiza rápidamente si tu negocio está cubriendo sus costos fijos y alcanzando la rentabilidad.")
         
-        # Selectores de fecha (por defecto el mes actual)
-        hoy = datetime.today() if hasattr(datetime, "today") else datetime.date.today()
+        # 🕒 Fechas dinámicas automáticas (sin fechas manuales)
+        hoy = datetime.date.today()
+        primer_dia_mes = hoy.replace(day=1)
         
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            fecha_ini_pe = st.date_input("Fecha Desde:", datetime(2026, 5, 1), key="pe_f_ini")
+            fecha_ini_pe = st.date_input("Fecha Desde:", primer_dia_mes, key="pe_f_ini")
         with col_f2:
-            fecha_fin_pe = st.date_input("Fecha Hasta:", datetime(2026, 5, 31), key="pe_f_fin")
+            fecha_fin_pe = st.date_input("Fecha Hasta:", hoy, key="pe_f_fin")
 
         if fecha_ini_pe > fecha_fin_pe:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
@@ -11483,7 +11483,6 @@ if opcion_menu == "🏠 Inicio":
                 if conn:
                     conn.ping(reconnect=True)
                     
-                    # Consulta SQL optimizada para el rango de fechas
                     query_pe = """
                         SELECT 
                             COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '3%' THEN (haber - debe) ELSE 0 END), 0) AS total_ventas,
@@ -11502,7 +11501,6 @@ if opcion_menu == "🏠 Inicio":
                     else:
                         ventas, costos_vars, costos_fijos = 0.0, 0.0, 0.0
 
-                    # Cálculos financieros clave
                     utilidad_bruta = ventas - costos_vars
                     margen_contribucion = (utilidad_bruta / ventas) if ventas > 0 else 0.0
                     
@@ -11511,7 +11509,6 @@ if opcion_menu == "🏠 Inicio":
                     else:
                         punto_equilibrio = costos_fijos
 
-                    # Función de formato monetario venezolano (34.789,52)
                     def formato_venezuela_pe(val):
                         try:
                             s = f"{float(val):,.2f}"
@@ -11519,9 +11516,7 @@ if opcion_menu == "🏠 Inicio":
                         except Exception:
                             return "Bs. 0,00"
 
-                    # Contenedor visual del dashboard
                     with st.container(border=True):
-                        # Mostramos métricas clave en pantalla de forma permanente
                         m1, m2, m3, m4 = st.columns(4)
                         m1.metric("Costos Fijos", formato_venezuela_pe(costos_fijos))
                         m2.metric("Margen Contribución", f"{margen_contribucion * 100:.1f}%")
@@ -11537,7 +11532,6 @@ if opcion_menu == "🏠 Inicio":
 
                         st.markdown("---")
 
-                        # Diagnóstico visual amigable para el emprendedor
                         if punto_equilibrio > 0:
                             progreso = min(max(ratio_cumplimiento, 0.0), 1.0)
                             st.progress(progreso)
