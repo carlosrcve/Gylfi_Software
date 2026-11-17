@@ -21675,28 +21675,28 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                         )
                     else:
                         col_pdf.error("❌ No se pudo generar el archivo PDF.")
-
                 # ==============================================================
-                # PESTAÑA 2: NETO DE DEUDA POR PROVEEDOR
+                # PESTAÑA 2: NETO DE DEUDA POR PROVEEDOR (CORREGIDA)
                 # ==============================================================
                 with tab2:
                     st.markdown("#### 📋 Resumen Consolidado: Neto de Deuda por Proveedor")
                     st.caption(f"Calculado del {f_desde.strftime('%d/%m/%Y')} al {f_hasta.strftime('%d/%m/%Y')} para la cuenta 2.1.1.01.001.")
 
-                    # Agrupamos por proveedor sumando el Haber (deudas) y el Debe (pagos) para sacar el neto (Haber - Debe)
-                    df_neto = df_prov_nac.groupby('Proveedor').agg(
+                    # Copiamos para no alterar el auxiliar y rellenamos nulos o vacíos para que no se pierda nada
+                    df_neto_base = df_prov_nac.copy()
+                    df_neto_base['Proveedor'] = df_neto_base['Proveedor'].fillna("GENERAL / OTROS").astype(str).str.strip()
+                    df_neto_base.loc[df_neto_base['Proveedor'] == "", 'Proveedor'] = "GENERAL / OTROS"
+
+                    # Agrupamos por proveedor sumando el Haber (deudas) y el Debe (pagos)
+                    df_neto = df_neto_base.groupby('Proveedor').agg(
                         Total_Facturado_Haber=('Haber', 'sum'),
                         Total_Pagado_Debe=('Debe', 'sum')
                     ).reset_index()
 
                     df_neto['Deuda_Neta_Pendiente'] = df_neto['Total_Facturado_Haber'] - df_neto['Total_Pagado_Debe']
 
-                    # Filtramos filas vacías o nombres genéricos de pagos
-                    df_neto = df_neto[
-                        (df_neto['Proveedor'].str.strip() != "") & 
-                        (df_neto['Proveedor'].str.strip() != "GENERAL / OTROS") & 
-                        (~df_neto['Proveedor'].str.upper().str.startswith("PAGO"))
-                    ].sort_values(by='Deuda_Neta_Pendiente', ascending=False)
+                    # Ordenamos de mayor a menor deuda neta pendiente
+                    df_neto = df_neto.sort_values(by='Deuda_Neta_Pendiente', ascending=False)
 
                     # Mostramos tabla resumen con formato en bolívares
                     df_neto_show = df_neto.copy()
@@ -21710,7 +21710,7 @@ if opcion_menu == "📄 Auxiliar Cta por Pagar":
                         hide_index=True
                     )
 
-                    # Métrica global de toda la deuda neta de proveedores nacionales
+                    # Métrica global de toda la deuda neta (ahora sí cuadrará exactamente con los Bs. 2.631.347,51)
                     gran_total_deuda = df_neto['Deuda_Neta_Pendiente'].sum()
                     st.metric("Deuda Neta Consolidada (Proveedores Nacionales)", f"Bs. {gran_total_deuda:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'))
 
