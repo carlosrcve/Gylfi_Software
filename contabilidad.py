@@ -11967,7 +11967,7 @@ if opcion_menu == "🏠 Inicio":
                             END AS nombre_cuenta,
                             SUM(debe - haber) AS total_gasto
                         FROM asientos_contables
-                        WHERE (cuenta_contable LIKE '5%' OR cuenta_contable LIKE '6%')
+                        WHERE (cuenta_contable LIKE '5%' OR cuenta_contable LIKE '6%' OR cuenta_contable LIKE '4%')
                           {filtro_fecha_sql}
                         GROUP BY cuenta_contable
                         HAVING total_gasto > 0
