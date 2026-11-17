@@ -11920,7 +11920,7 @@ if opcion_menu == "🏠 Inicio":
     import streamlit as st
 
     # ==============================================================================
-    # MÓDULO: TOP 5 GASTOS DEL MES (ESTRUCTURA DE COSTOS Y GASTOS - CUENTAS 5 Y 6)
+    # MÓDULO: TOP 5 GASTOS Y COSTOS DEL MES (ESTRUCTURA CONTABLE REAL) - GYLFI SOFTWARE
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11928,8 +11928,8 @@ if opcion_menu == "🏠 Inicio":
     if not db or db == "{db}" or db == "None" or str(db).strip() == "":
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
-        st.markdown("### 📊 Top 5 Gastos del Mes (¿A dónde se va el dinero?)")
-        st.caption("Desglose visual e inmediato de tus mayores salidas de dinero (costos operativos, nómina, servicios) para entender tu rentabilidad real.")
+        st.markdown("### 📊 Top 5 Gastos y Costos del Mes")
+        st.caption("Estructura gerencial de salidas de dinero agrupada por el plan contable (Cuentas 5 y 6) para ver la realidad operativa.")
 
         hoy_g = datetime.date.today()
         primer_dia_g = hoy_g.replace(day=1)
@@ -11951,15 +11951,16 @@ if opcion_menu == "🏠 Inicio":
                     f_ini_str_g = fecha_ini_g.strftime('%Y-%m-%d')
                     f_fin_str_g = fecha_fin_g.strftime('%Y-%m-%d')
                     
-                    # Consulta SQL para extraer el Top 5 de gastos de las cuentas 5 y 6
+                    # Consulta agrupada estrictamente por plan_cuentas para orden contable real
                     query_gastos = f"""
                         SELECT 
-                            descripcion AS concepto_gasto,
+                            plan_cuentas,
+                            MAX(descripcion) AS cuenta_o_concepto,
                             SUM(debe - haber) AS total_gasto
                         FROM asientos_contables
                         WHERE (plan_cuentas LIKE '5%' OR plan_cuentas LIKE '6%')
                           AND fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'
-                        GROUP BY descripcion
+                        GROUP BY plan_cuentas
                         HAVING total_gasto > 0
                         ORDER BY total_gasto DESC
                         LIMIT 5
@@ -11968,7 +11969,7 @@ if opcion_menu == "🏠 Inicio":
                     try:
                         df_gastos = pd.read_sql(query_gastos, conn)
                     except Exception:
-                        df_gastos = pd.DataFrame(columns=["concepto_gasto", "total_gasto"])
+                        df_gastos = pd.DataFrame(columns=["plan_cuentas", "cuenta_o_concepto", "total_gasto"])
                     
                     conn.close()
 
@@ -11980,22 +11981,39 @@ if opcion_menu == "🏠 Inicio":
                             return "Bs. 0,00"
 
                     if not df_gastos.empty and len(df_gastos) > 0:
-                        st.markdown("#### 📉 Principales Rubros de Salida de Dinero")
+                        # Cálculo gerencial de peso porcentual
+                        total_general_gastos = df_gastos['total_gasto'].sum()
+                        df_gastos['porcentaje'] = (df_gastos['total_gasto'] / total_general_gastos) * 100
+
+                        # Métrica ejecutiva superior
+                        with st.container(border=True):
+                            st.metric("Total Salidas Operativas en el Periodo", formato_venezuela_gasto(total_general_gastos))
+
+                        st.markdown("#### 📉 Principales Rubros de Salida")
                         
-                        # Gráfico de barras nativo de Streamlit limpio y directo
-                        df_chart = df_gastos.set_index('concepto_gasto')['total_gasto']
+                        # Gráfico de barras ordenado por cuenta contable y concepto
+                        df_gastos['etiqueta'] = df_gastos['plan_cuentas'] + " - " + df_gastos['cuenta_o_concepto']
+                        df_chart = df_gastos.set_index('etiqueta')['total_gasto']
                         st.bar_chart(df_chart)
 
                         st.markdown("---")
                         
-                        # Tabla de detalle con formato numérico venezolano
+                        # Formateo de la tabla para visualización gerencial
                         df_tabla_gastos = df_gastos.copy()
+                        df_tabla_gastos['porcentaje'] = df_tabla_gastos['porcentaje'].apply(lambda x: f"{x:.1f}%")
                         df_tabla_gastos['total_gasto'] = df_tabla_gastos['total_gasto'].apply(formato_venezuela_gasto)
                         
                         st.dataframe(
-                            df_tabla_gastos.rename(columns={
-                                "concepto_gasto": "Concepto de Gasto / Proveedor",
-                                "total_gasto": "Monto Total (Bs.)"
+                            df_tabla_gastos[[
+                                "plan_cuentas", 
+                                "cuenta_o_concepto", 
+                                "total_gasto", 
+                                "porcentaje"
+                            ]].rename(columns={
+                                "plan_cuentas": "Cuenta",
+                                "cuenta_o_concepto": "Concepto / Descripción",
+                                "total_gasto": "Monto Total (Bs.)",
+                                "porcentaje": "Peso (%)"
                             }),
                             use_container_width=True,
                             hide_index=True
