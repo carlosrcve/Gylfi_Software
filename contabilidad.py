@@ -11638,12 +11638,13 @@ if opcion_menu == "🏠 Inicio":
                 st.error(f"Ocurrió un error al procesar el cálculo del punto de equilibrio: {err}")
 
     st.divider()
+
     import datetime
     import pandas as pd
     import streamlit as st
 
     # ==============================================================================
-    # MÓDULO: TOP CLIENTES QUE DEBEN (DESDE ASIENTOS CONTABLES - CUENTA X)
+    # MÓDULO: TOP CLIENTES QUE DEBEN (DESDE ASIENTOS CONTABLES) - GYLFI SOFTWARE
     # ==============================================================================
 
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
@@ -11659,8 +11660,6 @@ if opcion_menu == "🏠 Inicio":
             if conn:
                 conn.ping(reconnect=True)
                 
-                # Consulta directa a asientos_contables agrupando por descripción/cliente o auxiliar
-                # (Ajusta 'descripcion' o el campo que utilices para identificar al cliente en los asientos)
                 query_cxp = """
                     SELECT 
                         descripcion AS cliente,
@@ -11701,8 +11700,12 @@ if opcion_menu == "🏠 Inicio":
 
                     st.markdown("---")
                     
+                    # Formateamos la columna numérica para la tabla visual
+                    df_tabla = df_deudores.copy()
+                    df_tabla['saldo_pendiente'] = df_tabla['saldo_pendiente'].apply(formato_venezuela_deuda)
+                    
                     st.dataframe(
-                        df_deudores.rename(columns={
+                        df_tabla.rename(columns={
                             "cliente": "Detalle / Cliente",
                             "saldo_pendiente": "Saldo Total (Bs.)",
                             "dias_antiguedad": "Días de Antigüedad"
