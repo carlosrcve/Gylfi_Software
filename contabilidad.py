@@ -10906,7 +10906,7 @@ def render_gestor_esquemas_mysql(conn, db_actual):
         tabla_sel = st.selectbox("Selecciona una tabla para inspeccionar:", tablas, key="sel_tabla_arquitecto")
 
         if tabla_sel:
-            tab_cols, tab_code = st.tabs(["🗂️ Estructura y Columnas (MySQL)", "🔍 Funciones Vinculadas en el Código"])
+            tab_cols, tab_code, tab_data = st.tabs(["🗂️ Estructura y Columnas (MySQL)","🔍 Funciones Vinculadas en el Código","📊 Datos Almacenados (Registros)"])
 
             with tab_cols:
                 cursor = conn.cursor()
@@ -11045,6 +11045,69 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                                 st.code(codigo_func, language="python", line_numbers=True)
                         else:
                             st.caption("👆 Haz clic sobre una fila de la tabla para ver toda la estructura de la función aquí abajo.")
+
+
+            # =====================================================================
+            # PESTAÑA 3: DATOS ALMACENADOS EN MYSQL
+            # =====================================================================
+            with tab_data:
+                with st.container(border=True):
+                    st.markdown(f"#### 📊 Registros almacenados en `{db_actual}`.`{tabla_sel}`")
+
+                    try:
+                        cur_cnt = conn.cursor()
+                        cur_cnt.execute(f"SELECT COUNT(*) FROM `{db_actual}`.`{tabla_sel}`")
+                        total_filas = cur_cnt.fetchone()[0]
+                        cur_cnt.close()
+
+                        col_lim, col_busq, col_info = st.columns([1.2, 2.3, 1.5])
+                        with col_lim:
+                            limite = st.selectbox(
+                                "Filas a mostrar:",
+                                [50, 100, 250, 500, 1000],
+                                index=1,
+                                key=f"lim_data_{tabla_sel}"
+                            )
+                        with col_busq:
+                            filtro_texto = st.text_input(
+                                "Filtrar por texto en cualquier columna:",
+                                placeholder="Ej. 2.1.1 o Proveedores...",
+                                key=f"busq_data_{tabla_sel}"
+                            ).strip()
+                        with col_info:
+                            st.metric("Total en tabla", f"{total_filas:,}")
+
+                        cur_data = conn.cursor()
+                        cur_data.execute(f"SELECT * FROM `{db_actual}`.`{tabla_sel}` LIMIT %s", (int(limite),))
+                        filas_raw = cur_data.fetchall()
+                        cols_sql = [desc[0] for desc in cur_data.description] if cur_data.description else []
+                        cur_data.close()
+
+                        if not filas_raw:
+                            st.info(f"La tabla `{tabla_sel}` está vacía actualmente.")
+                        else:
+                            df_datos = pd.DataFrame(filas_raw, columns=cols_sql)
+
+                            if filtro_texto:
+                                mascara = df_datos.astype(str).apply(
+                                    lambda col: col.str.contains(filtro_texto, case=False, na=False)
+                                ).any(axis=1)
+                                df_datos = df_datos[mascara]
+
+                            st.caption(f"Mostrando `{len(df_datos)}` registro(s) en vista previa.")
+                            st.dataframe(df_datos, use_container_width=True, hide_index=True)
+
+                            csv_bytes = df_datos.to_csv(index=False).encode("utf-8-sig")
+                            st.download_button(
+                                label="⬇️ Descargar vista actual (CSV)",
+                                data=csv_bytes,
+                                file_name=f"{db_actual}_{tabla_sel}.csv",
+                                mime="text/csv",
+                                key=f"dl_csv_{tabla_sel}"
+                            )
+                    except Exception as e:
+                        st.error(f"❌ Error al consultar los datos de `{tabla_sel}`: {e}")
+
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
