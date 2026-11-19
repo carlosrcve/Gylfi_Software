@@ -10964,46 +10964,73 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                     with col_mod:
                         st.markdown("##### ✏️ Modificar Columna")
                         lista_nombres_col = df_cols["Columna"].tolist()
-                        col_a_mod = st.selectbox("Columna a modificar:", lista_nombres_col, key="mod_col_sel")
-                        nuevo_nombre_mod = st.text_input("Nuevo nombre:", value=col_a_mod, key="mod_col_newname").strip().lower()
+                        col_a_mod = st.selectbox("Columna a modificar:", lista_nombres_col, key=f"mod_col_sel_{tabla_sel}")
+                        nuevo_nombre_mod = st.text_input("Nuevo nombre:", value=col_a_mod, key=f"mod_col_newname_{tabla_sel}").strip().lower()
                         nuevo_tipo_mod = st.selectbox(
                             "Nuevo tipo:",
                             ["VARCHAR(150)", "VARCHAR(255)", "INT", "DECIMAL(18,2)", "DATE", "TEXT"],
-                            key="mod_col_newtype"
+                            key=f"mod_col_newtype_{tabla_sel}"
                         )
-                        if st.button("Aplicar Cambio", use_container_width=True):
+
+                        if st.button("Aplicar Cambio", use_container_width=True, key=f"btn_mod_col_{tabla_sel}"):
                             if col_a_mod == "id":
                                 st.error("No se permite alterar la llave primaria `id`.")
                             elif nuevo_nombre_mod.isidentifier():
                                 try:
                                     cur = conn.cursor()
-                                    cur.execute(f"ALTER TABLE `{db_actual}`.`{tabla_sel}` CHANGE `{col_a_mod}` `{nuevo_nombre_mod}` {nuevo_tipo_mod}")
+                                    cur.execute(
+                                        f"ALTER TABLE `{db_actual}`.`{tabla_sel}` CHANGE `{col_a_mod}` `{nuevo_nombre_mod}` {nuevo_tipo_mod}"
+                                    )
                                     conn.commit()
                                     cur.close()
-                                    st.success(f"Columna actualizada a `{nuevo_nombre_mod}`.")
+                                    st.session_state[f"msg_col_mod_{tabla_sel}"] = (
+                                        f"✅ Columna modificada: `{col_a_mod}` → `{nuevo_nombre_mod}` ({nuevo_tipo_mod}) en `{db_actual}`.`{tabla_sel}`."
+                                    )
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Error MySQL: {e}")
                             else:
                                 st.error("Nuevo nombre inválido.")
 
+                        # Mostrar mensaje de confirmación tras el rerun y limpiarlo
+                        msg_mod_clave = f"msg_col_mod_{tabla_sel}"
+                        if st.session_state.get(msg_mod_clave):
+                            st.success(st.session_state.pop(msg_mod_clave))
+
                     with col_del:
                         st.markdown("##### 🗑️ Eliminar Columna")
-                        col_a_del = st.selectbox("Columna a borrar:", [c for c in lista_nombres_col if c != "id"], key="del_col_sel")
-                        confirmar_del = st.checkbox("Confirmo que revisé las funciones vinculadas", key="chk_del_col")
-                        if st.button("Eliminar Columna", use_container_width=True):
+                        col_a_del = st.selectbox(
+                            "Columna a borrar:",
+                            [c for c in lista_nombres_col if c != "id"],
+                            key=f"del_col_sel_{tabla_sel}"
+                        )
+                        confirmar_del = st.checkbox(
+                            "Confirmo que revisé las funciones vinculadas",
+                            key=f"chk_del_col_{tabla_sel}"
+                        )
+
+                        if st.button("Eliminar Columna", use_container_width=True, key=f"btn_del_col_{tabla_sel}"):
                             if confirmar_del and col_a_del:
                                 try:
                                     cur = conn.cursor()
-                                    cur.execute(f"ALTER TABLE `{db_actual}`.`{tabla_sel}` DROP COLUMN `{col_a_del}`")
+                                    cur.execute(
+                                        f"ALTER TABLE `{db_actual}`.`{tabla_sel}` DROP COLUMN `{col_a_del}`"
+                                    )
                                     conn.commit()
                                     cur.close()
-                                    st.warning(f"Columna `{col_a_del}` eliminada.")
+                                    st.session_state[f"msg_col_del_{tabla_sel}"] = (
+                                        f"🗑️ Columna eliminada: `{col_a_del}` fue borrada de `{db_actual}`.`{tabla_sel}`."
+                                    )
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Error MySQL: {e}")
                             else:
                                 st.info("Marca la casilla de confirmación antes de eliminar.")
+
+                        # Mostrar mensaje de confirmación tras el rerun y limpiarlo
+                        msg_del_clave = f"msg_col_del_{tabla_sel}"
+                        if st.session_state.get(msg_del_clave):
+                            st.warning(st.session_state.pop(msg_del_clave))
 
             with tab_code:
                 with st.container(border=True):
