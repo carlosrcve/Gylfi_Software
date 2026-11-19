@@ -10975,7 +10975,7 @@ def gestionar_sidebar():
 
         # --- Navegación ---
         if user_rol == 'admin':
-            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios","⚙️ Gestión de Empresas","Matriz de Datas"], key="menu_nav")
+            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios","⚙️ Gestión de Empresas","🗄️ Matriz de Datas",], key="menu_nav")
         else:
             menu = "📊 Auditoría Contable"
 
@@ -11103,16 +11103,22 @@ if menu_lateral == "⚙️ Gestión de Empresas":
     st.stop()
 
 
-if menu_lateral == "⚙️ Matriz de Datas":
+if menu_lateral in ("Matriz de Datas", "⚙️ Matriz de Datas", "🗄️ Matriz de Datas"):
     # 🔒 RESTRICCIÓN ABSOLUTA: Solo el Administrador Maestro puede ver esta sección
     if rol_actual != "admin":
         st.error("⛔ Acceso denegado. Esta sección central es exclusiva para el Administrador General de Gylfi Software.")
         st.stop()
 
-    db_objetivo = db_actual if "db_actual" in locals() and db_actual else st.session_state.get("db_actual")
+    # Buscamos la BD activa en session_state o variables locales
+    db_objetivo = (
+        st.session_state.get("db_actual")
+        or st.session_state.get("empresa_db")
+        or st.session_state.get("bd_actual")
+        or (db_actual if "db_actual" in locals() else None)
+    )
 
     if not db_objetivo:
-        st.warning("⚠️ No se ha detectado una base de datos activa (`db_actual`). Selecciona una empresa primero.")
+        st.warning("⚠️ No se detectó una base de datos activa (`db_actual`). Selecciona una empresa primero.")
         st.stop()
 
     try:
@@ -11124,9 +11130,9 @@ if menu_lateral == "⚙️ Matriz de Datas":
             except Exception:
                 pass
         else:
-            st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
+            st.error(f"🔌 No se pudo establecer conexión con el servidor MySQL para `{db_objetivo}`.")
     except Exception as e:
-        st.error(f"Error al acceder a la gestión central de esquemas: {e}")
+        st.error(f"❌ Error al acceder a Matriz de Datas: {e}")
     st.stop()
 
 
