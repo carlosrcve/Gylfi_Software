@@ -11336,42 +11336,46 @@ if menu_lateral in ("Matriz de Datas", "⚙️ Matriz de Datas", "🗄️ Matriz
         or (db_actual if "db_actual" in locals() and db_actual else None)
     )
 
-    # 2. Si no hay una BD activa todavía, permitir elegirla desde MySQL ahí mismo
-    if not db_objetivo:
-        try:
-            conn_base = conectar_db()
-            if conn_base:
-                cur = conn_base.cursor()
-                cur.execute("SHOW DATABASES")
-                # Filtramos bases del sistema de MySQL/TiDB para mostrar solo las tuyas
-                bds_sistema = {"information_schema", "mysql", "performance_schema", "sys", "test"}
-                bds_disponibles = [
-                    row[0] for row in cur.fetchall()
-                    if str(row[0]).lower() not in bds_sistema
-                ]
-                cur.close()
-                conn_base.close()
+    bds_sistema = {"information_schema", "mysql", "performance_schema", "sys", "test"}
 
-                if bds_disponibles:
-                    st.info("ℹ️ No había una base de datos activa en sesión. Selecciona una para abrir la Matriz de Datas:")
-                    db_elegida = st.selectbox(
-                        "Base de datos / Empresa:",
-                        bds_disponibles,
-                        key="sel_db_matriz_datas"
-                    )
-                    if st.button("Cargar Base de Datos", type="primary", key="btn_cargar_db_matriz"):
-                        st.session_state["db_actual"] = db_elegida
-                        st.rerun()
-                    st.stop()
-                else:
-                    st.warning("⚠️ No se encontraron bases de datos disponibles en el servidor.")
-                    st.stop()
-            else:
-                st.error("🔌 No se pudo establecer conexión inicial con el servidor MySQL.")
-                st.stop()
-        except Exception as e:
-            st.error(f"❌ Error al listar bases de datos: {e}")
+    # 2. Selector rápido para el SuperAdmin (cambiar de BD / empresa en caliente)
+    try:
+        conn_dbs = conectar_db()
+        if conn_dbs:
+            cur_d = conn_dbs.cursor()
+            cur_d.execute("SHOW DATABASES")
+            lista_bds = [
+                r[0] for r in cur_d.fetchall()
+                if str(r[0]).lower() not in bds_sistema
+            ]
+            cur_d.close()
+            conn_dbs.close()
+
+            if lista_bds:
+                if not db_objetivo:
+                    db_objetivo = lista_bds[0]
+                    st.session_state["db_actual"] = db_objetivo
+
+                idx_actual = lista_bds.index(db_objetivo) if db_objetivo in lista_bds else 0
+                db_sel_admin = st.selectbox(
+                    "🛡️ [SuperAdmin] Base de datos / Empresa a inspeccionar:",
+                    lista_bds,
+                    index=idx_actual,
+                    key="superadmin_db_selector"
+                )
+                if db_sel_admin != db_objetivo:
+                    st.session_state["db_actual"] = db_sel_admin
+                    db_objetivo = db_sel_admin
+                    st.rerun()
+        else:
+            st.error("🔌 No se pudo establecer conexión inicial con el servidor MySQL.")
             st.stop()
+    except Exception as e:
+        st.caption(f"Nota selector SuperAdmin: {e}")
+
+    if not db_objetivo:
+        st.warning("⚠️ No se detectó una base de datos activa (`db_actual`). Selecciona una empresa primero.")
+        st.stop()
 
     # 3. Con la BD ya definida, abrir el gestor de esquemas
     try:
