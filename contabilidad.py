@@ -11109,18 +11109,52 @@ if menu_lateral in ("Matriz de Datas", "⚙️ Matriz de Datas", "🗄️ Matriz
         st.error("⛔ Acceso denegado. Esta sección central es exclusiva para el Administrador General de Gylfi Software.")
         st.stop()
 
-    # Buscamos la BD activa en session_state o variables locales
+    # 1. Intentar obtener la BD activa desde session_state o variables locales
     db_objetivo = (
         st.session_state.get("db_actual")
         or st.session_state.get("empresa_db")
         or st.session_state.get("bd_actual")
-        or (db_actual if "db_actual" in locals() else None)
+        or (db_actual if "db_actual" in locals() and db_actual else None)
     )
 
+    # 2. Si no hay una BD activa todavía, permitir elegirla desde MySQL ahí mismo
     if not db_objetivo:
-        st.warning("⚠️ No se detectó una base de datos activa (`db_actual`). Selecciona una empresa primero.")
-        st.stop()
+        try:
+            conn_base = conectar_db()
+            if conn_base:
+                cur = conn_base.cursor()
+                cur.execute("SHOW DATABASES")
+                # Filtramos bases del sistema de MySQL/TiDB para mostrar solo las tuyas
+                bds_sistema = {"information_schema", "mysql", "performance_schema", "sys", "test"}
+                bds_disponibles = [
+                    row[0] for row in cur.fetchall()
+                    if str(row[0]).lower() not in bds_sistema
+                ]
+                cur.close()
+                conn_base.close()
 
+                if bds_disponibles:
+                    st.info("ℹ️ No había una base de datos activa en sesión. Selecciona una para abrir la Matriz de Datas:")
+                    db_elegida = st.selectbox(
+                        "Base de datos / Empresa:",
+                        bds_disponibles,
+                        key="sel_db_matriz_datas"
+                    )
+                    if st.button("Cargar Base de Datos", type="primary", key="btn_cargar_db_matriz"):
+                        st.session_state["db_actual"] = db_elegida
+                        st.rerun()
+                    st.stop()
+                else:
+                    st.warning("⚠️ No se encontraron bases de datos disponibles en el servidor.")
+                    st.stop()
+            else:
+                st.error("🔌 No se pudo establecer conexión inicial con el servidor MySQL.")
+                st.stop()
+        except Exception as e:
+            st.error(f"❌ Error al listar bases de datos: {e}")
+            st.stop()
+
+    # 3. Con la BD ya definida, abrir el gestor de esquemas
     try:
         conn = conectar_db(db_objetivo)
         if conn:
