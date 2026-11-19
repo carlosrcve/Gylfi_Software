@@ -11215,18 +11215,35 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                 with st.container(border=True):
                     st.markdown(f"#### 🔗 Funciones vinculadas a la tabla `{tabla_sel}`")
 
-                    col_filtro, _ = st.columns([2, 3])
-                    with col_filtro:
+                    col_f1, col_f2 = st.columns([2, 2])
+                    with col_f1:
                         solo_sql = st.checkbox(
                             "Mostrar solo funciones con uso SQL real (SELECT / INSERT / UPDATE / JOIN)",
                             value=True,
                             key=f"chk_sql_real_{tabla_sel}"
                         )
+                    with col_f2:
+                        incluir_ui = st.checkbox(
+                            "Incluir bloques de interfaz / código fuera de funciones (Streamlit)",
+                            value=True,
+                            key=f"chk_ui_sql_{tabla_sel}"
+                        )
 
-                    df_deps = escanear_dependencias_codigo(tabla_sel, solo_sql_real=solo_sql)
+                    df_funcs = escanear_dependencias_codigo(tabla_sel, solo_sql_real=solo_sql)
+                    if not df_funcs.empty:
+                        if "_es_ui" not in df_funcs.columns:
+                            df_funcs["_es_ui"] = False
+                        if "_linea_match" not in df_funcs.columns:
+                            df_funcs["_linea_match"] = df_funcs["_inicio"]
+
+                    if incluir_ui:
+                        df_ui = escanear_bloques_ui_sql(tabla_sel, solo_sql_real=solo_sql)
+                        df_deps = pd.concat([df_funcs, df_ui], ignore_index=True)
+                    else:
+                        df_deps = df_funcs
 
                     if df_deps.empty:
-                        st.info(f"No se encontraron funciones con uso SQL directo de `{tabla_sel}` con el filtro actual.")
+                        st.info(f"No se encontraron funciones o bloques con uso SQL directo de `{tabla_sel}` con el filtro actual.")
                     else:
                         df_visible = df_deps[["Archivo", "Función Python", "Operación", "Líneas", "Ejemplo"]]
 
@@ -11244,22 +11261,37 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                         if filas_sel:
                             fila_idx = filas_sel[0]
                             info_func = df_deps.iloc[fila_idx]
-                            codigo_func, linea_arranque = extraer_codigo_funcion_completo(
-                                info_func["_ruta"],
-                                info_func["Función Python"],
-                                int(info_func["_inicio"]) if pd.notna(info_func["_inicio"]) else None
-                            )
+                            es_bloque_ui = bool(info_func.get("_es_ui", False))
 
-                            st.markdown("##### 📄 Estructura completa de la función seleccionada")
+                            if es_bloque_ui:
+                                try:
+                                    with open(info_func["_ruta"], "r", encoding="utf-8") as f:
+                                        lineas_archivo = f.readlines()
+                                    linea_centro = int(info_func.get("_linea_match") or info_func.get("_inicio") or 1)
+                                    ini_idx = max(0, linea_centro - 20)
+                                    fin_idx = min(len(lineas_archivo), linea_centro + 35)
+                                    codigo_func = "".join(lineas_archivo[ini_idx:fin_idx])
+                                    linea_arranque = ini_idx + 1
+                                except Exception as e:
+                                    codigo_func = f"# No se pudo leer el bloque UI: {e}"
+                                    linea_arranque = 1
+                            else:
+                                codigo_func, linea_arranque = extraer_codigo_funcion_completo(
+                                    info_func["_ruta"],
+                                    info_func["Función Python"],
+                                    int(info_func["_inicio"]) if pd.notna(info_func["_inicio"]) else None
+                                )
+
+                            st.markdown("##### 📄 Estructura completa de la función / bloque seleccionado")
                             with st.container(border=True):
                                 st.caption(
-                                    f"**Función:** `{info_func['Función Python']}` | "
+                                    f"**Elemento:** `{info_func['Función Python']}` | "
                                     f"**Archivo:** `{info_func['Archivo']}` | "
                                     f"**Inicia en línea:** `{linea_arranque}`"
                                 )
                                 st.code(codigo_func, language="python", line_numbers=True)
                         else:
-                            st.caption("👆 Haz clic sobre una fila de la tabla para ver toda la estructura de la función aquí abajo.")
+                            st.caption("👆 Haz clic sobre una fila de la tabla para ver toda la estructura aquí abajo.")
 
 
             # =====================================================================
