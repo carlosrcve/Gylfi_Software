@@ -10739,10 +10739,24 @@ def obtener_datos_punto_equilibrio(db_nombre, anio, mes):
     return 0.0, 0.0, 0.0
 
 
-def escanear_dependencias_codigo(nombre_tabla, directorio="."):
-    """Escanea los archivos .py del proyecto para encontrar qué funciones usan la tabla."""
-    dependencias = []
-    patron_def = re.compile(r"^\s*def\s+([a-zA-Z0-9_]+)\s*\(")
+def _es_uso_real_tabla_sql(linea, nombre_tabla):
+    """Detecta si la línea parece una operación/referencia real a la tabla SQL y no solo un diccionario o texto."""
+    t = re.escape(nombre_tabla)
+    patrones_sql = [
+        rf"\bFROM\s+`?{t}`?\b",
+        rf"\bJOIN\s+`?{t}`?\b",
+        rf"\bINTO\s+`?{t}`?\b",
+        rf"\bUPDATE\s+`?{t}`?\b",
+        rf"\bTABLE\s+`?{t}`?\b",
+        rf"\bDESCRIBE\s+`?{t}`?\b",
+    ]
+    return any(re.search(p, linea, flags=re.IGNORECASE) for p in patrones_sql)
+
+
+def escanear_dependencias_codigo(nombre_tabla, directorio=".", solo_sql_real=True):
+    """Devuelve una fila por función vinculada realmente con la tabla de MySQL."""
+    funciones_map = {}
+    patron_def = re.compile(r"^(\s*)def\s+([a-zA-Z0-9_]+)\s*\(")
 
     for root, _, files in os.walk(directorio):
         for file in files:
@@ -10752,35 +10766,127 @@ def escanear_dependencias_codigo(nombre_tabla, directorio="."):
                     with open(ruta_completa, "r", encoding="utf-8") as f:
                         lineas = f.readlines()
 
-                    funcion_actual = "Nivel Global (Fuera de función)"
-                    for num_linea, contenido in enumerate(lineas, start=1):
+                    funcion_actual = None
+                    indent_func = 0
+                    inicio_func = None
+
+                    for idx, contenido in enumerate(lineas, start=1):
                         match_def = patron_def.match(contenido)
                         if match_def:
-                            funcion_actual = match_def.group(1)
+                            # Cerrar función anterior si existía
+                            if funcion_actual and inicio_func is not None:
+                                pass
+                            indent_func = len(match_def.group(1).expandtabs(4))
+                            funcion_actual = match_def.group(2)
+                            inicio_func = idx
+                            continue
+
+                        # Detectar si salimos del cuerpo de la función
+                        if funcion_actual and contenido.strip():
+                            indent_actual = len(
+                                re.match(r"^(\s*)", contenido).group(1).expandtabs(4)
+                            )
+                            if indent_actual <= indent_func and not contenido.lstrip().startswith("#"):
+                                funcion_actual = None
+                                inicio_func = None
+
+                        if not funcion_actual:
+                            continue
 
                         if re.search(rf"\b{re.escape(nombre_tabla)}\b", contenido):
-                            operacion = "Lectura / Referencia"
+                            es_sql = _es_uso_real_tabla_sql(contenido, nombre_tabla)
+                            if solo_sql_real and not es_sql:
+                                continue
+
                             linea_upper = contenido.upper()
                             if "INSERT INTO" in linea_upper:
-                                operacion = "INSERT (Escritura)"
+                                op = "INSERT"
                             elif "UPDATE " in linea_upper:
-                                operacion = "UPDATE (Modificación)"
+                                op = "UPDATE"
                             elif "DELETE FROM" in linea_upper:
-                                operacion = "DELETE (Eliminación)"
-                            elif "SELECT " in linea_upper:
-                                operacion = "SELECT (Consulta)"
+                                op = "DELETE"
+                            elif "SELECT " in linea_upper or "FROM " in linea_upper or "JOIN " in linea_upper:
+                                op = "SELECT / JOIN"
+                            else:
+                                op = "Referencia SQL"
 
-                            dependencias.append({
-                                "Archivo": file,
-                                "Función Python": funcion_actual,
-                                "Línea": num_linea,
-                                "Operación Detectada": operacion,
-                                "Fragmento": contenido.strip()[:80]
-                            })
+                            clave = (file, funcion_actual)
+                            if clave not in funciones_map:
+                                funciones_map[clave] = {
+                                    "Archivo": file,
+                                    "Función Python": funcion_actual,
+                                    "Archivo_Ruta": ruta_completa,
+                                    "Linea_Inicio": inicio_func,
+                                    "Líneas Coincidentes": [idx],
+                                    "Operaciones": {op},
+                                    "Primera Línea": contenido.strip()[:90],
+                                }
+                            else:
+                                if idx not in funciones_map[clave]["Líneas Coincidentes"]:
+                                    funciones_map[clave]["Líneas Coincidentes"].append(idx)
+                                funciones_map[clave]["Operaciones"].add(op)
                 except Exception:
                     pass
-    return pd.DataFrame(dependencias)
 
+    filas = []
+    for data in funciones_map.values():
+        filas.append({
+            "Archivo": data["Archivo"],
+            "Función Python": data["Función Python"],
+            "Operación": ", ".join(sorted(data["Operaciones"])),
+            "Líneas": ", ".join(map(str, data["Líneas Coincidentes"])),
+            "Ejemplo": data["Primera Línea"],
+            "_ruta": data["Archivo_Ruta"],
+            "_inicio": data["Linea_Inicio"],
+        })
+
+    return pd.DataFrame(filas)
+
+
+def extraer_codigo_funcion_completo(ruta_archivo, nombre_funcion, linea_inicio=None):
+    """Extrae el código completo de una función desde su `def` hasta el fin de su bloque."""
+    try:
+        with open(ruta_archivo, "r", encoding="utf-8") as f:
+            lineas = f.readlines()
+    except Exception as e:
+        return f"# No se pudo leer el archivo: {e}", 1
+
+    idx_inicio = None
+    indent_base = 0
+
+    if linea_inicio and 1 <= linea_inicio <= len(lineas):
+        m = re.match(r"^(\s*)def\s+" + re.escape(nombre_funcion) + r"\b", lineas[linea_inicio - 1])
+        if m:
+            idx_inicio = linea_inicio - 1
+            indent_base = len(m.group(1).expandtabs(4))
+
+    if idx_inicio is None:
+        for i, l in enumerate(lineas):
+            m = re.match(r"^(\s*)def\s+" + re.escape(nombre_funcion) + r"\b", l)
+            if m:
+                idx_inicio = i
+                indent_base = len(m.group(1).expandtabs(4))
+                break
+
+    if idx_inicio is None:
+        return f"# No se encontró la definición de `{nombre_funcion}`", 1
+
+    bloque = [lineas[idx_inicio]]
+    for j in range(idx_inicio + 1, len(lineas)):
+        l = lineas[j]
+        if not l.strip():
+            bloque.append(l)
+            continue
+        indent_actual = len(re.match(r"^(\s*)", l).group(1).expandtabs(4))
+        if indent_actual <= indent_base and not l.lstrip().startswith("#"):
+            break
+        bloque.append(l)
+
+    # Limpiar líneas vacías sobrantes al final
+    while bloque and not bloque[-1].strip():
+        bloque.pop()
+
+    return "".join(bloque), idx_inicio + 1
 
 def render_gestor_esquemas_mysql(conn, db_actual):
     # --- FRAME PRINCIPAL DE LA SECCIÓN ---
@@ -10891,16 +10997,54 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                                 st.info("Marca la casilla de confirmación antes de eliminar.")
 
             with tab_code:
-                # --- SUB-FRAME DE FUNCIONES VINCULADAS ---
                 with st.container(border=True):
-                    st.markdown(f"#### 🔗 Funciones en tu código que usan `{tabla_sel}`")
-                    st.info("Antes de renombrar o eliminar una columna, verifica qué funciones hacen `SELECT` o `INSERT` sobre esta tabla.")
+                    st.markdown(f"#### 🔗 Funciones vinculadas a la tabla `{tabla_sel}`")
 
-                    df_deps = escanear_dependencias_codigo(tabla_sel)
-                    if not df_deps.empty:
-                        st.dataframe(df_deps, use_container_width=True, hide_index=True)
+                    col_filtro, _ = st.columns([2, 3])
+                    with col_filtro:
+                        solo_sql = st.checkbox(
+                            "Mostrar solo funciones con uso SQL real (SELECT / INSERT / UPDATE / JOIN)",
+                            value=True,
+                            key=f"chk_sql_real_{tabla_sel}"
+                        )
+
+                    df_deps = escanear_dependencias_codigo(tabla_sel, solo_sql_real=solo_sql)
+
+                    if df_deps.empty:
+                        st.info(f"No se encontraron funciones con uso SQL directo de `{tabla_sel}` con el filtro actual.")
                     else:
-                        st.success(f"No se encontraron referencias directas en texto plano a `{tabla_sel}` en los archivos `.py` actuales.")
+                        df_visible = df_deps[["Archivo", "Función Python", "Operación", "Líneas", "Ejemplo"]]
+
+                        evento = st.dataframe(
+                            df_visible,
+                            use_container_width=True,
+                            hide_index=True,
+                            on_select="rerun",
+                            selection_mode="single-row",
+                            key=f"df_funcs_{tabla_sel}"
+                        )
+
+                        filas_sel = evento.selection.rows if hasattr(evento, "selection") else []
+
+                        if filas_sel:
+                            fila_idx = filas_sel[0]
+                            info_func = df_deps.iloc[fila_idx]
+                            codigo_func, linea_arranque = extraer_codigo_funcion_completo(
+                                info_func["_ruta"],
+                                info_func["Función Python"],
+                                int(info_func["_inicio"]) if pd.notna(info_func["_inicio"]) else None
+                            )
+
+                            st.markdown("##### 📄 Estructura completa de la función seleccionada")
+                            with st.container(border=True):
+                                st.caption(
+                                    f"**Función:** `{info_func['Función Python']}` | "
+                                    f"**Archivo:** `{info_func['Archivo']}` | "
+                                    f"**Inicia en línea:** `{linea_arranque}`"
+                                )
+                                st.code(codigo_func, language="python", line_numbers=True)
+                        else:
+                            st.caption("👆 Haz clic sobre una fila de la tabla para ver toda la estructura de la función aquí abajo.")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
