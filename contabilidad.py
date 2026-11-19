@@ -10942,15 +10942,24 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                             if nueva_col and nueva_col.isidentifier():
                                 try:
                                     cur = conn.cursor()
-                                    cur.execute(f"ALTER TABLE `{db_actual}`.`{tabla_sel}` ADD COLUMN `{nueva_col}` {tipo_col} NULL")
+                                    cur.execute(
+                                        f"ALTER TABLE `{db_actual}`.`{tabla_sel}` ADD COLUMN `{nueva_col}` {tipo_col} NULL"
+                                    )
                                     conn.commit()
                                     cur.close()
-                                    st.success(f"Columna `{nueva_col}` agregada.")
+                                    st.session_state[f"msg_col_creada_{tabla_sel}"] = (
+                                        f"✅ Registro exitoso: se creó la columna `{nueva_col}` ({tipo_col}) en `{db_actual}`.`{tabla_sel}`."
+                                    )
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Error MySQL: {e}")
                             else:
                                 st.error("Nombre de columna inválido (usa solo letras y guion bajo).")
+
+                        # Mostrar el mensaje guardado tras el rerun y limpiarlo para que no quede pegado
+                        msg_clave = f"msg_col_creada_{tabla_sel}"
+                        if st.session_state.get(msg_clave):
+                            st.success(st.session_state.pop(msg_clave))
 
                     with col_mod:
                         st.markdown("##### ✏️ Modificar Columna")
