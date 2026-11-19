@@ -10937,6 +10937,136 @@ def _crear_tabla_en_clientes(
 
     return resultados
 
+
+def _es_uso_real_tabla_sql_multiline(texto_bloque, nombre_tabla):
+    """Detecta uso SQL real incluso si la consulta abarca varias líneas."""
+    t = re.escape(nombre_tabla)
+    patrones_sql = [
+        rf"\bFROM\s+`?{t}`?\b",
+        rf"\bJOIN\s+`?{t}`?\b",
+        rf"\bINTO\s+`?{t}`?\b",
+        rf"\bUPDATE\s+`?{t}`?\b",
+        rf"\bTABLE\s+`?{t}`?\b",
+        rf"\bDESCRIBE\s+`?{t}`?\b",
+    ]
+    return any(re.search(p, texto_bloque, flags=re.IGNORECASE) for p in patrones_sql)
+
+
+def escanear_bloques_ui_sql(nombre_tabla, directorio=".", solo_sql_real=True, ventana=12):
+    """
+    Detecta consultas SQL hacia `nombre_tabla` que están en código de interfaz / nivel superior
+    (fuera de `def`), devolviendo bloques inspeccionables para `tab_code`.
+    """
+    patron_def = re.compile(r"^(\s*)def\s+[a-zA-Z0-9_]+\s*\(")
+    patron_bloque_ui = re.compile(r"^\s*(with\s+.*|if\s+.*|elif\s+.*|else\s*:|for\s+.*):")
+    patron_tabla = re.compile(rf"\b{re.escape(nombre_tabla)}\b", flags=re.IGNORECASE)
+
+    bloques_map = {}
+
+    for root, _, files in os.walk(directorio):
+        for file in files:
+            if not file.endswith(".py"):
+                continue
+            ruta_completa = os.path.join(root, file)
+            try:
+                with open(ruta_completa, "r", encoding="utf-8") as f:
+                    lineas = f.readlines()
+            except Exception:
+                continue
+
+            # Marcar qué líneas pertenecen a alguna función `def`
+            en_funcion = [False] * len(lineas)
+            i = 0
+            while i < len(lineas):
+                m_def = patron_def.match(lineas[i])
+                if m_def:
+                    indent_base = len(m_def.group(1).expandtabs(4))
+                    en_funcion[i] = True
+                    j = i + 1
+                    while j < len(lineas):
+                        l_j = lineas[j]
+                        if l_j.strip():
+                            ind_j = len(re.match(r"^(\s*)", l_j).group(1).expandtabs(4))
+                            if ind_j <= indent_base and not l_j.lstrip().startswith("#"):
+                                break
+                        en_funcion[j] = True
+                        j += 1
+                    i = j
+                else:
+                    i += 1
+
+            # Buscar coincidencias fuera de funciones
+            for idx_0, contenido in enumerate(lineas):
+                if en_funcion[idx_0]:
+                    continue
+                if not patron_tabla.search(contenido):
+                    continue
+
+                inicio_w = max(0, idx_0 - ventana)
+                fin_w = min(len(lineas), idx_0 + ventana + 1)
+                contexto_texto = "".join(lineas[inicio_w:fin_w])
+
+                es_sql = _es_uso_real_tabla_sql_multiline(contexto_texto, nombre_tabla)
+                if solo_sql_real and not es_sql:
+                    continue
+
+                # Buscar encabezado de bloque UI más cercano hacia arriba
+                etiqueta_bloque = "Código principal / UI"
+                linea_encabezado = idx_0 + 1
+                for k in range(idx_0, -1, -1):
+                    if en_funcion[k]:
+                        break
+                    m_b = patron_bloque_ui.match(lineas[k])
+                    if m_b:
+                        etiqueta_bloque = lineas[k].strip()[:70]
+                        linea_encabezado = k + 1
+                        break
+
+                ctx_upper = contexto_texto.upper()
+                if "INSERT INTO" in ctx_upper:
+                    op = "INSERT"
+                elif "UPDATE " in ctx_upper:
+                    op = "UPDATE"
+                elif "DELETE FROM" in ctx_upper:
+                    op = "DELETE"
+                elif "SELECT " in ctx_upper or "FROM " in ctx_upper or "JOIN " in ctx_upper:
+                    op = "SELECT / JOIN"
+                else:
+                    op = "Referencia SQL"
+
+                clave = (file, etiqueta_bloque)
+                num_linea = idx_0 + 1
+                if clave not in bloques_map:
+                    bloques_map[clave] = {
+                        "Archivo": file,
+                        "Función Python": f"[UI / Bloque] {etiqueta_bloque}",
+                        "Operación": op,
+                        "Líneas": [num_linea],
+                        "Ejemplo": contenido.strip()[:90],
+                        "_ruta": ruta_completa,
+                        "_inicio": linea_encabezado,
+                        "_es_ui": True,
+                        "_linea_match": num_linea,
+                    }
+                else:
+                    if num_linea not in bloques_map[clave]["Líneas"]:
+                        bloques_map[clave]["Líneas"].append(num_linea)
+
+    filas = []
+    for d in bloques_map.values():
+        filas.append({
+            "Archivo": d["Archivo"],
+            "Función Python": d["Función Python"],
+            "Operación": d["Operación"],
+            "Líneas": ", ".join(map(str, d["Líneas"])),
+            "Ejemplo": d["Ejemplo"],
+            "_ruta": d["_ruta"],
+            "_inicio": d["_inicio"],
+            "_es_ui": d["_es_ui"],
+            "_linea_match": d["_linea_match"],
+        })
+    return pd.DataFrame(filas)
+
 def render_gestor_esquemas_mysql(conn, db_actual):
     # --- FRAME PRINCIPAL DE LA SECCIÓN ---
     with st.container(border=True):
