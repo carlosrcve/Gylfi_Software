@@ -10739,6 +10739,160 @@ def obtener_datos_punto_equilibrio(db_nombre, anio, mes):
     return 0.0, 0.0, 0.0
 
 
+def escanear_dependencias_codigo(nombre_tabla, directorio="."):
+    """Escanea los archivos .py del proyecto para encontrar qué funciones usan la tabla."""
+    dependencias = []
+    patron_def = re.compile(r"^\s*def\s+([a-zA-Z0-9_]+)\s*\(")
+
+    for root, _, files in os.walk(directorio):
+        for file in files:
+            if file.endswith(".py"):
+                ruta_completa = os.path.join(root, file)
+                try:
+                    with open(ruta_completa, "r", encoding="utf-8") as f:
+                        lineas = f.readlines()
+
+                    funcion_actual = "Nivel Global (Fuera de función)"
+                    for num_linea, contenido in enumerate(lineas, start=1):
+                        match_def = patron_def.match(contenido)
+                        if match_def:
+                            funcion_actual = match_def.group(1)
+
+                        if re.search(rf"\b{re.escape(nombre_tabla)}\b", contenido):
+                            operacion = "Lectura / Referencia"
+                            linea_upper = contenido.upper()
+                            if "INSERT INTO" in linea_upper:
+                                operacion = "INSERT (Escritura)"
+                            elif "UPDATE " in linea_upper:
+                                operacion = "UPDATE (Modificación)"
+                            elif "DELETE FROM" in linea_upper:
+                                operacion = "DELETE (Eliminación)"
+                            elif "SELECT " in linea_upper:
+                                operacion = "SELECT (Consulta)"
+
+                            dependencias.append({
+                                "Archivo": file,
+                                "Función Python": funcion_actual,
+                                "Línea": num_linea,
+                                "Operación Detectada": operacion,
+                                "Fragmento": contenido.strip()[:80]
+                            })
+                except Exception:
+                    pass
+    return pd.DataFrame(dependencias)
+
+
+def render_gestor_esquemas_mysql(conn, db_actual):
+    st.markdown(f"## 🛠️ Arquitecto de Base de Datos y Dependencias (`{db_actual}`)")
+    st.caption("Administra las tablas de la empresa activa, personaliza columnas y audita qué funciones del código dependen de cada tabla.")
+
+    cursor = conn.cursor()
+    cursor.execute(f"SHOW TABLES FROM `{db_actual}`")
+    tablas = [fila[0] for fila in cursor.fetchall()]
+    cursor.close()
+
+    if not tablas:
+        st.warning("No se encontraron tablas en esta base de datos.")
+        return
+
+    tabla_sel = st.selectbox("Selecciona una tabla para inspeccionar:", tablas, key="sel_tabla_arquitecto")
+
+    if tabla_sel:
+        tab_cols, tab_code = st.tabs(["🗂️ Estructura y Columnas (MySQL)", "🔍 Funciones Vinculadas en el Código"])
+
+        with tab_cols:
+            cursor = conn.cursor()
+            cursor.execute(f"DESCRIBE `{db_actual}`.`{tabla_sel}`")
+            columnas_raw = cursor.fetchall()
+            cursor.close()
+
+            df_cols = pd.DataFrame(
+                columnas_raw,
+                columns=["Columna", "Tipo de Dato", "Permite NULL", "Llave", "Valor por Defecto", "Extra"]
+            )
+
+            st.markdown(f"#### Columnas actuales de `{tabla_sel}`")
+            st.dataframe(df_cols, use_container_width=True, hide_index=True)
+
+            st.divider()
+            col_add, col_mod, col_del = st.columns(3)
+
+            with col_add:
+                st.markdown("##### ➕ Agregar Columna")
+                nueva_col = st.text_input("Nombre (sin espacios):", key="add_col_name").strip().lower()
+                tipo_col = st.selectbox(
+                    "Tipo de dato:",
+                    ["VARCHAR(150)", "VARCHAR(255)", "INT", "DECIMAL(18,2)", "DATE", "TEXT"],
+                    key="add_col_type"
+                )
+                if st.button("Crear Columna", use_container_width=True, type="primary"):
+                    if nueva_col and nueva_col.isidentifier():
+                        try:
+                            cur = conn.cursor()
+                            cur.execute(f"ALTER TABLE `{db_actual}`.`{tabla_sel}` ADD COLUMN `{nueva_col}` {tipo_col} NULL")
+                            conn.commit()
+                            cur.close()
+                            st.success(f"Columna `{nueva_col}` agregada.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error MySQL: {e}")
+                    else:
+                        st.error("Nombre de columna inválido (usa solo letras y guion bajo).")
+
+            with col_mod:
+                st.markdown("##### ✏️ Modificar Columna")
+                lista_nombres_col = df_cols["Columna"].tolist()
+                col_a_mod = st.selectbox("Columna a modificar:", lista_nombres_col, key="mod_col_sel")
+                nuevo_nombre_mod = st.text_input("Nuevo nombre:", value=col_a_mod, key="mod_col_newname").strip().lower()
+                nuevo_tipo_mod = st.selectbox(
+                    "Nuevo tipo:",
+                    ["VARCHAR(150)", "VARCHAR(255)", "INT", "DECIMAL(18,2)", "DATE", "TEXT"],
+                    key="mod_col_newtype"
+                )
+                if st.button("Aplicar Cambio", use_container_width=True):
+                    if col_a_mod == "id":
+                        st.error("No se permite alterar la llave primaria `id`.")
+                    elif nuevo_nombre_mod.isidentifier():
+                        try:
+                            cur = conn.cursor()
+                            cur.execute(f"ALTER TABLE `{db_actual}`.`{tabla_sel}` CHANGE `{col_a_mod}` `{nuevo_nombre_mod}` {nuevo_tipo_mod}")
+                            conn.commit()
+                            cur.close()
+                            st.success(f"Columna actualizada a `{nuevo_nombre_mod}`.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error MySQL: {e}")
+                    else:
+                        st.error("Nuevo nombre inválido.")
+
+            with col_del:
+                st.markdown("##### 🗑️ Eliminar Columna")
+                col_a_del = st.selectbox("Columna a borrar:", [c for c in lista_nombres_col if c != "id"], key="del_col_sel")
+                confirmar_del = st.checkbox("Confirmo que revisé las funciones vinculadas", key="chk_del_col")
+                if st.button("Eliminar Columna", use_container_width=True):
+                    if confirmar_del and col_a_del:
+                        try:
+                            cur = conn.cursor()
+                            cur.execute(f"ALTER TABLE `{db_actual}`.`{tabla_sel}` DROP COLUMN `{col_a_del}`")
+                            conn.commit()
+                            cur.close()
+                            st.warning(f"Columna `{col_a_del}` eliminada.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error MySQL: {e}")
+                    else:
+                        st.info("Marca la casilla de confirmación antes de eliminar.")
+
+        with tab_code:
+            st.markdown(f"#### 🔗 Funciones en tu código que usan `{tabla_sel}`")
+            st.info("Antes de renombrar o eliminar una columna, verifica qué funciones hacen `SELECT` o `INSERT` sobre esta tabla.")
+
+            df_deps = escanear_dependencias_codigo(tabla_sel)
+            if not df_deps.empty:
+                st.dataframe(df_deps, use_container_width=True, hide_index=True)
+            else:
+                st.success(f"No se encontraron referencias directas en texto plano a `{tabla_sel}` en los archivos `.py` actuales.")
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -10812,7 +10966,7 @@ def gestionar_sidebar():
 
         # --- Navegación ---
         if user_rol == 'admin':
-            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios","⚙️ Gestión de Empresas"], key="menu_nav")
+            menu = st.radio("Navegación", ["📊 Auditoría Contable", "⚙️ Gestión de Usuarios","⚙️ Gestión de Empresas","Matriz de Datas"], key="menu_nav")
         else:
             menu = "📊 Auditoría Contable"
 
@@ -10938,6 +11092,36 @@ if menu_lateral == "⚙️ Gestión de Empresas":
     except Exception as e:
         st.error(f"Error al acceder a la gestión central de empresas: {e}")
     st.stop()
+
+
+if menu_lateral == "⚙️ Matriz de Datas":
+    # 🔒 RESTRICCIÓN ABSOLUTA: Solo el Administrador Maestro puede ver esta sección
+    if rol_actual != "admin":
+        st.error("⛔ Acceso denegado. Esta sección central es exclusiva para el Administrador General de Gylfi Software.")
+        st.stop()
+
+    db_objetivo = db_actual if "db_actual" in locals() and db_actual else st.session_state.get("db_actual")
+
+    if not db_objetivo:
+        st.warning("⚠️ No se ha detectado una base de datos activa (`db_actual`). Selecciona una empresa primero.")
+        st.stop()
+
+    try:
+        conn = conectar_db(db_objetivo)
+        if conn:
+            render_gestor_esquemas_mysql(conn, db_objetivo)
+            try:
+                conn.close()
+            except Exception:
+                pass
+        else:
+            st.error("🔌 No se pudo establecer conexión con el servidor MySQL.")
+    except Exception as e:
+        st.error(f"Error al acceder a la gestión central de esquemas: {e}")
+    st.stop()
+
+
+
 
 # Sacamos los datos directamente de lo que ya se seleccionó en el Sidebar
 if 'DB_ACTUAL' in st.session_state and st.session_state.get('DB_ACTUAL'):
