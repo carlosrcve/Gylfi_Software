@@ -10783,115 +10783,124 @@ def escanear_dependencias_codigo(nombre_tabla, directorio="."):
 
 
 def render_gestor_esquemas_mysql(conn, db_actual):
-    st.markdown(f"## 🛠️ Arquitecto de Base de Datos y Dependencias (`{db_actual}`)")
-    st.caption("Administra las tablas de la empresa activa, personaliza columnas y audita qué funciones del código dependen de cada tabla.")
+    # --- FRAME PRINCIPAL DE LA SECCIÓN ---
+    with st.container(border=True):
+        st.markdown(f"## 🛠️ Arquitecto de Base de Datos y Dependencias (`{db_actual}`)")
+        st.caption("Administra las tablas de la empresa activa, personaliza columnas y audita qué funciones del código dependen de cada tabla.")
 
-    cursor = conn.cursor()
-    cursor.execute(f"SHOW TABLES FROM `{db_actual}`")
-    tablas = [fila[0] for fila in cursor.fetchall()]
-    cursor.close()
+        cursor = conn.cursor()
+        cursor.execute(f"SHOW TABLES FROM `{db_actual}`")
+        tablas = [fila[0] for fila in cursor.fetchall()]
+        cursor.close()
 
-    if not tablas:
-        st.warning("No se encontraron tablas en esta base de datos.")
-        return
+        if not tablas:
+            st.warning("No se encontraron tablas en esta base de datos.")
+            return
 
-    tabla_sel = st.selectbox("Selecciona una tabla para inspeccionar:", tablas, key="sel_tabla_arquitecto")
+        tabla_sel = st.selectbox("Selecciona una tabla para inspeccionar:", tablas, key="sel_tabla_arquitecto")
 
-    if tabla_sel:
-        tab_cols, tab_code = st.tabs(["🗂️ Estructura y Columnas (MySQL)", "🔍 Funciones Vinculadas en el Código"])
+        if tabla_sel:
+            tab_cols, tab_code = st.tabs(["🗂️ Estructura y Columnas (MySQL)", "🔍 Funciones Vinculadas en el Código"])
 
-        with tab_cols:
-            cursor = conn.cursor()
-            cursor.execute(f"DESCRIBE `{db_actual}`.`{tabla_sel}`")
-            columnas_raw = cursor.fetchall()
-            cursor.close()
+            with tab_cols:
+                cursor = conn.cursor()
+                cursor.execute(f"DESCRIBE `{db_actual}`.`{tabla_sel}`")
+                columnas_raw = cursor.fetchall()
+                cursor.close()
 
-            df_cols = pd.DataFrame(
-                columnas_raw,
-                columns=["Columna", "Tipo de Dato", "Permite NULL", "Llave", "Valor por Defecto", "Extra"]
-            )
-
-            st.markdown(f"#### Columnas actuales de `{tabla_sel}`")
-            st.dataframe(df_cols, use_container_width=True, hide_index=True)
-
-            st.divider()
-            col_add, col_mod, col_del = st.columns(3)
-
-            with col_add:
-                st.markdown("##### ➕ Agregar Columna")
-                nueva_col = st.text_input("Nombre (sin espacios):", key="add_col_name").strip().lower()
-                tipo_col = st.selectbox(
-                    "Tipo de dato:",
-                    ["VARCHAR(150)", "VARCHAR(255)", "INT", "DECIMAL(18,2)", "DATE", "TEXT"],
-                    key="add_col_type"
+                df_cols = pd.DataFrame(
+                    columnas_raw,
+                    columns=["Columna", "Tipo de Dato", "Permite NULL", "Llave", "Valor por Defecto", "Extra"]
                 )
-                if st.button("Crear Columna", use_container_width=True, type="primary"):
-                    if nueva_col and nueva_col.isidentifier():
-                        try:
-                            cur = conn.cursor()
-                            cur.execute(f"ALTER TABLE `{db_actual}`.`{tabla_sel}` ADD COLUMN `{nueva_col}` {tipo_col} NULL")
-                            conn.commit()
-                            cur.close()
-                            st.success(f"Columna `{nueva_col}` agregada.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error MySQL: {e}")
+
+                # --- SUB-FRAME DE COLUMNAS ACTUALES ---
+                with st.container(border=True):
+                    st.markdown(f"#### Columnas actuales de `{tabla_sel}`")
+                    st.dataframe(df_cols, use_container_width=True, hide_index=True)
+
+                st.divider()
+
+                # --- SUB-FRAME DE ACCIONES (AGREGAR / MODIFICAR / ELIMINAR) ---
+                with st.container(border=True):
+                    col_add, col_mod, col_del = st.columns(3)
+
+                    with col_add:
+                        st.markdown("##### ➕ Agregar Columna")
+                        nueva_col = st.text_input("Nombre (sin espacios):", key="add_col_name").strip().lower()
+                        tipo_col = st.selectbox(
+                            "Tipo de dato:",
+                            ["VARCHAR(150)", "VARCHAR(255)", "INT", "DECIMAL(18,2)", "DATE", "TEXT"],
+                            key="add_col_type"
+                        )
+                        if st.button("Crear Columna", use_container_width=True, type="primary"):
+                            if nueva_col and nueva_col.isidentifier():
+                                try:
+                                    cur = conn.cursor()
+                                    cur.execute(f"ALTER TABLE `{db_actual}`.`{tabla_sel}` ADD COLUMN `{nueva_col}` {tipo_col} NULL")
+                                    conn.commit()
+                                    cur.close()
+                                    st.success(f"Columna `{nueva_col}` agregada.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error MySQL: {e}")
+                            else:
+                                st.error("Nombre de columna inválido (usa solo letras y guion bajo).")
+
+                    with col_mod:
+                        st.markdown("##### ✏️ Modificar Columna")
+                        lista_nombres_col = df_cols["Columna"].tolist()
+                        col_a_mod = st.selectbox("Columna a modificar:", lista_nombres_col, key="mod_col_sel")
+                        nuevo_nombre_mod = st.text_input("Nuevo nombre:", value=col_a_mod, key="mod_col_newname").strip().lower()
+                        nuevo_tipo_mod = st.selectbox(
+                            "Nuevo tipo:",
+                            ["VARCHAR(150)", "VARCHAR(255)", "INT", "DECIMAL(18,2)", "DATE", "TEXT"],
+                            key="mod_col_newtype"
+                        )
+                        if st.button("Aplicar Cambio", use_container_width=True):
+                            if col_a_mod == "id":
+                                st.error("No se permite alterar la llave primaria `id`.")
+                            elif nuevo_nombre_mod.isidentifier():
+                                try:
+                                    cur = conn.cursor()
+                                    cur.execute(f"ALTER TABLE `{db_actual}`.`{tabla_sel}` CHANGE `{col_a_mod}` `{nuevo_nombre_mod}` {nuevo_tipo_mod}")
+                                    conn.commit()
+                                    cur.close()
+                                    st.success(f"Columna actualizada a `{nuevo_nombre_mod}`.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error MySQL: {e}")
+                            else:
+                                st.error("Nuevo nombre inválido.")
+
+                    with col_del:
+                        st.markdown("##### 🗑️ Eliminar Columna")
+                        col_a_del = st.selectbox("Columna a borrar:", [c for c in lista_nombres_col if c != "id"], key="del_col_sel")
+                        confirmar_del = st.checkbox("Confirmo que revisé las funciones vinculadas", key="chk_del_col")
+                        if st.button("Eliminar Columna", use_container_width=True):
+                            if confirmar_del and col_a_del:
+                                try:
+                                    cur = conn.cursor()
+                                    cur.execute(f"ALTER TABLE `{db_actual}`.`{tabla_sel}` DROP COLUMN `{col_a_del}`")
+                                    conn.commit()
+                                    cur.close()
+                                    st.warning(f"Columna `{col_a_del}` eliminada.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error MySQL: {e}")
+                            else:
+                                st.info("Marca la casilla de confirmación antes de eliminar.")
+
+            with tab_code:
+                # --- SUB-FRAME DE FUNCIONES VINCULADAS ---
+                with st.container(border=True):
+                    st.markdown(f"#### 🔗 Funciones en tu código que usan `{tabla_sel}`")
+                    st.info("Antes de renombrar o eliminar una columna, verifica qué funciones hacen `SELECT` o `INSERT` sobre esta tabla.")
+
+                    df_deps = escanear_dependencias_codigo(tabla_sel)
+                    if not df_deps.empty:
+                        st.dataframe(df_deps, use_container_width=True, hide_index=True)
                     else:
-                        st.error("Nombre de columna inválido (usa solo letras y guion bajo).")
-
-            with col_mod:
-                st.markdown("##### ✏️ Modificar Columna")
-                lista_nombres_col = df_cols["Columna"].tolist()
-                col_a_mod = st.selectbox("Columna a modificar:", lista_nombres_col, key="mod_col_sel")
-                nuevo_nombre_mod = st.text_input("Nuevo nombre:", value=col_a_mod, key="mod_col_newname").strip().lower()
-                nuevo_tipo_mod = st.selectbox(
-                    "Nuevo tipo:",
-                    ["VARCHAR(150)", "VARCHAR(255)", "INT", "DECIMAL(18,2)", "DATE", "TEXT"],
-                    key="mod_col_newtype"
-                )
-                if st.button("Aplicar Cambio", use_container_width=True):
-                    if col_a_mod == "id":
-                        st.error("No se permite alterar la llave primaria `id`.")
-                    elif nuevo_nombre_mod.isidentifier():
-                        try:
-                            cur = conn.cursor()
-                            cur.execute(f"ALTER TABLE `{db_actual}`.`{tabla_sel}` CHANGE `{col_a_mod}` `{nuevo_nombre_mod}` {nuevo_tipo_mod}")
-                            conn.commit()
-                            cur.close()
-                            st.success(f"Columna actualizada a `{nuevo_nombre_mod}`.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error MySQL: {e}")
-                    else:
-                        st.error("Nuevo nombre inválido.")
-
-            with col_del:
-                st.markdown("##### 🗑️ Eliminar Columna")
-                col_a_del = st.selectbox("Columna a borrar:", [c for c in lista_nombres_col if c != "id"], key="del_col_sel")
-                confirmar_del = st.checkbox("Confirmo que revisé las funciones vinculadas", key="chk_del_col")
-                if st.button("Eliminar Columna", use_container_width=True):
-                    if confirmar_del and col_a_del:
-                        try:
-                            cur = conn.cursor()
-                            cur.execute(f"ALTER TABLE `{db_actual}`.`{tabla_sel}` DROP COLUMN `{col_a_del}`")
-                            conn.commit()
-                            cur.close()
-                            st.warning(f"Columna `{col_a_del}` eliminada.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error MySQL: {e}")
-                    else:
-                        st.info("Marca la casilla de confirmación antes de eliminar.")
-
-        with tab_code:
-            st.markdown(f"#### 🔗 Funciones en tu código que usan `{tabla_sel}`")
-            st.info("Antes de renombrar o eliminar una columna, verifica qué funciones hacen `SELECT` o `INSERT` sobre esta tabla.")
-
-            df_deps = escanear_dependencias_codigo(tabla_sel)
-            if not df_deps.empty:
-                st.dataframe(df_deps, use_container_width=True, hide_index=True)
-            else:
-                st.success(f"No se encontraron referencias directas en texto plano a `{tabla_sel}` en los archivos `.py` actuales.")
+                        st.success(f"No se encontraron referencias directas en texto plano a `{tabla_sel}` en los archivos `.py` actuales.")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
