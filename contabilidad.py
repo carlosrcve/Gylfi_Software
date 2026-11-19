@@ -11205,7 +11205,7 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                     except Exception as e:
                         st.error(f"❌ Error al consultar los datos de `{tabla_sel}`: {e}")
 
-
+        st.divider()
         with st.container(border=True):
             st.markdown("### 🆕 Crear Nueva Tabla y Asignar a Clientes")
 
