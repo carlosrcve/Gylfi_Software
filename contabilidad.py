@@ -11060,25 +11060,32 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                         total_filas = cur_cnt.fetchone()[0]
                         cur_cnt.close()
 
-                        col_lim, col_busq, col_info = st.columns([1.2, 2.3, 1.5])
+                        col_lim, col_busq, col_info = st.columns([1.4, 2.2, 1.4])
                         with col_lim:
-                            limite = st.selectbox(
+                            opciones_lim = [100, 250, 500, 1000, "Todas"]
+                            limite_sel = st.selectbox(
                                 "Filas a mostrar:",
-                                [50, 100, 250, 500, 1000],
-                                index=1,
+                                opciones_lim,
+                                index=2,  # Por defecto 500 para no cortar cuentas como 7 y 8
                                 key=f"lim_data_{tabla_sel}"
                             )
                         with col_busq:
                             filtro_texto = st.text_input(
                                 "Filtrar por texto en cualquier columna:",
-                                placeholder="Ej. 2.1.1 o Proveedores...",
+                                placeholder="Ej. 7, 8, Gastos, Proveedores...",
                                 key=f"busq_data_{tabla_sel}"
                             ).strip()
                         with col_info:
                             st.metric("Total en tabla", f"{total_filas:,}")
 
                         cur_data = conn.cursor()
-                        cur_data.execute(f"SELECT * FROM `{db_actual}`.`{tabla_sel}` LIMIT %s", (int(limite),))
+                        if limite_sel == "Todas":
+                            cur_data.execute(f"SELECT * FROM `{db_actual}`.`{tabla_sel}`")
+                        else:
+                            cur_data.execute(
+                                f"SELECT * FROM `{db_actual}`.`{tabla_sel}` LIMIT %s",
+                                (int(limite_sel),)
+                            )
                         filas_raw = cur_data.fetchall()
                         cols_sql = [desc[0] for desc in cur_data.description] if cur_data.description else []
                         cur_data.close()
@@ -11094,8 +11101,13 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                                 ).any(axis=1)
                                 df_datos = df_datos[mascara]
 
-                            st.caption(f"Mostrando `{len(df_datos)}` registro(s) en vista previa.")
-                            st.dataframe(df_datos, use_container_width=True, hide_index=True)
+                            st.caption(f"Mostrando `{len(df_datos)}` de `{total_filas}` registro(s).")
+                            st.dataframe(
+                                df_datos,
+                                use_container_width=True,
+                                hide_index=True,
+                                height=550
+                            )
 
                             csv_bytes = df_datos.to_csv(index=False).encode("utf-8-sig")
                             st.download_button(
