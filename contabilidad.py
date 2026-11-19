@@ -10888,6 +10888,55 @@ def extraer_codigo_funcion_completo(ruta_archivo, nombre_funcion, linea_inicio=N
 
     return "".join(bloque), idx_inicio + 1
 
+
+
+def _crear_tabla_en_clientes(
+    conectar_db_fn,
+    bds_destino: list,
+    nombre_tabla: str,
+    columnas_def: list,
+    incluir_id: bool = True,
+):
+    """
+    Crea una tabla en cada base de datos seleccionada.
+    columnas_def: lista de tuplas (nombre_col, tipo_sql, permite_null)
+    """
+    definiciones = []
+    if incluir_id:
+        definiciones.append("`id` INT AUTO_INCREMENT PRIMARY KEY")
+
+    for col_nombre, col_tipo, permite_null in columnas_def:
+        nulo_sql = "NULL" if permite_null else "NOT NULL"
+        definiciones.append(f"`{col_nombre}` {col_tipo} {nulo_sql}")
+
+    cuerpo_sql = ",\n    ".join(definiciones)
+    resultados = []
+
+    for bd in bds_destino:
+        conn_t = None
+        try:
+            conn_t = conectar_db_fn(bd)
+            if not conn_t:
+                resultados.append((bd, False, "No se pudo conectar a la base de datos."))
+                continue
+
+            cur_t = conn_t.cursor()
+            sql_create = f"CREATE TABLE IF NOT EXISTS `{bd}`.`{nombre_tabla}` (\n    {cuerpo_sql}\n)"
+            cur_t.execute(sql_create)
+            conn_t.commit()
+            cur_t.close()
+            resultados.append((bd, True, "Tabla creada / verificada correctamente."))
+        except Exception as e:
+            resultados.append((bd, False, str(e)))
+        finally:
+            if conn_t:
+                try:
+                    conn_t.close()
+                except Exception:
+                    pass
+
+    return resultados
+
 def render_gestor_esquemas_mysql(conn, db_actual):
     # --- FRAME PRINCIPAL DE LA SECCIÓN ---
     with st.container(border=True):
@@ -11155,6 +11204,105 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                             )
                     except Exception as e:
                         st.error(f"❌ Error al consultar los datos de `{tabla_sel}`: {e}")
+
+
+        with st.container(border=True):
+            st.markdown("### 🆕 Crear Nueva Tabla y Asignar a Clientes")
+
+            # 1. Nombre de la tabla y opción de ID automático
+            col_t1, col_t2 = st.columns([3, 1])
+            with col_t1:
+                nueva_tabla_nombre = st.text_input(
+                    "Nombre de la nueva tabla (sin espacios, ej. centros_costo_custom):",
+                    key="new_tbl_name"
+                ).strip().lower()
+            with col_t2:
+                st.write("")
+                st.write("")
+                incluir_id_pk = st.checkbox("Incluir `id` (PK)", value=True, key="new_tbl_pk")
+
+            # 2. Constructor dinámico de columnas en session_state
+            if "cols_nueva_tabla" not in st.session_state:
+                st.session_state["cols_nueva_tabla"] = [
+                    {"nombre": "codigo", "tipo": "VARCHAR(150)", "null": True},
+                    {"nombre": "descripcion", "tipo": "VARCHAR(255)", "null": True},
+                ]
+
+            st.markdown("##### Columnas de la tabla")
+            c_nom, c_tip, c_nul, c_btn = st.columns([2.5, 2, 1.2, 1.3])
+            with c_nom:
+                col_tmp_nom = st.text_input("Nombre columna:", key="tmp_col_nom").strip().lower()
+            with c_tip:
+                col_tmp_tip = st.selectbox(
+                    "Tipo:",
+                    ["VARCHAR(150)", "VARCHAR(255)", "INT", "DECIMAL(18,2)", "DATE", "DATETIME", "TEXT"],
+                    key="tmp_col_tip"
+                )
+            with c_nul:
+                st.write("")
+                st.write("")
+                col_tmp_nul = st.checkbox("NULL", value=True, key="tmp_col_nul")
+            with c_btn:
+                st.write("")
+                st.write("")
+                if st.button("➕ Añadir", use_container_width=True, key="btn_add_tmp_col"):
+                    if col_tmp_nom and col_tmp_nom.isidentifier() and col_tmp_nom != "id":
+                        st.session_state["cols_nueva_tabla"].append({
+                            "nombre": col_tmp_nom,
+                            "tipo": col_tmp_tip,
+                            "null": col_tmp_nul,
+                        })
+                        st.rerun()
+                    else:
+                        st.error("Nombre inválido o reservado (`id`).")
+
+            cols_actuales = st.session_state["cols_nueva_tabla"]
+            if cols_actuales:
+                st.dataframe(pd.DataFrame(cols_actuales), use_container_width=True, hide_index=True)
+                if st.button("🧹 Limpiar columnas agregadas", key="btn_clear_tmp_cols"):
+                    st.session_state["cols_nueva_tabla"] = []
+                    st.rerun()
+
+            st.divider()
+
+            # 3. Selección de clientes (bases de datos)
+            st.markdown("##### Seleccionar clientes / bases de datos destino")
+            clientes_sel = st.multiselect(
+                "Elige las empresas donde se creará la tabla:",
+                options=lista_bds,
+                default=[db_objetivo] if db_objetivo in lista_bds else [],
+                key="ms_clientes_nueva_tabla"
+            )
+
+            if st.button("🚀 Crear Tabla en Clientes Seleccionados", type="primary", use_container_width=True, key="btn_deploy_tbl"):
+                if not nueva_tabla_nombre or not nueva_tabla_nombre.isidentifier():
+                    st.error("Ingresa un nombre de tabla válido (letras, números y guion bajo, sin espacios).")
+                elif not incluir_id_pk and not cols_actuales:
+                    st.error("Debes incluir al menos el `id` o una columna.")
+                elif not clientes_sel:
+                    st.error("Selecciona al menos un cliente / base de datos.")
+                else:
+                    tuplas_cols = [
+                        (c["nombre"], c["tipo"], c["null"]) for c in cols_actuales
+                    ]
+                    res = _crear_tabla_en_clientes(
+                        conectar_db,
+                        clientes_sel,
+                        nueva_tabla_nombre,
+                        tuplas_cols,
+                        incluir_id=incluir_id_pk,
+                    )
+                    st.session_state["res_deploy_tabla"] = (nueva_tabla_nombre, res)
+                    st.rerun()
+
+            if "res_deploy_tabla" in st.session_state:
+                tbl_creada, lista_res = st.session_state.pop("res_deploy_tabla")
+                st.markdown(f"##### Resultado para tabla `{tbl_creada}`")
+                for bd_r, ok_r, msg_r in lista_res:
+                    if ok_r:
+                        st.success(f"**`{bd_r}`**: {msg_r}")
+                    else:
+                        st.error(f"**`{bd_r}`**: {msg_r}")
 
 
 def gestionar_sidebar():
