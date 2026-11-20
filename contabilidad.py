@@ -219,6 +219,508 @@ def obtener_datos_empresa_activa():
         print(f"Error obteniendo datos del agente desde control_central: {e}")
 
     return datos_agente
+
+def _es_uso_real_tabla_sql(linea, nombre_tabla):
+    """Detecta si la línea parece una operación/referencia real a la tabla SQL y no solo un diccionario o texto."""
+    t = re.escape(nombre_tabla)
+    patrones_sql = [
+        rf"\bFROM\s+`?{t}`?\b",
+        rf"\bJOIN\s+`?{t}`?\b",
+        rf"\bINTO\s+`?{t}`?\b",
+        rf"\bUPDATE\s+`?{t}`?\b",
+        rf"\bTABLE\s+`?{t}`?\b",
+        rf"\bDESCRIBE\s+`?{t}`?\b",
+    ]
+    return any(re.search(p, linea, flags=re.IGNORECASE) for p in patrones_sql)
+
+
+def escanear_dependencias_codigo(nombre_tabla, directorio=".", solo_sql_real=True):
+    """Devuelve una fila por función vinculada realmente con la tabla de MySQL."""
+    funciones_map = {}
+    patron_def = re.compile(r"^(\s*)def\s+([a-zA-Z0-9_]+)\s*\(")
+
+    for root, _, files in os.walk(directorio):
+        for file in files:
+            if file.endswith(".py"):
+                ruta_completa = os.path.join(root, file)
+                try:
+                    with open(ruta_completa, "r", encoding="utf-8") as f:
+                        lineas = f.readlines()
+
+                    funcion_actual = None
+                    indent_func = 0
+                    inicio_func = None
+
+                    for idx, contenido in enumerate(lineas, start=1):
+                        match_def = patron_def.match(contenido)
+                        if match_def:
+                            # Cerrar función anterior si existía
+                            if funcion_actual and inicio_func is not None:
+                                pass
+                            indent_func = len(match_def.group(1).expandtabs(4))
+                            funcion_actual = match_def.group(2)
+                            inicio_func = idx
+                            continue
+
+                        # Detectar si salimos del cuerpo de la función
+                        if funcion_actual and contenido.strip():
+                            indent_actual = len(
+                                re.match(r"^(\s*)", contenido).group(1).expandtabs(4)
+                            )
+                            if indent_actual <= indent_func and not contenido.lstrip().startswith("#"):
+                                funcion_actual = None
+                                inicio_func = None
+
+                        if not funcion_actual:
+                            continue
+
+                        if re.search(rf"\b{re.escape(nombre_tabla)}\b", contenido):
+                            es_sql = _es_uso_real_tabla_sql(contenido, nombre_tabla)
+                            if solo_sql_real and not es_sql:
+                                continue
+
+                            linea_upper = contenido.upper()
+                            if "INSERT INTO" in linea_upper:
+                                op = "INSERT"
+                            elif "UPDATE " in linea_upper:
+                                op = "UPDATE"
+                            elif "DELETE FROM" in linea_upper:
+                                op = "DELETE"
+                            elif "SELECT " in linea_upper or "FROM " in linea_upper or "JOIN " in linea_upper:
+                                op = "SELECT / JOIN"
+                            else:
+                                op = "Referencia SQL"
+
+                            clave = (file, funcion_actual)
+                            if clave not in funciones_map:
+                                funciones_map[clave] = {
+                                    "Archivo": file,
+                                    "Función Python": funcion_actual,
+                                    "Archivo_Ruta": ruta_completa,
+                                    "Linea_Inicio": inicio_func,
+                                    "Líneas Coincidentes": [idx],
+                                    "Operaciones": {op},
+                                    "Primera Línea": contenido.strip()[:90],
+                                }
+                            else:
+                                if idx not in funciones_map[clave]["Líneas Coincidentes"]:
+                                    funciones_map[clave]["Líneas Coincidentes"].append(idx)
+                                funciones_map[clave]["Operaciones"].add(op)
+                except Exception:
+                    pass
+
+    filas = []
+    for data in funciones_map.values():
+        filas.append({
+            "Archivo": data["Archivo"],
+            "Función Python": data["Función Python"],
+            "Operación": ", ".join(sorted(data["Operaciones"])),
+            "Líneas": ", ".join(map(str, data["Líneas Coincidentes"])),
+            "Ejemplo": data["Primera Línea"],
+            "_ruta": data["Archivo_Ruta"],
+            "_inicio": data["Linea_Inicio"],
+        })
+
+    return pd.DataFrame(filas)
+
+
+def extraer_codigo_funcion_completo(ruta_archivo, nombre_funcion, linea_inicio=None):
+    """Extrae el código completo de una función desde su `def` hasta el fin de su bloque."""
+    try:
+        with open(ruta_archivo, "r", encoding="utf-8") as f:
+            lineas = f.readlines()
+    except Exception as e:
+        return f"# No se pudo leer el archivo: {e}", 1
+
+    idx_inicio = None
+    indent_base = 0
+
+    if linea_inicio and 1 <= linea_inicio <= len(lineas):
+        m = re.match(r"^(\s*)def\s+" + re.escape(nombre_funcion) + r"\b", lineas[linea_inicio - 1])
+        if m:
+            idx_inicio = linea_inicio - 1
+            indent_base = len(m.group(1).expandtabs(4))
+
+    if idx_inicio is None:
+        for i, l in enumerate(lineas):
+            m = re.match(r"^(\s*)def\s+" + re.escape(nombre_funcion) + r"\b", l)
+            if m:
+                idx_inicio = i
+                indent_base = len(m.group(1).expandtabs(4))
+                break
+
+    if idx_inicio is None:
+        return f"# No se encontró la definición de `{nombre_funcion}`", 1
+
+    bloque = [lineas[idx_inicio]]
+    for j in range(idx_inicio + 1, len(lineas)):
+        l = lineas[j]
+        if not l.strip():
+            bloque.append(l)
+            continue
+        indent_actual = len(re.match(r"^(\s*)", l).group(1).expandtabs(4))
+        if indent_actual <= indent_base and not l.lstrip().startswith("#"):
+            break
+        bloque.append(l)
+
+    # Limpiar líneas vacías sobrantes al final
+    while bloque and not bloque[-1].strip():
+        bloque.pop()
+
+    return "".join(bloque), idx_inicio + 1
+
+
+
+def _crear_tabla_en_clientes(
+    conectar_db_fn,
+    bds_destino: list,
+    nombre_tabla: str,
+    columnas_def: list,
+    incluir_id: bool = True,
+):
+    """
+    Crea una tabla en cada base de datos seleccionada.
+    columnas_def: lista de tuplas (nombre_col, tipo_sql, permite_null)
+    """
+    definiciones = []
+    if incluir_id:
+        definiciones.append("`id` INT AUTO_INCREMENT PRIMARY KEY")
+
+    for col_nombre, col_tipo, permite_null in columnas_def:
+        nulo_sql = "NULL" if permite_null else "NOT NULL"
+        definiciones.append(f"`{col_nombre}` {col_tipo} {nulo_sql}")
+
+    cuerpo_sql = ",\n    ".join(definiciones)
+    resultados = []
+
+    for bd in bds_destino:
+        conn_t = None
+        try:
+            conn_t = conectar_db_fn(bd)
+            if not conn_t:
+                resultados.append((bd, False, "No se pudo conectar a la base de datos."))
+                continue
+
+            cur_t = conn_t.cursor()
+            sql_create = f"CREATE TABLE IF NOT EXISTS `{bd}`.`{nombre_tabla}` (\n    {cuerpo_sql}\n)"
+            cur_t.execute(sql_create)
+            conn_t.commit()
+            cur_t.close()
+            resultados.append((bd, True, "Tabla creada / verificada correctamente."))
+        except Exception as e:
+            resultados.append((bd, False, str(e)))
+        finally:
+            if conn_t:
+                try:
+                    conn_t.close()
+                except Exception:
+                    pass
+
+    return resultados
+
+
+def _es_uso_real_tabla_sql_multiline(texto_bloque, nombre_tabla):
+    """Detecta uso SQL real incluso si la consulta abarca varias líneas."""
+    t = re.escape(nombre_tabla)
+    patrones_sql = [
+        rf"\bFROM\s+`?{t}`?\b",
+        rf"\bJOIN\s+`?{t}`?\b",
+        rf"\bINTO\s+`?{t}`?\b",
+        rf"\bUPDATE\s+`?{t}`?\b",
+        rf"\bTABLE\s+`?{t}`?\b",
+        rf"\bDESCRIBE\s+`?{t}`?\b",
+    ]
+    return any(re.search(p, texto_bloque, flags=re.IGNORECASE) for p in patrones_sql)
+
+
+def escanear_bloques_ui_sql(nombre_tabla, directorio=".", solo_sql_real=True, ventana=12):
+    """
+    Detecta consultas SQL hacia `nombre_tabla` que están en código de interfaz / nivel superior
+    (fuera de `def`), devolviendo bloques inspeccionables para `tab_code`.
+    """
+    patron_def = re.compile(r"^(\s*)def\s+[a-zA-Z0-9_]+\s*\(")
+    patron_bloque_ui = re.compile(r"^\s*(with\s+.*|if\s+.*|elif\s+.*|else\s*:|for\s+.*):")
+    patron_tabla = re.compile(rf"\b{re.escape(nombre_tabla)}\b", flags=re.IGNORECASE)
+
+    bloques_map = {}
+
+    for root, _, files in os.walk(directorio):
+        for file in files:
+            if not file.endswith(".py"):
+                continue
+            ruta_completa = os.path.join(root, file)
+            try:
+                with open(ruta_completa, "r", encoding="utf-8") as f:
+                    lineas = f.readlines()
+            except Exception:
+                continue
+
+            # Marcar qué líneas pertenecen a alguna función `def`
+            en_funcion = [False] * len(lineas)
+            i = 0
+            while i < len(lineas):
+                m_def = patron_def.match(lineas[i])
+                if m_def:
+                    indent_base = len(m_def.group(1).expandtabs(4))
+                    en_funcion[i] = True
+                    j = i + 1
+                    while j < len(lineas):
+                        l_j = lineas[j]
+                        if l_j.strip():
+                            ind_j = len(re.match(r"^(\s*)", l_j).group(1).expandtabs(4))
+                            if ind_j <= indent_base and not l_j.lstrip().startswith("#"):
+                                break
+                        en_funcion[j] = True
+                        j += 1
+                    i = j
+                else:
+                    i += 1
+
+            # Buscar coincidencias fuera de funciones
+            for idx_0, contenido in enumerate(lineas):
+                if en_funcion[idx_0]:
+                    continue
+                if not patron_tabla.search(contenido):
+                    continue
+
+                inicio_w = max(0, idx_0 - ventana)
+                fin_w = min(len(lineas), idx_0 + ventana + 1)
+                contexto_texto = "".join(lineas[inicio_w:fin_w])
+
+                es_sql = _es_uso_real_tabla_sql_multiline(contexto_texto, nombre_tabla)
+                if solo_sql_real and not es_sql:
+                    continue
+
+                # Buscar encabezado de bloque UI más cercano hacia arriba
+                etiqueta_bloque = "Código principal / UI"
+                linea_encabezado = idx_0 + 1
+                for k in range(idx_0, -1, -1):
+                    if en_funcion[k]:
+                        break
+                    m_b = patron_bloque_ui.match(lineas[k])
+                    if m_b:
+                        etiqueta_bloque = lineas[k].strip()[:70]
+                        linea_encabezado = k + 1
+                        break
+
+                ctx_upper = contexto_texto.upper()
+                if "INSERT INTO" in ctx_upper:
+                    op = "INSERT"
+                elif "UPDATE " in ctx_upper:
+                    op = "UPDATE"
+                elif "DELETE FROM" in ctx_upper:
+                    op = "DELETE"
+                elif "SELECT " in ctx_upper or "FROM " in ctx_upper or "JOIN " in ctx_upper:
+                    op = "SELECT / JOIN"
+                else:
+                    op = "Referencia SQL"
+
+                clave = (file, etiqueta_bloque)
+                num_linea = idx_0 + 1
+                if clave not in bloques_map:
+                    bloques_map[clave] = {
+                        "Archivo": file,
+                        "Función Python": f"[UI / Bloque] {etiqueta_bloque}",
+                        "Operación": op,
+                        "Líneas": [num_linea],
+                        "Ejemplo": contenido.strip()[:90],
+                        "_ruta": ruta_completa,
+                        "_inicio": linea_encabezado,
+                        "_es_ui": True,
+                        "_linea_match": num_linea,
+                    }
+                else:
+                    if num_linea not in bloques_map[clave]["Líneas"]:
+                        bloques_map[clave]["Líneas"].append(num_linea)
+
+    filas = []
+    for d in bloques_map.values():
+        filas.append({
+            "Archivo": d["Archivo"],
+            "Función Python": d["Función Python"],
+            "Operación": d["Operación"],
+            "Líneas": ", ".join(map(str, d["Líneas"])),
+            "Ejemplo": d["Ejemplo"],
+            "_ruta": d["_ruta"],
+            "_inicio": d["_inicio"],
+            "_es_ui": d["_es_ui"],
+            "_linea_match": d["_linea_match"],
+        })
+    return pd.DataFrame(filas)
+
+
+from datetime import date
+
+PERIODOS_FISCALES = [2024, 2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032]
+
+
+def obtener_selectbox_ejercicio_fiscal(
+    label: str = "📅 Período / Cierre Fiscal",
+    key: str = "sb_ejercicio_fiscal",
+    bloquear_a_calendario: bool = True,
+) -> int:
+    """
+    Muestra el selectbox de años fiscales (2024-2032) fijado al año del calendario
+    universal (`date.today().year`). Solo cambia cuando cambia el calendario del sistema.
+    """
+    anio_actual = date.today().year
+    idx_default = PERIODOS_FISCALES.index(anio_actual) if anio_actual in PERIODOS_FISCALES else 0
+
+    # Sincroniza siempre con el año real del calendario del sistema
+    st.session_state[key] = PERIODOS_FISCALES[idx_default]
+
+    anio_sel = st.selectbox(
+        label,
+        options=PERIODOS_FISCALES,
+        index=idx_default,
+        key=f"{key}_widget",
+        disabled=bloquear_a_calendario,
+        help="Fijado según el año del calendario universal del sistema.",
+    )
+    st.session_state["ejercicio_fiscal"] = int(anio_sel)
+    return int(anio_sel)
+
+def _tiene_2026_como_texto(linea: str) -> tuple[bool, str]:
+    """
+    Detecta si `2026` aparece como texto/literal en la línea (comillas, fechas en texto
+    o cadenas formateadas) y devuelve (encontrado, tipo_coincidencia).
+    """
+    sin_comentario = linea.split("#", 1)[0]
+
+    # 1. Fechas en texto que incluyan 2026 (ej. "2026-01-01", "31/12/2026", "2026/05")
+    if re.search(r"""['"][^'"]*\b2026\b[^'"]*['"]""", sin_comentario):
+        if re.search(r"""['"][^'"]*(?:2026[-/]\d{1,2}(?:[-/]\d{1,2})?|\d{1,2}[-/]\d{1,2}[-/]2026)[^'"]*['"]""", sin_comentario):
+            return True, "Fecha en texto (2026)"
+        return True, "Texto / String literal ('2026')"
+
+    # 2. 2026 dentro de comillas simples o dobles aunque la comilla abra/cierre en otra línea
+    comillas_simples = sin_comentario.count("'") - sin_comentario.count("\\'")
+    comillas_dobles = sin_comentario.count('"') - sin_comentario.count('\\"')
+    if re.search(r"\b2026\b", sin_comentario) and (comillas_simples > 0 or comillas_dobles > 0):
+        return True, "Texto / Cadena (2026)"
+
+    return False, ""
+
+
+def escanear_2026_texto(directorio: str = ".", incluir_ui: bool = True) -> pd.DataFrame:
+    """
+    Busca `2026` como texto en funciones (`def`) y, opcionalmente, en bloques UI fuera de `def`.
+    """
+    patron_def = re.compile(r"^(\s*)def\s+([a-zA-Z0-9_]+)\s*\(")
+    patron_bloque_ui = re.compile(r"^\s*(with\s+.*|if\s+.*|elif\s+.*|else\s*:|for\s+.*):")
+    funciones_excluidas = {"_tiene_2026_como_texto", "escanear_2026_texto"}
+    columnas_salida = [
+        "Tipo", "Archivo", "Elemento / Función", "Detalle Texto",
+        "Líneas", "Ejemplo", "_ruta", "_inicio", "_es_ui", "_linea_match"
+    ]
+    registros_map = {}
+
+    for root, _, files in os.walk(directorio):
+        for file in files:
+            if not file.endswith(".py"):
+                continue
+            ruta_completa = os.path.join(root, file)
+            try:
+                with open(ruta_completa, "r", encoding="utf-8") as f:
+                    lineas = f.readlines()
+            except Exception:
+                continue
+
+            funcion_actual = None
+            indent_func = 0
+            inicio_func = None
+
+            for idx, contenido in enumerate(lineas, start=1):
+                match_def = patron_def.match(contenido)
+                if match_def:
+                    indent_func = len(match_def.group(1).expandtabs(4))
+                    funcion_actual = match_def.group(2)
+                    inicio_func = idx
+                    continue
+
+                if funcion_actual and contenido.strip():
+                    indent_actual = len(re.match(r"^(\s*)", contenido).group(1).expandtabs(4))
+                    if indent_actual <= indent_func and not contenido.lstrip().startswith("#"):
+                        funcion_actual = None
+                        inicio_func = None
+
+                if funcion_actual in funciones_excluidas:
+                    continue
+
+                encontrado, tipo_texto = _tiene_2026_como_texto(contenido)
+                if not encontrado:
+                    continue
+
+                if funcion_actual:
+                    clave = ("FUNC", file, funcion_actual)
+                    if clave not in registros_map:
+                        registros_map[clave] = {
+                            "Tipo": "Función",
+                            "Archivo": file,
+                            "Elemento / Función": funcion_actual,
+                            "Detalle Texto": {tipo_texto},
+                            "Líneas": [idx],
+                            "Ejemplo": contenido.strip()[:95],
+                            "_ruta": ruta_completa,
+                            "_inicio": inicio_func,
+                            "_es_ui": False,
+                            "_linea_match": idx,
+                        }
+                    else:
+                        registros_map[clave]["Detalle Texto"].add(tipo_texto)
+                        if idx not in registros_map[clave]["Líneas"]:
+                            registros_map[clave]["Líneas"].append(idx)
+
+                elif incluir_ui:
+                    etiqueta_bloque = "Código principal / UI"
+                    linea_encabezado = idx
+                    for k in range(idx - 1, -1, -1):
+                        if patron_def.match(lineas[k]):
+                            break
+                        if patron_bloque_ui.match(lineas[k]):
+                            etiqueta_bloque = lineas[k].strip()[:70]
+                            linea_encabezado = k + 1
+                            break
+
+                    clave = ("UI", file, etiqueta_bloque, linea_encabezado)
+                    if clave not in registros_map:
+                        registros_map[clave] = {
+                            "Tipo": "Bloque UI",
+                            "Archivo": file,
+                            "Elemento / Función": f"[UI] {etiqueta_bloque}",
+                            "Detalle Texto": {tipo_texto},
+                            "Líneas": [idx],
+                            "Ejemplo": contenido.strip()[:95],
+                            "_ruta": ruta_completa,
+                            "_inicio": linea_encabezado,
+                            "_es_ui": True,
+                            "_linea_match": idx,
+                        }
+                    else:
+                        registros_map[clave]["Detalle Texto"].add(tipo_texto)
+                        if idx not in registros_map[clave]["Líneas"]:
+                            registros_map[clave]["Líneas"].append(idx)
+
+    filas = [
+        {
+            "Tipo": d["Tipo"],
+            "Archivo": d["Archivo"],
+            "Elemento / Función": d["Elemento / Función"],
+            "Detalle Texto": ", ".join(sorted(d["Detalle Texto"])),
+            "Líneas": ", ".join(map(str, d["Líneas"])),
+            "Ejemplo": d["Ejemplo"],
+            "_ruta": d["_ruta"],
+            "_inicio": d["_inicio"],
+            "_es_ui": d["_es_ui"],
+            "_linea_match": d["_linea_match"],
+        }
+        for d in registros_map.values()
+    ]
+
+    return pd.DataFrame(filas, columns=columnas_salida)
+
+
+
 def registrar_log_automatico(conn, accion, detalles):
     """Registra automáticamente las interacciones del usuario en la tabla logs_auditoria
     ubicada en la base de datos central de control.
@@ -3074,8 +3576,19 @@ def mostrar_interfaz_mayor(f_ini_g, f_fin_g, db_nombre):
     cuenta_para_consulta = opciones_mapa.get(cuenta_sel_label, cuenta_sel_label.split(" - ")[0])
     
     import datetime
-    def_inicio = f_ini_g if f_ini_g else datetime.date(2026, 5, 1)
-    def_fin = f_fin_g if f_fin_g else datetime.date(2026, 5, 31)
+    import calendar
+
+    try:
+        import streamlit as st
+        anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or datetime.date.today().year)
+    except Exception:
+        anio_fiscal = datetime.date.today().year
+
+    mes_def = 5
+    ultimo_dia_def = calendar.monthrange(anio_fiscal, mes_def)[1]
+
+    def_inicio = f_ini_g if f_ini_g else datetime.date(anio_fiscal, mes_def, 1)
+    def_fin = f_fin_g if f_fin_g else datetime.date(anio_fiscal, mes_def, ultimo_dia_def)
 
     col1, col2 = st.columns(2)
     f_m_d = col1.date_input("Desde", value=def_inicio, key="m_d_mayo")
@@ -3804,12 +4317,20 @@ def cargar_libro_ventas_db(df, conn):
             return round(min(max(val, -99999999.99), 99999999.99), 2)
         except: return 0.0
 
+    from datetime import date
+
     def convertir_fecha(v):
         try:
-            if str(v).replace('.','',1).isdigit() and float(v) > 30000:
+            if str(v).replace('.', '', 1).isdigit() and float(v) > 30000:
                 return (pd.to_datetime('1899-12-30') + pd.to_timedelta(float(v), 'D')).strftime('%Y-%m-%d')
             return pd.to_datetime(v).strftime('%Y-%m-%d')
-        except: return "2026-06-05"
+        except Exception:
+            try:
+                import streamlit as st
+                anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or date.today().year)
+            except Exception:
+                anio_fiscal = date.today().year
+            return f"{anio_fiscal}-06-05"
 
     sql = """INSERT INTO libro_ventas 
         (fecha_factura, nombre_razon_social, rif, n_factura, n_control, 
@@ -3930,12 +4451,20 @@ def cargar_libro_compras_db(df, conn_o_db=None):
             return round(min(max(val, -99999999.99), 99999999.99), 2)
         except: return 0.0
 
+    from datetime import date
+
     def convertir_fecha(v):
         try:
-            if str(v).replace('.','',1).isdigit() and float(v) > 30000:
+            if str(v).replace('.', '', 1).isdigit() and float(v) > 30000:
                 return (pd.to_datetime('1899-12-30') + pd.to_timedelta(float(v), 'D')).strftime('%Y-%m-%d')
             return pd.to_datetime(v).strftime('%Y-%m-%d')
-        except: return "2026-06-05"
+        except Exception:
+            try:
+                import streamlit as st
+                anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or date.today().year)
+            except Exception:
+                anio_fiscal = date.today().year
+            return f"{anio_fiscal}-06-05"
 
     sql = """INSERT INTO libro_compras 
               (fecha_operacion, tipo_documento, n_factura, n_control, proveedor, rif, 
@@ -8565,17 +9094,20 @@ def form_recepcion_factura_fiscal():
         st.session_state.autofill_dir = ""
 
     # Si el usuario sube la imagen, simulamos la extracción (aquí conectarías tu lógica de parsing o OCR)
+    from datetime import date, datetime
+
+    anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or datetime.today().year)
+
     if archivo_tique is not None:
-        # Datos extraídos del tique de Mi Despensa El Paraíso, C.A. (ejemplo de tu imagen)
-        st.session_state.autofill_rif = "J-413232766"[cite: 1]
-        st.session_state.autofill_nombre = "MI DESPENSA EL PARAISO, C.A."[cite: 1]
-        st.session_state.autofill_n_factura = "00021045"[cite: 1]
-        st.session_state.autofill_n_control = "Z7C7005087"[cite: 1]
-        st.session_state.autofill_fecha = datetime.strptime("12-10-2026", "%d-%m-%Y").date()[cite: 1]
-        st.session_state.autofill_base = 7935.04[cite: 1]
-        st.session_state.autofill_iva = 1269.61[cite: 1]
-        st.session_state.autofill_dir = "AV PAEZ CON CALLE BOLIVAR QTA MALAGA NRO 00 URB EL PARAISO CARACAS DISTRITO CAPITAL ZONA POSTAL 1050"[cite: 1]
-        
+        st.session_state.autofill_rif = "J-413232766"
+        st.session_state.autofill_nombre = "MI DESPENSA EL PARAISO, C.A."
+        st.session_state.autofill_n_factura = "00021045"
+        st.session_state.autofill_n_control = "Z7C7005087"
+        st.session_state.autofill_fecha = date(anio_fiscal, 10, 12)
+        st.session_state.autofill_base = 7935.04
+        st.session_state.autofill_iva = 1269.61
+        st.session_state.autofill_dir = "AV PAEZ CON CALLE BOLIVAR QTA MALAGA NRO 00 URB EL PARAISO CARACAS DISTRITO CAPITAL ZONA POSTAL 1050"
+
         st.success("✅ ¡Tique procesado y campos autocompletados con éxito!")
 
     # 3. Formulario con los campos vinculados al session_state
@@ -8684,16 +9216,18 @@ def modulo_escaneo_facturas_manuales(conn, db_actual):
 
     # --- 3. AUTOCOMPLETADO INTELIGENTE AL DETECTAR LA IMAGEN ---
     # (Aquí es donde inyectamos los datos reales extraídos de la imagen a st.session_state)
+    anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or datetime.now().year)
+
     if st.session_state.get("input_rif") == "":
         st.session_state.input_rif = "J-413232766"
         st.session_state.input_nombre = "MI DESPENSA EL PARAISO, C.A."
         st.session_state.input_factura = "00021045"
         st.session_state.input_control = "Z7C7005087"
-        st.session_state.input_fecha = "12/10/2026"
+        st.session_state.input_fecha = f"12/10/{anio_fiscal}"
         st.session_state.input_base = "7935.04"
         st.session_state.input_iva = "1269.61"
         st.session_state.input_domicilio = "AV PAEZ CON CALLE BOLIVAR QTA MALAGA NRO 00 URB EL PARAISO CARACAS DISTRITO CAPITAL ZONA POSTAL 1050"
-        st.rerun()  # Forzamos recarga para que los inputs reflejen los valores al instante
+        st.rerun()
 
     # --- DISEÑO A DOS COLUMNAS ---
     col_izq, col_der = st.columns([1, 1.2])
@@ -10270,7 +10804,16 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             saldo_inicial_bancos = float(df_sb['saldo_inicial'].sum() or 0.0)
             saldo_final_bancos = float(df_sb['saldo_final'].sum() or 0.0)
 
-        tabla_fuente = "saldos_iniciales" if dt_ini < datetime(2026, 5, 1) else "asientos_contables"
+        from datetime import date, datetime
+
+        try:
+            import streamlit as st
+            anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or ano or date.today().year)
+        except Exception:
+            anio_fiscal = ano or date.today().year
+
+        fecha_corte_fuente = datetime(anio_fiscal, 5, 1)
+        tabla_fuente = "saldos_iniciales" if dt_ini < fecha_corte_fuente else "asientos_contables"
 
         # 2. Leer todos los movimientos del mes de MySQL
         query_asientos = f"""
@@ -10739,495 +11282,7 @@ def obtener_datos_punto_equilibrio(db_nombre, anio, mes):
     return 0.0, 0.0, 0.0
 
 
-def _es_uso_real_tabla_sql(linea, nombre_tabla):
-    """Detecta si la línea parece una operación/referencia real a la tabla SQL y no solo un diccionario o texto."""
-    t = re.escape(nombre_tabla)
-    patrones_sql = [
-        rf"\bFROM\s+`?{t}`?\b",
-        rf"\bJOIN\s+`?{t}`?\b",
-        rf"\bINTO\s+`?{t}`?\b",
-        rf"\bUPDATE\s+`?{t}`?\b",
-        rf"\bTABLE\s+`?{t}`?\b",
-        rf"\bDESCRIBE\s+`?{t}`?\b",
-    ]
-    return any(re.search(p, linea, flags=re.IGNORECASE) for p in patrones_sql)
 
-
-def escanear_dependencias_codigo(nombre_tabla, directorio=".", solo_sql_real=True):
-    """Devuelve una fila por función vinculada realmente con la tabla de MySQL."""
-    funciones_map = {}
-    patron_def = re.compile(r"^(\s*)def\s+([a-zA-Z0-9_]+)\s*\(")
-
-    for root, _, files in os.walk(directorio):
-        for file in files:
-            if file.endswith(".py"):
-                ruta_completa = os.path.join(root, file)
-                try:
-                    with open(ruta_completa, "r", encoding="utf-8") as f:
-                        lineas = f.readlines()
-
-                    funcion_actual = None
-                    indent_func = 0
-                    inicio_func = None
-
-                    for idx, contenido in enumerate(lineas, start=1):
-                        match_def = patron_def.match(contenido)
-                        if match_def:
-                            # Cerrar función anterior si existía
-                            if funcion_actual and inicio_func is not None:
-                                pass
-                            indent_func = len(match_def.group(1).expandtabs(4))
-                            funcion_actual = match_def.group(2)
-                            inicio_func = idx
-                            continue
-
-                        # Detectar si salimos del cuerpo de la función
-                        if funcion_actual and contenido.strip():
-                            indent_actual = len(
-                                re.match(r"^(\s*)", contenido).group(1).expandtabs(4)
-                            )
-                            if indent_actual <= indent_func and not contenido.lstrip().startswith("#"):
-                                funcion_actual = None
-                                inicio_func = None
-
-                        if not funcion_actual:
-                            continue
-
-                        if re.search(rf"\b{re.escape(nombre_tabla)}\b", contenido):
-                            es_sql = _es_uso_real_tabla_sql(contenido, nombre_tabla)
-                            if solo_sql_real and not es_sql:
-                                continue
-
-                            linea_upper = contenido.upper()
-                            if "INSERT INTO" in linea_upper:
-                                op = "INSERT"
-                            elif "UPDATE " in linea_upper:
-                                op = "UPDATE"
-                            elif "DELETE FROM" in linea_upper:
-                                op = "DELETE"
-                            elif "SELECT " in linea_upper or "FROM " in linea_upper or "JOIN " in linea_upper:
-                                op = "SELECT / JOIN"
-                            else:
-                                op = "Referencia SQL"
-
-                            clave = (file, funcion_actual)
-                            if clave not in funciones_map:
-                                funciones_map[clave] = {
-                                    "Archivo": file,
-                                    "Función Python": funcion_actual,
-                                    "Archivo_Ruta": ruta_completa,
-                                    "Linea_Inicio": inicio_func,
-                                    "Líneas Coincidentes": [idx],
-                                    "Operaciones": {op},
-                                    "Primera Línea": contenido.strip()[:90],
-                                }
-                            else:
-                                if idx not in funciones_map[clave]["Líneas Coincidentes"]:
-                                    funciones_map[clave]["Líneas Coincidentes"].append(idx)
-                                funciones_map[clave]["Operaciones"].add(op)
-                except Exception:
-                    pass
-
-    filas = []
-    for data in funciones_map.values():
-        filas.append({
-            "Archivo": data["Archivo"],
-            "Función Python": data["Función Python"],
-            "Operación": ", ".join(sorted(data["Operaciones"])),
-            "Líneas": ", ".join(map(str, data["Líneas Coincidentes"])),
-            "Ejemplo": data["Primera Línea"],
-            "_ruta": data["Archivo_Ruta"],
-            "_inicio": data["Linea_Inicio"],
-        })
-
-    return pd.DataFrame(filas)
-
-
-def extraer_codigo_funcion_completo(ruta_archivo, nombre_funcion, linea_inicio=None):
-    """Extrae el código completo de una función desde su `def` hasta el fin de su bloque."""
-    try:
-        with open(ruta_archivo, "r", encoding="utf-8") as f:
-            lineas = f.readlines()
-    except Exception as e:
-        return f"# No se pudo leer el archivo: {e}", 1
-
-    idx_inicio = None
-    indent_base = 0
-
-    if linea_inicio and 1 <= linea_inicio <= len(lineas):
-        m = re.match(r"^(\s*)def\s+" + re.escape(nombre_funcion) + r"\b", lineas[linea_inicio - 1])
-        if m:
-            idx_inicio = linea_inicio - 1
-            indent_base = len(m.group(1).expandtabs(4))
-
-    if idx_inicio is None:
-        for i, l in enumerate(lineas):
-            m = re.match(r"^(\s*)def\s+" + re.escape(nombre_funcion) + r"\b", l)
-            if m:
-                idx_inicio = i
-                indent_base = len(m.group(1).expandtabs(4))
-                break
-
-    if idx_inicio is None:
-        return f"# No se encontró la definición de `{nombre_funcion}`", 1
-
-    bloque = [lineas[idx_inicio]]
-    for j in range(idx_inicio + 1, len(lineas)):
-        l = lineas[j]
-        if not l.strip():
-            bloque.append(l)
-            continue
-        indent_actual = len(re.match(r"^(\s*)", l).group(1).expandtabs(4))
-        if indent_actual <= indent_base and not l.lstrip().startswith("#"):
-            break
-        bloque.append(l)
-
-    # Limpiar líneas vacías sobrantes al final
-    while bloque and not bloque[-1].strip():
-        bloque.pop()
-
-    return "".join(bloque), idx_inicio + 1
-
-
-
-def _crear_tabla_en_clientes(
-    conectar_db_fn,
-    bds_destino: list,
-    nombre_tabla: str,
-    columnas_def: list,
-    incluir_id: bool = True,
-):
-    """
-    Crea una tabla en cada base de datos seleccionada.
-    columnas_def: lista de tuplas (nombre_col, tipo_sql, permite_null)
-    """
-    definiciones = []
-    if incluir_id:
-        definiciones.append("`id` INT AUTO_INCREMENT PRIMARY KEY")
-
-    for col_nombre, col_tipo, permite_null in columnas_def:
-        nulo_sql = "NULL" if permite_null else "NOT NULL"
-        definiciones.append(f"`{col_nombre}` {col_tipo} {nulo_sql}")
-
-    cuerpo_sql = ",\n    ".join(definiciones)
-    resultados = []
-
-    for bd in bds_destino:
-        conn_t = None
-        try:
-            conn_t = conectar_db_fn(bd)
-            if not conn_t:
-                resultados.append((bd, False, "No se pudo conectar a la base de datos."))
-                continue
-
-            cur_t = conn_t.cursor()
-            sql_create = f"CREATE TABLE IF NOT EXISTS `{bd}`.`{nombre_tabla}` (\n    {cuerpo_sql}\n)"
-            cur_t.execute(sql_create)
-            conn_t.commit()
-            cur_t.close()
-            resultados.append((bd, True, "Tabla creada / verificada correctamente."))
-        except Exception as e:
-            resultados.append((bd, False, str(e)))
-        finally:
-            if conn_t:
-                try:
-                    conn_t.close()
-                except Exception:
-                    pass
-
-    return resultados
-
-
-def _es_uso_real_tabla_sql_multiline(texto_bloque, nombre_tabla):
-    """Detecta uso SQL real incluso si la consulta abarca varias líneas."""
-    t = re.escape(nombre_tabla)
-    patrones_sql = [
-        rf"\bFROM\s+`?{t}`?\b",
-        rf"\bJOIN\s+`?{t}`?\b",
-        rf"\bINTO\s+`?{t}`?\b",
-        rf"\bUPDATE\s+`?{t}`?\b",
-        rf"\bTABLE\s+`?{t}`?\b",
-        rf"\bDESCRIBE\s+`?{t}`?\b",
-    ]
-    return any(re.search(p, texto_bloque, flags=re.IGNORECASE) for p in patrones_sql)
-
-
-def escanear_bloques_ui_sql(nombre_tabla, directorio=".", solo_sql_real=True, ventana=12):
-    """
-    Detecta consultas SQL hacia `nombre_tabla` que están en código de interfaz / nivel superior
-    (fuera de `def`), devolviendo bloques inspeccionables para `tab_code`.
-    """
-    patron_def = re.compile(r"^(\s*)def\s+[a-zA-Z0-9_]+\s*\(")
-    patron_bloque_ui = re.compile(r"^\s*(with\s+.*|if\s+.*|elif\s+.*|else\s*:|for\s+.*):")
-    patron_tabla = re.compile(rf"\b{re.escape(nombre_tabla)}\b", flags=re.IGNORECASE)
-
-    bloques_map = {}
-
-    for root, _, files in os.walk(directorio):
-        for file in files:
-            if not file.endswith(".py"):
-                continue
-            ruta_completa = os.path.join(root, file)
-            try:
-                with open(ruta_completa, "r", encoding="utf-8") as f:
-                    lineas = f.readlines()
-            except Exception:
-                continue
-
-            # Marcar qué líneas pertenecen a alguna función `def`
-            en_funcion = [False] * len(lineas)
-            i = 0
-            while i < len(lineas):
-                m_def = patron_def.match(lineas[i])
-                if m_def:
-                    indent_base = len(m_def.group(1).expandtabs(4))
-                    en_funcion[i] = True
-                    j = i + 1
-                    while j < len(lineas):
-                        l_j = lineas[j]
-                        if l_j.strip():
-                            ind_j = len(re.match(r"^(\s*)", l_j).group(1).expandtabs(4))
-                            if ind_j <= indent_base and not l_j.lstrip().startswith("#"):
-                                break
-                        en_funcion[j] = True
-                        j += 1
-                    i = j
-                else:
-                    i += 1
-
-            # Buscar coincidencias fuera de funciones
-            for idx_0, contenido in enumerate(lineas):
-                if en_funcion[idx_0]:
-                    continue
-                if not patron_tabla.search(contenido):
-                    continue
-
-                inicio_w = max(0, idx_0 - ventana)
-                fin_w = min(len(lineas), idx_0 + ventana + 1)
-                contexto_texto = "".join(lineas[inicio_w:fin_w])
-
-                es_sql = _es_uso_real_tabla_sql_multiline(contexto_texto, nombre_tabla)
-                if solo_sql_real and not es_sql:
-                    continue
-
-                # Buscar encabezado de bloque UI más cercano hacia arriba
-                etiqueta_bloque = "Código principal / UI"
-                linea_encabezado = idx_0 + 1
-                for k in range(idx_0, -1, -1):
-                    if en_funcion[k]:
-                        break
-                    m_b = patron_bloque_ui.match(lineas[k])
-                    if m_b:
-                        etiqueta_bloque = lineas[k].strip()[:70]
-                        linea_encabezado = k + 1
-                        break
-
-                ctx_upper = contexto_texto.upper()
-                if "INSERT INTO" in ctx_upper:
-                    op = "INSERT"
-                elif "UPDATE " in ctx_upper:
-                    op = "UPDATE"
-                elif "DELETE FROM" in ctx_upper:
-                    op = "DELETE"
-                elif "SELECT " in ctx_upper or "FROM " in ctx_upper or "JOIN " in ctx_upper:
-                    op = "SELECT / JOIN"
-                else:
-                    op = "Referencia SQL"
-
-                clave = (file, etiqueta_bloque)
-                num_linea = idx_0 + 1
-                if clave not in bloques_map:
-                    bloques_map[clave] = {
-                        "Archivo": file,
-                        "Función Python": f"[UI / Bloque] {etiqueta_bloque}",
-                        "Operación": op,
-                        "Líneas": [num_linea],
-                        "Ejemplo": contenido.strip()[:90],
-                        "_ruta": ruta_completa,
-                        "_inicio": linea_encabezado,
-                        "_es_ui": True,
-                        "_linea_match": num_linea,
-                    }
-                else:
-                    if num_linea not in bloques_map[clave]["Líneas"]:
-                        bloques_map[clave]["Líneas"].append(num_linea)
-
-    filas = []
-    for d in bloques_map.values():
-        filas.append({
-            "Archivo": d["Archivo"],
-            "Función Python": d["Función Python"],
-            "Operación": d["Operación"],
-            "Líneas": ", ".join(map(str, d["Líneas"])),
-            "Ejemplo": d["Ejemplo"],
-            "_ruta": d["_ruta"],
-            "_inicio": d["_inicio"],
-            "_es_ui": d["_es_ui"],
-            "_linea_match": d["_linea_match"],
-        })
-    return pd.DataFrame(filas)
-
-
-from datetime import date
-
-PERIODOS_FISCALES = [2024, 2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032]
-
-
-def obtener_selectbox_ejercicio_fiscal(
-    label: str = "📅 Período / Cierre Fiscal",
-    key: str = "sb_ejercicio_fiscal",
-    bloquear_a_calendario: bool = True,
-) -> int:
-    """
-    Muestra el selectbox de años fiscales (2024-2032) fijado al año del calendario
-    universal (`date.today().year`). Solo cambia cuando cambia el calendario del sistema.
-    """
-    anio_actual = date.today().year
-    idx_default = PERIODOS_FISCALES.index(anio_actual) if anio_actual in PERIODOS_FISCALES else 0
-
-    # Sincroniza siempre con el año real del calendario del sistema
-    st.session_state[key] = PERIODOS_FISCALES[idx_default]
-
-    anio_sel = st.selectbox(
-        label,
-        options=PERIODOS_FISCALES,
-        index=idx_default,
-        key=f"{key}_widget",
-        disabled=bloquear_a_calendario,
-        help="Fijado según el año del calendario universal del sistema.",
-    )
-    st.session_state["ejercicio_fiscal"] = int(anio_sel)
-    return int(anio_sel)
-
-def _tiene_2026_como_texto(linea: str) -> tuple[bool, str]:
-    """
-    Detecta si `2026` aparece como texto/literal en la línea (comillas, fechas en texto
-    o cadenas formateadas) y devuelve (encontrado, tipo_coincidencia).
-    """
-    sin_comentario = linea.split("#", 1)[0]
-
-    # 1. Fechas en texto que incluyan 2026 (ej. "2026-01-01", "31/12/2026", "2026/05")
-    if re.search(r"""['"][^'"]*\b2026\b[^'"]*['"]""", sin_comentario):
-        if re.search(r"""['"][^'"]*(?:2026[-/]\d{1,2}(?:[-/]\d{1,2})?|\d{1,2}[-/]\d{1,2}[-/]2026)[^'"]*['"]""", sin_comentario):
-            return True, "Fecha en texto (2026)"
-        return True, "Texto / String literal ('2026')"
-
-    # 2. 2026 dentro de comillas simples o dobles aunque la comilla abra/cierre en otra línea
-    comillas_simples = sin_comentario.count("'") - sin_comentario.count("\\'")
-    comillas_dobles = sin_comentario.count('"') - sin_comentario.count('\\"')
-    if re.search(r"\b2026\b", sin_comentario) and (comillas_simples > 0 or comillas_dobles > 0):
-        return True, "Texto / Cadena (2026)"
-
-    return False, ""
-
-
-def escanear_2026_texto(directorio: str = ".", incluir_ui: bool = True, ventana_ui: int = 15) -> pd.DataFrame:
-    """
-    Busca `2026` como texto en funciones (`def`) y, opcionalmente, en bloques UI fuera de `def`.
-    """
-    patron_def = re.compile(r"^(\s*)def\s+([a-zA-Z0-9_]+)\s*\(")
-    patron_bloque_ui = re.compile(r"^\s*(with\s+.*|if\s+.*|elif\s+.*|else\s*:|for\s+.*):")
-    registros_map = {}
-
-    for root, _, files in os.walk(directorio):
-        for file in files:
-            if not file.endswith(".py"):
-                continue
-            ruta_completa = os.path.join(root, file)
-            try:
-                with open(ruta_completa, "r", encoding="utf-8") as f:
-                    lineas = f.readlines()
-            except Exception:
-                continue
-
-            funcion_actual = None
-            indent_func = 0
-            inicio_func = None
-
-            for idx, contenido in enumerate(lineas, start=1):
-                match_def = patron_def.match(contenido)
-                if match_def:
-                    indent_func = len(match_def.group(1).expandtabs(4))
-                    funcion_actual = match_def.group(2)
-                    inicio_func = idx
-                    continue
-
-                if funcion_actual and contenido.strip():
-                    indent_actual = len(re.match(r"^(\s*)", contenido).group(1).expandtabs(4))
-                    if indent_actual <= indent_func and not contenido.lstrip().startswith("#"):
-                        funcion_actual = None
-                        inicio_func = None
-
-                encontrado, tipo_texto = _tiene_2026_como_texto(contenido)
-                if not encontrado:
-                    continue
-
-                if funcion_actual:
-                    clave = ("FUNC", file, funcion_actual)
-                    if clave not in registros_map:
-                        registros_map[clave] = {
-                            "Tipo": "Función",
-                            "Archivo": file,
-                            "Elemento / Función": funcion_actual,
-                            "Detalle Texto": {tipo_texto},
-                            "Líneas": [idx],
-                            "Ejemplo": contenido.strip()[:95],
-                            "_ruta": ruta_completa,
-                            "_inicio": inicio_func,
-                            "_es_ui": False,
-                            "_linea_match": idx,
-                        }
-                    else:
-                        registros_map[clave]["Detalle Texto"].add(tipo_texto)
-                        if idx not in registros_map[clave]["Líneas"]:
-                            registros_map[clave]["Líneas"].append(idx)
-
-                elif incluir_ui:
-                    etiqueta_bloque = "Código principal / UI"
-                    linea_encabezado = idx
-                    for k in range(idx - 1, -1, -1):
-                        if patron_def.match(lineas[k]):
-                            break
-                        if patron_bloque_ui.match(lineas[k]):
-                            etiqueta_bloque = lineas[k].strip()[:70]
-                            linea_encabezado = k + 1
-                            break
-
-                    clave = ("UI", file, etiqueta_bloque)
-                    if clave not in registros_map:
-                        registros_map[clave] = {
-                            "Tipo": "Bloque UI",
-                            "Archivo": file,
-                            "Elemento / Función": f"[UI] {etiqueta_bloque}",
-                            "Detalle Texto": {tipo_texto},
-                            "Líneas": [idx],
-                            "Ejemplo": contenido.strip()[:95],
-                            "_ruta": ruta_completa,
-                            "_inicio": linea_encabezado,
-                            "_es_ui": True,
-                            "_linea_match": idx,
-                        }
-                    else:
-                        registros_map[clave]["Detalle Texto"].add(tipo_texto)
-                        if idx not in registros_map[clave]["Líneas"]:
-                            registros_map[clave]["Líneas"].append(idx)
-
-    filas = []
-    for d in registros_map.values():
-        filas.append({
-            "Tipo": d["Tipo"],
-            "Archivo": d["Archivo"],
-            "Elemento / Función": d["Elemento / Función"],
-            "Detalle Texto": ", ".join(sorted(d["Detalle Texto"])),
-            "Líneas": ", ".join(map(str, d["Líneas"])),
-            "Ejemplo": d["Ejemplo"],
-            "_ruta": d["_ruta"],
-            "_inicio": d["_inicio"],
-            "_es_ui": d["_es_ui"],
-            "_linea_match": d["_linea_match"],
-        })
-
-    return pd.DataFrame(filas)
 
 def render_gestor_esquemas_mysql(conn, db_actual):
     # --- FRAME PRINCIPAL DE LA SECCIÓN ---
@@ -11532,15 +11587,17 @@ def render_gestor_esquemas_mysql(conn, db_actual):
 
             with tab_anio_fiscal:
                 with st.container(border=True):
-                    st.markdown("#### 📅 Auditoría de `2026` como texto y control de Cierre Fiscal")
+                    anio_fiscal = obtener_selectbox_ejercicio_fiscal(
+                        label="Ejercicio / Cierre Fiscal",
+                        key="ejercicio_fiscal_matriz",
+                        bloquear_a_calendario=True,
+                    )
+
+                    st.markdown(f"#### 📅 Auditoría de `{anio_fiscal}` como texto y control de Cierre Fiscal")
 
                     col_sb, col_a, col_b = st.columns([1.5, 2, 2])
                     with col_sb:
-                        anio_fiscal = obtener_selectbox_ejercicio_fiscal(
-                            label="Ejercicio / Cierre Fiscal",
-                            key="ejercicio_fiscal_matriz",
-                            bloquear_a_calendario=True,
-                        )
+                        st.metric("Ejercicio / Cierre Fiscal", f"{anio_fiscal}")
                     with col_a:
                         incluir_ui_2026 = st.checkbox(
                             "Incluir bloques de interfaz / UI fuera de funciones",
@@ -11564,7 +11621,7 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                         ].reset_index(drop=True)
 
                     if df_2026.empty:
-                        st.success("✅ No se encontraron funciones ni bloques con `2026` como texto con el filtro actual.")
+                        st.success(f"✅ No se encontraron funciones ni bloques con `{anio_fiscal}` como texto con el filtro actual.")
                     else:
                         st.warning(
                             f"⚠️ Se detectaron **{len(df_2026)}** funciones/bloques con `2026` en formato texto. "
@@ -11585,13 +11642,17 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                         if sel_2026:
                             item = df_2026.iloc[sel_2026[0]]
                             if bool(item.get("_es_ui", False)):
-                                with open(item["_ruta"], "r", encoding="utf-8") as f:
-                                    lineas_f = f.readlines()
-                                centro = int(item.get("_linea_match") or 1)
-                                i0 = max(0, centro - 15)
-                                i1 = min(len(lineas_f), centro + 25)
-                                codigo_ver = "".join(lineas_f[i0:i1])
-                                linea_ini = i0 + 1
+                                try:
+                                    with open(item["_ruta"], "r", encoding="utf-8") as f:
+                                        lineas_f = f.readlines()
+                                    centro = int(item.get("_linea_match") or 1)
+                                    i0 = max(0, centro - 15)
+                                    i1 = min(len(lineas_f), centro + 25)
+                                    codigo_ver = "".join(lineas_f[i0:i1])
+                                    linea_ini = i0 + 1
+                                except Exception as e:
+                                    codigo_ver = f"# No se pudo leer el bloque UI: {e}"
+                                    linea_ini = 1
                             else:
                                 codigo_ver, linea_ini = extraer_codigo_funcion_completo(
                                     item["_ruta"],
@@ -11607,7 +11668,7 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                                 )
                                 st.code(codigo_ver, language="python", line_numbers=True)
                         else:
-                            st.caption("👆 Selecciona una fila para inspeccionar dónde está el texto `2026` y amarrarlo a `anio_fiscal`.")
+                            st.caption(f"👆 Selecciona una fila para inspeccionar dónde está el texto `2026` y amarrarlo a `anio_fiscal` (`{anio_fiscal}`).")
 
 
         st.divider()
@@ -12064,7 +12125,24 @@ if menu_lateral == "📊 Auditoría Contable":
         }
         meses_lista = list(dic_meses.keys())
 
-        st.number_input("Año", step=1, min_value=2026, max_value=2030, key="año_seleccionado")
+        from datetime import datetime
+
+        anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or datetime.today().year)
+
+        if "año_seleccionado" not in st.session_state:
+            st.session_state["año_seleccionado"] = anio_fiscal
+
+        # <-- AQUÍ VA: antes de renderizar el st.number_input con key="año_seleccionado"
+        if st.session_state.get("año_seleccionado", anio_fiscal) < anio_fiscal:
+            st.session_state["año_seleccionado"] = anio_fiscal
+
+        st.number_input(
+            "Año",
+            step=1,
+            min_value=anio_fiscal,
+            max_value=max(2030, anio_fiscal + 4),
+            key="año_seleccionado"
+        )
         st.selectbox("Mes", meses_lista, key="mes_seleccionado")
 
 
@@ -12215,7 +12293,16 @@ if opcion_menu == "🏠 Inicio":
     }
 
     # 2. Sincronizamos las variables con las claves exactas de tus selectores de la barra lateral
-    año_int = int(st.session_state.get('año_seleccionado', 2026))
+    from datetime import datetime
+
+    anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or datetime.today().year)
+
+    raw_año = st.session_state.get("año_seleccionado")
+    try:
+        año_int = int(raw_año) if raw_año is not None else anio_fiscal
+    except (TypeError, ValueError):
+        año_int = anio_fiscal
+
     mes_str = st.session_state.get('mes_seleccionado', 'Mayo')
     mes_int = dic_meses.get(mes_str, 5)  # Por defecto mes 5 (Mayo) si ocurre algún imprevisto
 
@@ -12447,11 +12534,18 @@ if opcion_menu == "🏠 Inicio":
         
         st.markdown("### 📊 Módulo de Tesorería y Flujo de Caja Real (Detallado)")
         
+        import calendar
+        from datetime import datetime
+
+        anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or datetime.today().year)
+        mes_flujo = 7
+        ultimo_dia_flujo = calendar.monthrange(anio_fiscal, mes_flujo)[1]
+
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            fecha_ini = st.date_input("Fecha Desde:", datetime(2026, 7, 1))
+            fecha_ini = st.date_input("Fecha Desde:", datetime(anio_fiscal, mes_flujo, 1))
         with col_f2:
-            fecha_fin = st.date_input("Fecha Hasta:", datetime(2026, 7, 31))
+            fecha_fin = st.date_input("Fecha Hasta:", datetime(anio_fiscal, mes_flujo, ultimo_dia_flujo))
 
         if st.button("🔄 Calcular Flujo de Caja Detallado"):
             try:
@@ -12508,11 +12602,18 @@ if opcion_menu == "🏠 Inicio":
         st.markdown("### 📊 Estado de Flujo de Efectivo (Método Indirecto)")
         st.info("Este reporte ajusta la utilidad neta con partidas que no implican efectivo y variaciones en el capital de trabajo, desglosando las actividades de Operación, Inversión y Financiamiento.")
         
+        import calendar
+        from datetime import datetime
+
+        anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or datetime.today().year)
+        mes_fe = 7
+        ultimo_dia_fe = calendar.monthrange(anio_fiscal, mes_fe)[1]
+
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            fecha_ini = st.date_input("Fecha Desde (Flujo Efectivo):", datetime(2026, 7, 1), key="fe_ini")
+            fecha_ini = st.date_input("Fecha Desde (Flujo Efectivo):", datetime(anio_fiscal, mes_fe, 1), key="fe_ini")
         with col_f2:
-            fecha_fin = st.date_input("Fecha Hasta (Flujo Efectivo):", datetime(2026, 7, 31), key="fe_fin")
+            fecha_fin = st.date_input("Fecha Hasta (Flujo Efectivo):", datetime(anio_fiscal, mes_fe, ultimo_dia_fe), key="fe_fin")
 
         if st.button("🔄 Calcular Flujo de Efectivo (Método Indirecto)", key="btn_calc_fe"):
             try:
@@ -14119,8 +14220,14 @@ elif opcion_menu == "📝 Asientos Contables":
                     index=2, 
                     key="mes_seleccionado_conciliacion"
                 )
+            from datetime import datetime
+
+            anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or datetime.today().year)
+            opciones_anos = [anio_fiscal - 1, anio_fiscal, anio_fiscal + 1]
+            idx_anio = opciones_anos.index(anio_fiscal) if anio_fiscal in opciones_anos else 1
+
             with col2:
-                ano_sel = st.selectbox("Año", [2025, 2026, 2027], index=1, key="ano_seleccionado")
+                ano_sel = st.selectbox("Año", opciones_anos, index=idx_anio, key="ano_seleccionado")
         except Exception as e:
             st.error(f"Error al inicializar los selectores globales: {e}")
             st.stop()
@@ -14240,7 +14347,13 @@ elif opcion_menu == "📝 Asientos Contables":
                 c1, c2 = st.columns(2)
                 m_input = c1.selectbox("Mes", ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", 
                                                "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"])
-                a_input = c2.selectbox("Año", [2025, 2026, 2027])
+                from datetime import datetime
+
+                anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or datetime.today().year)
+                opciones_a_input = [anio_fiscal - 1, anio_fiscal, anio_fiscal + 1]
+                idx_a_input = opciones_a_input.index(anio_fiscal) if anio_fiscal in opciones_a_input else 1
+
+                a_input = c2.selectbox("Año", opciones_a_input, index=idx_a_input)
                 
                 c4, c5 = st.columns(2)
                 val_ini = c4.number_input("Saldo Inicial", value=0.00, format="%.2f")
@@ -18654,12 +18767,20 @@ elif opcion_menu == "📚 Libros Fiscales":
                         "Débito Fiscal": "debito_fiscal"
                     })
 
-                    # 4. CORRECCIÓN DE FECHA (Formato YYYY-MM-DD)
+                    from datetime import date
+
+                    anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or date.today().year)
+                    fecha_fallback_v = f"{anio_fiscal}-06-13"  # o date.today().strftime("%Y-%m-%d")
+
                     if 'fecha_factura' in df_preview.columns:
-                        df_preview['fecha_factura'] = pd.to_datetime(df_preview['fecha_factura'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('2026-06-13')
-                    column_config = {
-                        "fecha_factura": st.column_config.TextColumn("fecha_factura")
-                    }
+                        df_preview['fecha_factura'] = (
+                            pd.to_datetime(df_preview['fecha_factura'], errors='coerce')
+                            .dt.strftime('%Y-%m-%d')
+                            .fillna(fecha_fallback_v)
+                        )
+
+
+
                     # 5. UNICO EDITOR
                     resultado = st.data_editor(df_preview, key=f"editor_{archivo_v.name}", width='stretch',column_config=column_config)
                     
@@ -20275,11 +20396,24 @@ elif opcion_menu == "📚 Libros Fiscales":
             st.markdown("### 🆕 Generar Nueva Retención de ISLR")
 
             # --- BLINDAJE LOCAL DE FECHAS ---
+            import calendar
             from datetime import date as d_tipo, datetime as dt_tipo
 
+            anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or d_tipo.today().year)
+            mes_defecto = 10
+            ultimo_dia_mes = calendar.monthrange(anio_fiscal, mes_defecto)[1]
+
             col_fecha1, col_fecha2 = st.columns(2)
-            f_xml_desde_n = col_fecha1.date_input("Desde", value=d_tipo(2026, 10, 1), key="nueva_desde")
-            f_xml_hasta_n = col_fecha2.date_input("Hasta", value=d_tipo(2026, 10, 31), key="nueva_hasta")
+            f_xml_desde_n = col_fecha1.date_input(
+                "Desde",
+                value=d_tipo(anio_fiscal, mes_defecto, 1),
+                key="nueva_desde"
+            )
+            f_xml_hasta_n = col_fecha2.date_input(
+                "Hasta",
+                value=d_tipo(anio_fiscal, mes_defecto, ultimo_dia_mes),
+                key="nueva_hasta"
+            )
 
             # Inicializar listas de control en sesión si no existen
             if "facturas_procesadas_ids" not in st.session_state:
@@ -20536,11 +20670,16 @@ elif opcion_menu == "📚 Libros Fiscales":
                 with st.expander("📅 Filtros de Consulta para Editar", expanded=True):
                     col_f1, col_f2 = st.columns(2)
                     
+                    import calendar
                     from datetime import date as d_tipo
 
-                    # Keys únicas y parámetros actualizados
-                    f_inicio_h = col_f1.date_input("Desde", d_tipo(2026, 8, 1), key="h_desde_editor")
-                    f_fin_h = col_f2.date_input("Hasta", d_tipo(2026, 8, 31), key="h_hasta_editor")
+                    anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or d_tipo.today().year)
+                    mes_hist = 8
+                    ultimo_dia_hist = calendar.monthrange(anio_fiscal, mes_hist)[1]
+
+                    col_f1, col_f2 = st.columns(2)
+                    f_inicio_h = col_f1.date_input("Desde", d_tipo(anio_fiscal, mes_hist, 1), key="h_desde_editor")
+                    f_fin_h = col_f2.date_input("Hasta", d_tipo(anio_fiscal, mes_hist, ultimo_dia_hist), key="h_hasta_editor")
                     st.write("") 
                     btn_cargar = st.button("📂 Cargar Historial para Editar", use_container_width=True, type="primary", key="btn_cargar_historial_islr")
 
@@ -20947,9 +21086,17 @@ elif opcion_menu == "📚 Libros Fiscales":
                 from datetime import date as d_tipo
 
                 with st.container(border=True):
-                    col_xml1, col_xml2 = st.columns(2)
-                    f_xml_desde = col_xml1.date_input("Desde", value=d_tipo(2026, 8, 1), key="xml_desde")
-                    f_xml_hasta = col_xml2.date_input("Hasta", value=d_tipo(2026, 8, 31), key="xml_hasta")
+                    import calendar
+                    from datetime import date as d_tipo
+
+                    anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or d_tipo.today().year)
+                    mes_xml = 8
+                    ultimo_dia_xml = calendar.monthrange(anio_fiscal, mes_xml)[1]
+
+                    with st.container(border=True):
+                        col_xml1, col_xml2 = st.columns(2)
+                        f_xml_desde = col_xml1.date_input("Desde", value=d_tipo(anio_fiscal, mes_xml, 1), key="xml_desde")
+                        f_xml_hasta = col_xml2.date_input("Hasta", value=d_tipo(anio_fiscal, mes_xml, ultimo_dia_xml), key="xml_hasta")
                     
                     @st.cache_data(ttl=30, show_spinner=False)
                     def consultar_datos_xml_cached(empresa, patron):
