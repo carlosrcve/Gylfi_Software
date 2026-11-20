@@ -11639,8 +11639,10 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                         )
 
                         sel_2026 = ev_2026.selection.rows if hasattr(ev_2026, "selection") else []
-                        if sel_2026:
-                            item = df_2026.iloc[sel_2026[0]]
+                        sel_validas = [idx for idx in sel_2026 if isinstance(idx, (int, np.integer)) and 0 <= idx < len(df_2026)]
+
+                        if sel_validas:
+                            item = df_2026.iloc[sel_validas[0]]
                             if bool(item.get("_es_ui", False)):
                                 try:
                                     with open(item["_ruta"], "r", encoding="utf-8") as f:
@@ -11668,7 +11670,7 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                                 )
                                 st.code(codigo_ver, language="python", line_numbers=True)
                         else:
-                            st.caption(f"👆 Selecciona una fila para inspeccionar dónde está el texto `2026` y amarrarlo a `anio_fiscal` (`{anio_fiscal}`).")
+                            st.caption(f"👆 Selecciona una fila para inspeccionar dónde está el texto `{anio_fiscal}` y amarrarlo a `anio_fiscal`.")
 
 
         st.divider()
