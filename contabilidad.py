@@ -11067,6 +11067,137 @@ def escanear_bloques_ui_sql(nombre_tabla, directorio=".", solo_sql_real=True, ve
         })
     return pd.DataFrame(filas)
 
+
+def _tiene_2026_como_texto(linea: str) -> tuple[bool, str]:
+    """
+    Detecta si `2026` aparece como texto/literal en la línea (comillas, fechas en texto
+    o cadenas formateadas) y devuelve (encontrado, tipo_coincidencia).
+    """
+    sin_comentario = linea.split("#", 1)[0]
+
+    # 1. Fechas en texto que incluyan 2026 (ej. "2026-01-01", "31/12/2026", "2026/05")
+    if re.search(r"""['"][^'"]*\b2026\b[^'"]*['"]""", sin_comentario):
+        if re.search(r"""['"][^'"]*(?:2026[-/]\d{1,2}(?:[-/]\d{1,2})?|\d{1,2}[-/]\d{1,2}[-/]2026)[^'"]*['"]""", sin_comentario):
+            return True, "Fecha en texto (2026)"
+        return True, "Texto / String literal ('2026')"
+
+    # 2. 2026 dentro de comillas simples o dobles aunque la comilla abra/cierre en otra línea
+    comillas_simples = sin_comentario.count("'") - sin_comentario.count("\\'")
+    comillas_dobles = sin_comentario.count('"') - sin_comentario.count('\\"')
+    if re.search(r"\b2026\b", sin_comentario) and (comillas_simples > 0 or comillas_dobles > 0):
+        return True, "Texto / Cadena (2026)"
+
+    return False, ""
+
+
+def escanear_2026_texto(directorio: str = ".", incluir_ui: bool = True, ventana_ui: int = 15) -> pd.DataFrame:
+    """
+    Busca `2026` como texto en funciones (`def`) y, opcionalmente, en bloques UI fuera de `def`.
+    """
+    patron_def = re.compile(r"^(\s*)def\s+([a-zA-Z0-9_]+)\s*\(")
+    patron_bloque_ui = re.compile(r"^\s*(with\s+.*|if\s+.*|elif\s+.*|else\s*:|for\s+.*):")
+    registros_map = {}
+
+    for root, _, files in os.walk(directorio):
+        for file in files:
+            if not file.endswith(".py"):
+                continue
+            ruta_completa = os.path.join(root, file)
+            try:
+                with open(ruta_completa, "r", encoding="utf-8") as f:
+                    lineas = f.readlines()
+            except Exception:
+                continue
+
+            funcion_actual = None
+            indent_func = 0
+            inicio_func = None
+
+            for idx, contenido in enumerate(lineas, start=1):
+                match_def = patron_def.match(contenido)
+                if match_def:
+                    indent_func = len(match_def.group(1).expandtabs(4))
+                    funcion_actual = match_def.group(2)
+                    inicio_func = idx
+                    continue
+
+                if funcion_actual and contenido.strip():
+                    indent_actual = len(re.match(r"^(\s*)", contenido).group(1).expandtabs(4))
+                    if indent_actual <= indent_func and not contenido.lstrip().startswith("#"):
+                        funcion_actual = None
+                        inicio_func = None
+
+                encontrado, tipo_texto = _tiene_2026_como_texto(contenido)
+                if not encontrado:
+                    continue
+
+                if funcion_actual:
+                    clave = ("FUNC", file, funcion_actual)
+                    if clave not in registros_map:
+                        registros_map[clave] = {
+                            "Tipo": "Función",
+                            "Archivo": file,
+                            "Elemento / Función": funcion_actual,
+                            "Detalle Texto": {tipo_texto},
+                            "Líneas": [idx],
+                            "Ejemplo": contenido.strip()[:95],
+                            "_ruta": ruta_completa,
+                            "_inicio": inicio_func,
+                            "_es_ui": False,
+                            "_linea_match": idx,
+                        }
+                    else:
+                        registros_map[clave]["Detalle Texto"].add(tipo_texto)
+                        if idx not in registros_map[clave]["Líneas"]:
+                            registros_map[clave]["Líneas"].append(idx)
+
+                elif incluir_ui:
+                    etiqueta_bloque = "Código principal / UI"
+                    linea_encabezado = idx
+                    for k in range(idx - 1, -1, -1):
+                        if patron_def.match(lineas[k]):
+                            break
+                        if patron_bloque_ui.match(lineas[k]):
+                            etiqueta_bloque = lineas[k].strip()[:70]
+                            linea_encabezado = k + 1
+                            break
+
+                    clave = ("UI", file, etiqueta_bloque)
+                    if clave not in registros_map:
+                        registros_map[clave] = {
+                            "Tipo": "Bloque UI",
+                            "Archivo": file,
+                            "Elemento / Función": f"[UI] {etiqueta_bloque}",
+                            "Detalle Texto": {tipo_texto},
+                            "Líneas": [idx],
+                            "Ejemplo": contenido.strip()[:95],
+                            "_ruta": ruta_completa,
+                            "_inicio": linea_encabezado,
+                            "_es_ui": True,
+                            "_linea_match": idx,
+                        }
+                    else:
+                        registros_map[clave]["Detalle Texto"].add(tipo_texto)
+                        if idx not in registros_map[clave]["Líneas"]:
+                            registros_map[clave]["Líneas"].append(idx)
+
+    filas = []
+    for d in registros_map.values():
+        filas.append({
+            "Tipo": d["Tipo"],
+            "Archivo": d["Archivo"],
+            "Elemento / Función": d["Elemento / Función"],
+            "Detalle Texto": ", ".join(sorted(d["Detalle Texto"])),
+            "Líneas": ", ".join(map(str, d["Líneas"])),
+            "Ejemplo": d["Ejemplo"],
+            "_ruta": d["_ruta"],
+            "_inicio": d["_inicio"],
+            "_es_ui": d["_es_ui"],
+            "_linea_match": d["_linea_match"],
+        })
+
+    return pd.DataFrame(filas)
+
 def render_gestor_esquemas_mysql(conn, db_actual):
     # --- FRAME PRINCIPAL DE LA SECCIÓN ---
     with st.container(border=True):
@@ -11085,7 +11216,7 @@ def render_gestor_esquemas_mysql(conn, db_actual):
         tabla_sel = st.selectbox("Selecciona una tabla para inspeccionar:", tablas, key="sel_tabla_arquitecto")
 
         if tabla_sel:
-            tab_cols, tab_code, tab_data = st.tabs(["🗂️ Estructura y Columnas (MySQL)","🔍 Funciones Vinculadas en el Código","📊 Datos Almacenados (Registros)"])
+            tab_cols, tab_code, tab_data,tab_anio_fiscal = st.tabs(["🗂️ Estructura y Columnas (MySQL)","🔍 Funciones Vinculadas en el Código","📊 Datos Almacenados (Registros)","Año Fiscal"])
 
             with tab_cols:
                 cursor = conn.cursor()
@@ -11367,6 +11498,75 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                     except Exception as e:
                         st.error(f"❌ Error al consultar los datos de `{tabla_sel}`: {e}")
 
+
+            with tab_anio_fiscal:
+                with st.container(border=True):
+                    st.markdown("#### 📅 Auditoría de `2026` como texto (preparación para 2027)")
+
+                    col_a, col_b = st.columns([2, 2])
+                    with col_a:
+                        incluir_ui_2026 = st.checkbox(
+                            "Incluir bloques de interfaz / UI fuera de funciones",
+                            value=True,
+                            key="chk_2026_texto_ui"
+                        )
+                    with col_b:
+                        filtro_archivo = st.text_input(
+                            "Filtrar por archivo (opcional)",
+                            placeholder="Ej: contabilidad.py",
+                            key="txt_2026_filtro_archivo"
+                        )
+
+                    df_2026 = escanear_2026_texto(directorio=".", incluir_ui=incluir_ui_2026)
+
+                    if not df_2026.empty and filtro_archivo.strip():
+                        df_2026 = df_2026[
+                            df_2026["Archivo"].str.contains(filtro_archivo.strip(), case=False, na=False)
+                        ].reset_index(drop=True)
+
+                    if df_2026.empty:
+                        st.success("✅ No se encontraron funciones ni bloques con `2026` como texto con el filtro actual.")
+                    else:
+                        st.warning(f"⚠️ Se detectaron **{len(df_2026)}** funciones/bloques con `2026` en formato texto.")
+                        df_2026_vis = df_2026[["Tipo", "Archivo", "Elemento / Función", "Detalle Texto", "Líneas", "Ejemplo"]]
+
+                        ev_2026 = st.dataframe(
+                            df_2026_vis,
+                            use_container_width=True,
+                            hide_index=True,
+                            on_select="rerun",
+                            selection_mode="single-row",
+                            key="df_audit_2026_texto"
+                        )
+
+                        sel_2026 = ev_2026.selection.rows if hasattr(ev_2026, "selection") else []
+                        if sel_2026:
+                            item = df_2026.iloc[sel_2026[0]]
+                            if bool(item.get("_es_ui", False)):
+                                with open(item["_ruta"], "r", encoding="utf-8") as f:
+                                    lineas_f = f.readlines()
+                                centro = int(item.get("_linea_match") or 1)
+                                i0 = max(0, centro - 15)
+                                i1 = min(len(lineas_f), centro + 25)
+                                codigo_ver = "".join(lineas_f[i0:i1])
+                                linea_ini = i0 + 1
+                            else:
+                                codigo_ver, linea_ini = extraer_codigo_funcion_completo(
+                                    item["_ruta"],
+                                    item["Elemento / Función"],
+                                    int(item["_inicio"]) if pd.notna(item["_inicio"]) else None
+                                )
+
+                            with st.container(border=True):
+                                st.caption(
+                                    f"**{item['Tipo']}:** `{item['Elemento / Función']}` | "
+                                    f"**Archivo:** `{item['Archivo']}` | **Línea inicial:** `{linea_ini}`"
+                                )
+                                st.code(codigo_ver, language="python", line_numbers=True)
+                        else:
+                            st.caption("👆 Selecciona una fila para inspeccionar dónde está el texto `2026` y evaluar cómo parametrizarlo para 2027.")
+
+
         st.divider()
         with st.container(border=True):
             st.markdown("### 🆕 Crear Nueva Tabla y Asignar a Clientes")
@@ -11465,6 +11665,8 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                         st.success(f"**`{bd_r}`**: {msg_r}")
                     else:
                         st.error(f"**`{bd_r}`**: {msg_r}")
+
+
 
 
 def gestionar_sidebar():
