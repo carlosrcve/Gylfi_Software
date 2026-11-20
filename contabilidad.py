@@ -11673,6 +11673,196 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                             st.caption(f"👆 Selecciona una fila para inspeccionar dónde está el texto `{anio_fiscal}` y amarrarlo a `anio_fiscal`.")
 
 
+            with tab_cierre:
+                db_actual = (
+                    db_actual
+                    if "db_actual" in locals() and db_actual
+                    else (
+                        db_objetivo
+                        if "db_objetivo" in locals() and db_objetivo
+                        else (
+                            st.session_state.get("db_actual")
+                            or st.session_state.get("empresa_db")
+                            or st.session_state.get("bd_actual")
+                        )
+                    )
+                )
+
+                if not db_actual:
+                    st.warning("⚠️ No se detectó una base de datos / cliente activo para ejecutar el cierre.")
+                    st.stop()
+
+                st.markdown("### 🔒 Cierre Mensual y Cierre Anual por Cliente")
+
+                anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or datetime.today().year)
+                st.info(f"**Cliente / Base de datos activa:** `{db_actual}`  |  **Ejercicio fiscal activo:** `{anio_fiscal}`")
+
+                tab_mensual, tab_anual = st.tabs(["📆 Cierre Mensual", "🏛️ Cierre Anual / Fiscal"])
+
+                # ---------------------------------------------------------
+                # SUBPESTAÑA 1: CIERRE MENSUAL
+                # ---------------------------------------------------------
+                with tab_mensual:
+                    c1, c2, c3 = st.columns([1.3, 1.3, 2.4])
+                    with c1:
+                        mes_nombre = st.selectbox("Mes a cerrar / gestionar", list(MESES_ES.keys()), index=4, key="cierre_mes_sel")
+                    with c2:
+                        anio_mes = st.number_input(
+                            "Año del período",
+                            min_value=2000,
+                            max_value=2100,
+                            value=anio_fiscal,
+                            step=1,
+                            key="cierre_mes_anio",
+                        )
+                    with c3:
+                        modulos_mes = st.multiselect(
+                            "Tablas a incluir en el cierre mensual",
+                            options=list(TABLAS_CIERRE_CONFIG.keys()),
+                            default=[
+                                "Asientos Contables",
+                                "Libro de Ventas",
+                                "Libro de Compras",
+                                "Retenciones de IVA",
+                                "Retenciones de ISLR",
+                                "Movimientos Bancarios",
+                            ],
+                            key="cierre_mes_modulos",
+                        )
+
+                    mes_num = MESES_ES[mes_nombre]
+                    f_ini_mes = date(int(anio_mes), mes_num, 1)
+                    f_fin_mes = date(int(anio_mes), mes_num, calendar.monthrange(int(anio_mes), mes_num)[1])
+
+                    st.info(f"Cliente `{db_actual}` — Rango mensual: **`{f_ini_mes}`** al **`{f_fin_mes}`**")
+
+                    col_b1, col_b2, _ = st.columns([1.5, 1.5, 2])
+                    with col_b1:
+                        btn_bloquear_mes = st.button("🔐 Bloquear Mes", type="primary", use_container_width=True, key="btn_bloquear_mes")
+                    with col_b2:
+                        btn_desbloquear_mes = st.button("🔓 Reabrir Mes", use_container_width=True, key="btn_desbloquear_mes")
+
+                    if btn_bloquear_mes or btn_desbloquear_mes:
+                        nuevo_estado = 1 if btn_bloquear_mes else 0
+                        accion_txt = "bloqueados" if nuevo_estado == 1 else "desbloqueados"
+                        if not modulos_mes:
+                            st.warning("Selecciona al menos una tabla.")
+                        else:
+                            try:
+                                total_regs = 0
+                                for nombre_mod in modulos_mes:
+                                    cfg = TABLAS_CIERRE_CONFIG[nombre_mod]
+                                    n = _aplicar_bloqueo_rango(
+                                        conn,
+                                        db_actual,
+                                        cfg["tabla"],
+                                        cfg["col_fecha"],
+                                        cfg["col_bloqueo"],
+                                        f_ini_mes,
+                                        f_fin_mes,
+                                        nuevo_estado,
+                                    )
+                                    total_regs += n
+                                    st.write(f"- **{nombre_mod}** (`{db_actual}.{cfg['tabla']}`): **{n}** registros {accion_txt}.")
+                                st.success(
+                                    f"✅ Cliente `{db_actual}`: {total_regs} registros {accion_txt} para {mes_nombre} {int(anio_mes)}."
+                                )
+                            except Exception as e:
+                                conn.rollback()
+                                st.error(f"❌ Error en cierre mensual para `{db_actual}`: {e}")
+
+                # ---------------------------------------------------------
+                # SUBPESTAÑA 2: CIERRE ANUAL / FISCAL
+                # ---------------------------------------------------------
+                with tab_anual:
+                    st.markdown("#### Bloqueo de Ejercicio Fiscal Completo")
+                    col_a1, col_a2 = st.columns([1.5, 2.5])
+                    with col_a1:
+                        anio_cierre = st.number_input(
+                            "Ejercicio Fiscal a cerrar",
+                            min_value=2000,
+                            max_value=2100,
+                            value=anio_fiscal,
+                            step=1,
+                            key="cierre_anual_anio",
+                        )
+                    with col_a2:
+                        modulos_anio = st.multiselect(
+                            "Tablas a bloquear en todo el año",
+                            options=list(TABLAS_CIERRE_CONFIG.keys()),
+                            default=list(TABLAS_CIERRE_CONFIG.keys()),
+                            key="cierre_anual_modulos",
+                        )
+
+                    f_ini_anio = date(int(anio_cierre), 1, 1)
+                    f_fin_anio = date(int(anio_cierre), 12, 31)
+                    st.warning(f"Cliente `{db_actual}` — Cierre anual abarca del **`{f_ini_anio}`** al **`{f_fin_anio}`**.")
+
+                    confirmar_cierre_anual = st.checkbox(
+                        f"Confirmo que deseo bloquear/gestionar los registros del ejercicio **{int(anio_cierre)}** para **`{db_actual}`**.",
+                        key="chk_confirmar_cierre_anual",
+                    )
+
+                    col_ca1, col_ca2, _ = st.columns([1.6, 1.6, 1.8])
+                    with col_ca1:
+                        btn_cerrar_anio = st.button(
+                            "🔒 Ejecutar Cierre Anual",
+                            type="primary",
+                            disabled=not confirmar_cierre_anual,
+                            use_container_width=True,
+                            key="btn_ejecutar_cierre_anual",
+                        )
+                    with col_ca2:
+                        btn_reabrir_anio = st.button(
+                            "🔓 Reabrir Año Fiscal",
+                            disabled=not confirmar_cierre_anual,
+                            use_container_width=True,
+                            key="btn_reabrir_anio_fiscal",
+                        )
+
+                    if btn_cerrar_anio or btn_reabrir_anio:
+                        nuevo_estado = 1 if btn_cerrar_anio else 0
+                        accion_txt = "bloqueados" if nuevo_estado == 1 else "desbloqueados"
+                        if not modulos_anio:
+                            st.warning("Selecciona al menos una tabla.")
+                        else:
+                            try:
+                                total_regs = 0
+                                for nombre_mod in modulos_anio:
+                                    cfg = TABLAS_CIERRE_CONFIG[nombre_mod]
+                                    n = _aplicar_bloqueo_rango(
+                                        conn,
+                                        db_actual,
+                                        cfg["tabla"],
+                                        cfg["col_fecha"],
+                                        cfg["col_bloqueo"],
+                                        f_ini_anio,
+                                        f_fin_anio,
+                                        nuevo_estado,
+                                    )
+                                    total_regs += n
+                                    st.write(f"- **{nombre_mod}** (`{db_actual}.{cfg['tabla']}`): **{n}** registros {accion_txt}.")
+                                st.success(
+                                    f"✅ Cliente `{db_actual}`: {total_regs} registros {accion_txt} en el ejercicio {int(anio_cierre)}."
+                                )
+                            except Exception as e:
+                                conn.rollback()
+                                st.error(f"❌ Error en cierre anual para `{db_actual}`: {e}")
+
+                    st.divider()
+                    st.markdown("#### Paso Contable del Cierre Anual (Avance de Ejercicio)")
+                    st.caption(
+                        "Si ya bloqueaste el año y quieres pasar el selector global al siguiente período fiscal, "
+                        "puedes actualizar `ejercicio_fiscal` aquí (y opcionalmente integrar tu asiento de cierre de resultados)."
+                    )
+                    if st.button(f"➡️ Avanzar ejercicio fiscal de {int(anio_cierre)} a {int(anio_cierre) + 1}", key="btn_avanzar_ejercicio"):
+                        st.session_state["ejercicio_fiscal"] = int(anio_cierre) + 1
+                        st.success(f"✅ Ejercicio fiscal actualizado a `{int(anio_cierre) + 1}`.")
+                        st.rerun()
+
+
+
+
         st.divider()
         with st.container(border=True):
             st.markdown("### 🆕 Crear Nueva Tabla y Asignar a Clientes")
@@ -11774,6 +11964,68 @@ def render_gestor_esquemas_mysql(conn, db_actual):
 
 
 
+import calendar
+from datetime import date, datetime
+
+TABLAS_CIERRE_CONFIG = {
+    "Asientos Contables": {"tabla": "asientos_contables", "col_fecha": "fecha", "col_bloqueo": "bloqueo"},
+    "Libro de Ventas": {"tabla": "libro_ventas", "col_fecha": "fecha_factura", "col_bloqueo": "bloqueo"},
+    "Libro de Compras": {"tabla": "libro_compras", "col_fecha": "fecha_factura", "col_bloqueo": "bloqueo"},
+    "Retenciones de IVA": {"tabla": "retenciones_iva", "col_fecha": "fecha_comprobante", "col_bloqueo": "bloqueo"},
+    "Retenciones de ISLR": {"tabla": "retenciones_islr", "col_fecha": "fecha_operacion", "col_bloqueo": "bloqueo"},
+    "Movimientos Bancarios": {"tabla": "banco_movimientos", "col_fecha": "fecha", "col_bloqueo": "bloqueo"},
+    "Archivo TXT": {"tabla": "archivo_txt", "col_fecha": "fecha", "col_bloqueo": "bloqueo"},
+    "Saldos Iniciales": {"tabla": "saldos_iniciales", "col_fecha": "fecha", "col_bloqueo": "bloqueo"},
+}
+
+MESES_ES = {
+    "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4,
+    "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8,
+    "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12,
+}
+
+
+def _columna_existe(conn, db_name: str, tabla: str, columna: str) -> bool:
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT COUNT(*)
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s
+        """,
+        (db_name, tabla, columna),
+    )
+    existe = cur.fetchone()[0] > 0
+    cur.close()
+    return existe
+
+
+def _aplicar_bloqueo_rango(
+    conn,
+    db_name: str,
+    tabla: str,
+    col_fecha: str,
+    col_bloqueo: str,
+    fecha_desde: date,
+    fecha_hasta: date,
+    valor_bloqueo: int,
+) -> int:
+    if not _columna_existe(conn, db_name, tabla, col_bloqueo):
+        raise ValueError(f"La tabla `{db_name}`.`{tabla}` no tiene la columna `{col_bloqueo}`.")
+    if not _columna_existe(conn, db_name, tabla, col_fecha):
+        raise ValueError(f"La tabla `{db_name}`.`{tabla}` no tiene la columna de fecha `{col_fecha}`.")
+
+    sql = (
+        f"UPDATE `{db_name}`.`{tabla}` "
+        f"SET `{col_bloqueo}` = %s "
+        f"WHERE `{col_fecha}` BETWEEN %s AND %s"
+    )
+    cur = conn.cursor()
+    cur.execute(sql, (int(valor_bloqueo), fecha_desde.strftime("%Y-%m-%d"), fecha_hasta.strftime("%Y-%m-%d")))
+    afectados = cur.rowcount
+    conn.commit()
+    cur.close()
+    return afectados
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
