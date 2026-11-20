@@ -11068,6 +11068,37 @@ def escanear_bloques_ui_sql(nombre_tabla, directorio=".", solo_sql_real=True, ve
     return pd.DataFrame(filas)
 
 
+from datetime import date
+
+PERIODOS_FISCALES = [2024, 2025, 2026, 2027, 2028, 2029, 2030, 2031, 2032]
+
+
+def obtener_selectbox_ejercicio_fiscal(
+    label: str = "📅 Período / Cierre Fiscal",
+    key: str = "sb_ejercicio_fiscal",
+    bloquear_a_calendario: bool = True,
+) -> int:
+    """
+    Muestra el selectbox de años fiscales (2024-2032) fijado al año del calendario
+    universal (`date.today().year`). Solo cambia cuando cambia el calendario del sistema.
+    """
+    anio_actual = date.today().year
+    idx_default = PERIODOS_FISCALES.index(anio_actual) if anio_actual in PERIODOS_FISCALES else 0
+
+    # Sincroniza siempre con el año real del calendario del sistema
+    st.session_state[key] = PERIODOS_FISCALES[idx_default]
+
+    anio_sel = st.selectbox(
+        label,
+        options=PERIODOS_FISCALES,
+        index=idx_default,
+        key=f"{key}_widget",
+        disabled=bloquear_a_calendario,
+        help="Fijado según el año del calendario universal del sistema.",
+    )
+    st.session_state["ejercicio_fiscal"] = int(anio_sel)
+    return int(anio_sel)
+
 def _tiene_2026_como_texto(linea: str) -> tuple[bool, str]:
     """
     Detecta si `2026` aparece como texto/literal en la línea (comillas, fechas en texto
@@ -11501,9 +11532,15 @@ def render_gestor_esquemas_mysql(conn, db_actual):
 
             with tab_anio_fiscal:
                 with st.container(border=True):
-                    st.markdown("#### 📅 Auditoría de `2026` como texto (preparación para 2027)")
+                    st.markdown("#### 📅 Auditoría de `2026` como texto y control de Cierre Fiscal")
 
-                    col_a, col_b = st.columns([2, 2])
+                    col_sb, col_a, col_b = st.columns([1.5, 2, 2])
+                    with col_sb:
+                        anio_fiscal = obtener_selectbox_ejercicio_fiscal(
+                            label="Ejercicio / Cierre Fiscal",
+                            key="ejercicio_fiscal_matriz",
+                            bloquear_a_calendario=True,
+                        )
                     with col_a:
                         incluir_ui_2026 = st.checkbox(
                             "Incluir bloques de interfaz / UI fuera de funciones",
@@ -11517,6 +11554,8 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                             key="txt_2026_filtro_archivo"
                         )
 
+                    st.caption(f"Variable activa del calendario: `anio_fiscal = {anio_fiscal}` (próximo año: `{anio_fiscal + 1}`)")
+
                     df_2026 = escanear_2026_texto(directorio=".", incluir_ui=incluir_ui_2026)
 
                     if not df_2026.empty and filtro_archivo.strip():
@@ -11527,7 +11566,10 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                     if df_2026.empty:
                         st.success("✅ No se encontraron funciones ni bloques con `2026` como texto con el filtro actual.")
                     else:
-                        st.warning(f"⚠️ Se detectaron **{len(df_2026)}** funciones/bloques con `2026` en formato texto.")
+                        st.warning(
+                            f"⚠️ Se detectaron **{len(df_2026)}** funciones/bloques con `2026` en formato texto. "
+                            f"Revísalos para amarrarlos a `anio_fiscal` (`{anio_fiscal}`)."
+                        )
                         df_2026_vis = df_2026[["Tipo", "Archivo", "Elemento / Función", "Detalle Texto", "Líneas", "Ejemplo"]]
 
                         ev_2026 = st.dataframe(
@@ -11560,11 +11602,12 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                             with st.container(border=True):
                                 st.caption(
                                     f"**{item['Tipo']}:** `{item['Elemento / Función']}` | "
-                                    f"**Archivo:** `{item['Archivo']}` | **Línea inicial:** `{linea_ini}`"
+                                    f"**Archivo:** `{item['Archivo']}` | **Línea inicial:** `{linea_ini}` | "
+                                    f"**Año fiscal actual:** `{anio_fiscal}`"
                                 )
                                 st.code(codigo_ver, language="python", line_numbers=True)
                         else:
-                            st.caption("👆 Selecciona una fila para inspeccionar dónde está el texto `2026` y evaluar cómo parametrizarlo para 2027.")
+                            st.caption("👆 Selecciona una fila para inspeccionar dónde está el texto `2026` y amarrarlo a `anio_fiscal`.")
 
 
         st.divider()
