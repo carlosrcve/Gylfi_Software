@@ -11974,6 +11974,8 @@ if menu_lateral == "⚙️ Gestión de Empresas":
     st.stop()
 
 
+import traceback
+
 if menu_lateral in ("Matriz de Datas", "⚙️ Matriz de Datas", "🗄️ Matriz de Datas"):
     # 🔒 RESTRICCIÓN ABSOLUTA: Solo el Administrador Maestro puede ver esta sección
     if rol_actual != "admin":
@@ -11989,6 +11991,7 @@ if menu_lateral in ("Matriz de Datas", "⚙️ Matriz de Datas", "🗄️ Matriz
     )
 
     bds_sistema = {"information_schema", "mysql", "performance_schema", "sys", "test"}
+    lista_bds = []
 
     # 2. Selector rápido para el SuperAdmin (cambiar de BD / empresa en caliente)
     try:
@@ -12042,6 +12045,7 @@ if menu_lateral in ("Matriz de Datas", "⚙️ Matriz de Datas", "🗄️ Matriz
             st.error(f"🔌 No se pudo establecer conexión con el servidor MySQL para `{db_objetivo}`.")
     except Exception as e:
         st.error(f"❌ Error al acceder a Matriz de Datas: {e}")
+        st.code(traceback.format_exc(), language="python")
     st.stop()
 
 
