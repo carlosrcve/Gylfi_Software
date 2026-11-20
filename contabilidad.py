@@ -11302,7 +11302,13 @@ def render_gestor_esquemas_mysql(conn, db_actual):
         tabla_sel = st.selectbox("Selecciona una tabla para inspeccionar:", tablas, key="sel_tabla_arquitecto")
 
         if tabla_sel:
-            tab_cols, tab_code, tab_data,tab_anio_fiscal = st.tabs(["🗂️ Estructura y Columnas (MySQL)","🔍 Funciones Vinculadas en el Código","📊 Datos Almacenados (Registros)","Año Fiscal"])
+            tab_cols, tab_code, tab_data, tab_anio_fiscal, tab_cierre = st.tabs([
+                "🗂️ Estructura y Columnas (MySQL)",
+                "🔍 Funciones Vinculadas en el Código",
+                "📊 Datos Almacenados (Registros)",
+                "📅 Año Fiscal",
+                "🔒 Cierre Mensual/Anual",
+            ])
 
             with tab_cols:
                 cursor = conn.cursor()
