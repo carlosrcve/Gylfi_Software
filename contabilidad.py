@@ -11301,8 +11301,6 @@ def render_gestor_esquemas_mysql(conn, db_actual):
         with st.container(border=True):
             st.markdown("### 🆕 Crear Nueva Tabla y Asignar a Clientes")
             st.caption("Define la estructura de la nueva tabla y selecciona en qué bases de datos crearla.")
-            st.markdown("### 🆕 Crear Nueva Tabla y Asignar a Clientes")
-
             # 1. Nombre de la tabla y opción de ID automático
             col_t1, col_t2 = st.columns([3, 1])
             with col_t1:
