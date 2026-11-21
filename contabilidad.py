@@ -16545,6 +16545,27 @@ elif opcion_menu == "📝 Asientos Contables":
                 import datetime
                 import pandas as pd
 
+                def _existe_abono_similar(obs_texto, ref_b, mto_a):
+                    """Devuelve True si ya existe un abono registrado con la misma referencia y monto."""
+                    if not obs_texto or not ref_b:
+                        return False
+                    ref_limpia = str(ref_b).strip()
+                    mto_fmt = f"{float(mto_a):.2f}"
+                    for linea in str(obs_texto).splitlines():
+                        if "[Abono #" in linea or "Abono #" in linea:
+                            if f"Ref: {ref_limpia}" in linea and f"Monto: {mto_fmt}" in linea:
+                                return True
+                    return False
+
+
+                def _obtener_siguiente_comp(obs_texto, n_factura, num_sugerido):
+                    """Garantiza que el comprobante PAGO-<fact>-AB<n> no choque con uno ya existente."""
+                    obs_str = str(obs_texto or "")
+                    n = int(num_sugerido)
+                    while f"PAGO-{n_factura}-AB{n}" in obs_str:
+                        n += 1
+                    return n, f"PAGO-{n_factura}-AB{n}"
+
                 def _extraer_total_abonado_obs(obs_texto):
                     """Suma únicamente los montos de líneas de abonos registrados ([Abono #...])."""
                     if not obs_texto:
