@@ -17106,10 +17106,15 @@ elif opcion_menu == "📝 Asientos Contables":
                                 params=(str(empresa),),
                             )
                         elif tabla == "ordenes":
-                            query = (
-                                "SELECT id, nro_factura, monto_bruto, retencion_islr, retencion_iva, monto_neto, estado, observaciones, fecha_emision "
-                                "FROM ordenes_pago WHERE empresa_db = %s AND fecha_emision BETWEEN %s AND %s ORDER BY fecha_emision DESC"
-                            )
+                            query = """
+                                SELECT op.id, op.fecha_emision, p.nombre AS proveedor, op.nro_factura,
+                                       op.monto_bruto, op.retencion_islr, op.retencion_iva, op.monto_neto,
+                                       op.estado, op.observaciones
+                                FROM ordenes_pago op
+                                LEFT JOIN proveedores_carga p ON op.proveedor_id = p.id
+                                WHERE op.empresa_db = %s AND op.fecha_emision BETWEEN %s AND %s
+                                ORDER BY op.fecha_emision DESC
+                            """
                             df = ejecutar_consulta(query, conn, params=(str(empresa), str(f_desde), str(f_hasta)))
                         elif tabla == "banco":
                             query = (
@@ -17206,6 +17211,9 @@ elif opcion_menu == "📝 Asientos Contables":
             # ==========================================
             # 🧾 2. ÓRDENES DE PAGO
             # ==========================================
+            # ==========================================
+            # 🧾 2. ÓRDENES DE PAGO
+            # ==========================================
             elif sub_gestion == "Órdenes de Pago":
                 st.markdown("#### 🧾 Consultar, Visualizar y Editar Órdenes de Pago por Rango de Fechas")
                 
@@ -17219,32 +17227,60 @@ elif opcion_menu == "📝 Asientos Contables":
                     df_op_edit = cargar_datos_edicion(db_actual, "ordenes", fec_desde_edit, fec_hasta_edit)
                     
                     if df_op_edit is not None and not df_op_edit.empty:
+                        df_op_edit = df_op_edit.copy()
+                        if "proveedor" not in df_op_edit.columns:
+                            df_op_edit["proveedor"] = ""
+                        if "observaciones" not in df_op_edit.columns:
+                            df_op_edit["observaciones"] = ""
+
                         st.markdown(f"📊 Se encontraron **{len(df_op_edit)}** orden(es) de pago en el rango seleccionado:")
                         
+                        cols_tabla_op = [
+                            c for c in [
+                                "id", "fecha_emision", "proveedor", "nro_factura",
+                                "monto_bruto", "monto_neto", "estado", "observaciones"
+                            ] if c in df_op_edit.columns
+                        ]
+
                         st.dataframe(
-                            df_op_edit[['id', 'fecha_emision', 'nro_factura', 'monto_bruto', 'monto_neto', 'estado']], 
+                            df_op_edit[cols_tabla_op], 
                             use_container_width=True, 
                             hide_index=True,
                             column_config={
+                                "id": "ID",
+                                "fecha_emision": "Fecha Emisión",
+                                "proveedor": "Proveedor",
+                                "nro_factura": "N° Factura",
                                 "monto_bruto": st.column_config.NumberColumn("Monto Bruto", format="%,.2f"),
-                                "monto_neto": st.column_config.NumberColumn("Monto Neto", format="%,.2f")
+                                "monto_neto": st.column_config.NumberColumn("Monto Neto", format="%,.2f"),
+                                "estado": "Estado",
+                                "observaciones": st.column_config.TextColumn("Observaciones")
                             }
                         )
                         
                         st.divider()
                         
-                        dict_ope = {f"ID: {r['id']} | Fecha: {r['fecha_emision']} | Factura: {r['nro_factura']} | Neto: {r['monto_neto']:,.2f} | Estado: {r['estado']}": r for _, r in df_op_edit.iterrows()}
+                        dict_ope = {
+                            (
+                                f"ID: {r['id']} | Prov: {r['proveedor'] or 'N/A'} | Fecha: {r['fecha_emision']} | "
+                                f"Factura: {r['nro_factura']} | Neto: {float(r['monto_neto']):,.2f} | Estado: {r['estado']}"
+                            ): r
+                            for _, r in df_op_edit.iterrows()
+                        }
                         sel_ope_label = st.selectbox("Selecciona la Orden de Pago a modificar de la lista superior:", list(dict_ope.keys()), key="sel_ope_edit_full")
                         
                         fila_ope = dict_ope[sel_ope_label]
                         id_ope_sel = fila_ope['id']
                         
                         with st.form("form_editar_orden_pago"):
-                            st.markdown(f"**Modificando la Orden ID:** `{id_ope_sel}` (Fecha Emisión Actual: {fila_ope['fecha_emision']})")
+                            st.markdown(
+                                f"**Modificando la Orden ID:** `{id_ope_sel}` | "
+                                f"**Proveedor:** `{fila_ope['proveedor'] or 'N/A'}` | "
+                                f"**Fecha Emisión Actual:** {fila_ope['fecha_emision']}"
+                            )
                             
                             col_eo1, col_eo2 = st.columns(2)
                             with col_eo1:
-                                # 🌟 CAMPO DE FECHA NUEVO PARA MODIFICAR
                                 import datetime
                                 fecha_actual_parseada = pd.to_datetime(fila_ope['fecha_emision']).date() if pd.notnull(fila_ope['fecha_emision']) else datetime.date.today()
                                 nueva_fecha_emision = st.date_input("Fecha de Emisión", value=fecha_actual_parseada)
