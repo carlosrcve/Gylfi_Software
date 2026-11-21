@@ -17268,6 +17268,57 @@ elif opcion_menu == "📝 Asientos Contables":
                                         pass
                         return round(total, 2)
 
+                    def _parsear_abonos_lista(obs_texto):
+                        abonos = []
+                        if not obs_texto:
+                            return abonos
+                        patron = re.compile(
+                            r"^\[Abono #(\d+)\s*\|\s*Fecha:\s*([^|]+)\|\s*Ref:\s*([^|]+)\|\s*Monto:\s*([^|]+)\|\s*Banco:\s*([^|]+)\|\s*Comp:\s*([^\]]+)\]$"
+                        )
+                        for idx, linea in enumerate(str(obs_texto).splitlines()):
+                            linea_s = linea.strip()
+                            m = patron.match(linea_s)
+                            if m:
+                                mto_limpio = m.group(4).strip().replace(",", "")
+                                try:
+                                    mto_val = float(mto_limpio)
+                                except ValueError:
+                                    mto_val = 0.0
+                                abonos.append({
+                                    "idx_linea": idx,
+                                    "linea_original": linea_s,
+                                    "num": int(m.group(1).strip()),
+                                    "fecha": m.group(2).strip(),
+                                    "ref": m.group(3).strip(),
+                                    "monto": mto_val,
+                                    "banco": m.group(5).strip(),
+                                    "comp": m.group(6).strip(),
+                                })
+                        return abonos
+
+                    def _reconstruir_obs_con_abonos(obs_texto, lista_abonos_actualizada):
+                        lineas_orig = str(obs_texto or "").splitlines()
+                        lineas_no_abono = [
+                            l for l in lineas_orig
+                            if not re.match(r"^\[Abono #\d+\s*\|", l.strip())
+                        ]
+                        lineas_abono_fmt = []
+                        for i, ab in enumerate(lista_abonos_actualizada, start=1):
+                            lineas_abono_fmt.append(
+                                f"[Abono #{i} | Fecha: {ab['fecha']} | Ref: {ab['ref']} | "
+                                f"Monto: {float(ab['monto']):.2f} | Banco: {ab['banco']} | Comp: {ab['comp']}]"
+                            )
+                        combinadas = [l.strip() for l in (lineas_no_abono + lineas_abono_fmt) if l.strip()]
+                        return "\n".join(combinadas)
+
+                    def _estado_segun_bruto(bruto_val, obs_val):
+                        abon_total = _sumar_abonos_obs_op(obs_val)
+                        if abon_total <= 0.009:
+                            return "Pendiente"
+                        if round(float(bruto_val) - abon_total, 2) < 0.01:
+                            return "Conciliado"
+                        return "Pago Parcial"
+
                     df_op_edit = cargar_datos_edicion(db_actual, "ordenes", fec_desde_edit, fec_hasta_edit)
                     
                     if df_op_edit is not None and not df_op_edit.empty:
@@ -17352,13 +17403,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 
                             if btn_act_op:
                                 try:
-                                    abonado_obs = _sumar_abonos_obs_op(nuevas_obs)
-                                    if abonado_obs <= 0.009:
-                                        nuevo_estado_op = "Pendiente"
-                                    elif round(float(nuevo_monto_bruto) - abonado_obs, 2) < 0.01:
-                                        nuevo_estado_op = "Conciliado"
-                                    else:
-                                        nuevo_estado_op = "Pago Parcial"
+                                    nuevo_estado_op = _estado_segun_bruto(nuevo_monto_bruto, nuevas_obs)
 
                                     conn_uop = conectar_db(db_actual)
                                     with conn_uop.cursor() as cur_uop:
@@ -17404,6 +17449,108 @@ elif opcion_menu == "📝 Asientos Contables":
                                     st.rerun()
                                 except Exception as ex_dop:
                                     st.error(f"❌ Error al eliminar la orden: {ex_dop}")
+
+                        # ==========================================
+                        # 🧩 GESTIÓN PUNTUAL DE ABONOS / PAGOS PARCIALES
+                        # ==========================================
+                        st.divider()
+                        st.markdown("#### 🧩 Modificar o Eliminar un Abono Parcial Específico")
+
+                        abonos_detectados = _parsear_abonos_lista(fila_ope.get("observaciones", ""))
+
+                        if abonos_detectados:
+                            dict_abonos_op = {
+                                (
+                                    f"Abono #{a['num']} | Fecha: {a['fecha']} | Ref: {a['ref']} | "
+                                    f"Monto: {a['monto']:,.2f} | Banco: {a['banco']} | Comp: {a['comp']}"
+                                ): i
+                                for i, a in enumerate(abonos_detectados)
+                            }
+
+                            sel_abono_lbl = st.selectbox(
+                                "Selecciona el abono parcial a modificar o eliminar:",
+                                list(dict_abonos_op.keys()),
+                                key=f"sel_abono_puntual_{id_ope_sel}"
+                            )
+                            pos_ab = dict_abonos_op[sel_abono_lbl]
+                            ab_sel = abonos_detectados[pos_ab]
+
+                            c_ab1, c_ab2, c_ab3 = st.columns(3)
+                            with c_ab1:
+                                ab_fecha_ed = st.text_input("Fecha Abono (YYYY-MM-DD)", value=ab_sel["fecha"], key=f"abf_{id_ope_sel}_{pos_ab}").strip()
+                                ab_ref_ed = st.text_input("Referencia", value=ab_sel["ref"], key=f"abr_{id_ope_sel}_{pos_ab}").strip()
+                            with c_ab2:
+                                ab_monto_ed = st.number_input("Monto del Abono", value=float(ab_sel["monto"]), min_value=0.01, step=10.0, format="%.2f", key=f"abm_{id_ope_sel}_{pos_ab}")
+                                ab_banco_ed = st.text_input("Banco", value=ab_sel["banco"], key=f"abb_{id_ope_sel}_{pos_ab}").strip()
+                            with c_ab3:
+                                ab_comp_ed = st.text_input("Comprobante (Comp)", value=ab_sel["comp"], key=f"abc_{id_ope_sel}_{pos_ab}").strip()
+                                borrar_en_asientos = st.checkbox("También borrar asiento/mov. con este Comp al eliminar", value=False, key=f"abx_{id_ope_sel}_{pos_ab}")
+
+                            col_ba1, col_ba2 = st.columns(2)
+                            with col_ba1:
+                                if st.button("✏️ Guardar Cambio en Este Abono", type="primary", key=f"btn_edit_ab_{id_ope_sel}_{pos_ab}", use_container_width=True):
+                                    try:
+                                        abonos_copia = [dict(x) for x in abonos_detectados]
+                                        abonos_copia[pos_ab] = {
+                                            "fecha": ab_fecha_ed,
+                                            "ref": ab_ref_ed,
+                                            "monto": float(ab_monto_ed),
+                                            "banco": ab_banco_ed,
+                                            "comp": ab_comp_ed,
+                                        }
+                                        nueva_obs_ab = _reconstruir_obs_con_abonos(fila_ope.get("observaciones", ""), abonos_copia)
+                                        nuevo_est_ab = _estado_segun_bruto(fila_ope["monto_bruto"], nueva_obs_ab)
+
+                                        conn_eab = conectar_db(db_actual)
+                                        with conn_eab.cursor() as cur_eab:
+                                            cur_eab.execute("""
+                                                UPDATE ordenes_pago
+                                                SET observaciones = %s, estado = %s, referencia_banco = %s
+                                                WHERE id = %s AND empresa_db = %s
+                                            """, (nueva_obs_ab, nuevo_est_ab, ab_ref_ed, id_ope_sel, str(db_actual)))
+                                            conn_eab.commit()
+                                        conn_eab.close()
+
+                                        cargar_datos_edicion.clear()
+                                        if "cargar_datos_conciliacion_opt" in globals():
+                                            cargar_datos_conciliacion_opt.clear()
+                                        st.success(f"✅ Abono actualizado. Nuevo estado de la orden: **{nuevo_est_ab}**.")
+                                        st.rerun()
+                                    except Exception as ex_eab:
+                                        st.error(f"❌ Error al actualizar el abono: {ex_eab}")
+
+                            with col_ba2:
+                                if st.button("🗑️ Eliminar Solo Este Abono", type="secondary", key=f"btn_del_ab_{id_ope_sel}_{pos_ab}", use_container_width=True):
+                                    try:
+                                        abonos_restantes = [dict(x) for i, x in enumerate(abonos_detectados) if i != pos_ab]
+                                        nueva_obs_ab = _reconstruir_obs_con_abonos(fila_ope.get("observaciones", ""), abonos_restantes)
+                                        nuevo_est_ab = _estado_segun_bruto(fila_ope["monto_bruto"], nueva_obs_ab)
+                                        ult_ref = abonos_restantes[-1]["ref"] if abonos_restantes else None
+
+                                        conn_dab = conectar_db(db_actual)
+                                        with conn_dab.cursor() as cur_dab:
+                                            cur_dab.execute("""
+                                                UPDATE ordenes_pago
+                                                SET observaciones = %s, estado = %s, referencia_banco = %s
+                                                WHERE id = %s AND empresa_db = %s
+                                            """, (nueva_obs_ab, nuevo_est_ab, ult_ref, id_ope_sel, str(db_actual)))
+
+                                            if borrar_en_asientos and ab_sel["comp"]:
+                                                cur_dab.execute("DELETE FROM asientos_contables WHERE n_comprobante = %s", (ab_sel["comp"],))
+                                                cur_dab.execute("DELETE FROM banco_movimientos WHERE asiento_id = %s", (ab_sel["comp"],))
+
+                                            conn_dab.commit()
+                                        conn_dab.close()
+
+                                        cargar_datos_edicion.clear()
+                                        if "cargar_datos_conciliacion_opt" in globals():
+                                            cargar_datos_conciliacion_opt.clear()
+                                        st.warning(f"🗑️ Abono eliminado. Nuevo estado de la orden: **{nuevo_est_ab}**.")
+                                        st.rerun()
+                                    except Exception as ex_dab:
+                                        st.error(f"❌ Error al eliminar el abono: {ex_dab}")
+                        else:
+                            st.caption("Esta orden no tiene líneas de abonos con formato `[Abono #...]` en observaciones.")
                     else:
                         st.info("ℹ️ No hay órdenes de pago registradas para el rango de fechas seleccionado.")
                 except Exception as e:
