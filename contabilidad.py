@@ -17242,9 +17242,6 @@ elif opcion_menu == "📝 Asientos Contables":
             # ==========================================
             # 🧾 2. ÓRDENES DE PAGO
             # ==========================================
-            # ==========================================
-            # 🧾 2. ÓRDENES DE PAGO
-            # ==========================================
             elif sub_gestion == "Órdenes de Pago":
                 st.markdown("#### 🧾 Consultar, Visualizar y Editar Órdenes de Pago por Rango de Fechas")
                 
@@ -17255,6 +17252,22 @@ elif opcion_menu == "📝 Asientos Contables":
                     fec_hasta_edit = st.date_input("Hasta la fecha", key="edit_op_fecha_hasta")
 
                 try:
+                    import re
+                    import datetime
+
+                    def _sumar_abonos_obs_op(obs_texto):
+                        if not obs_texto:
+                            return 0.0
+                        total = 0.0
+                        for linea in str(obs_texto).splitlines():
+                            if "[Abono #" in linea or "Abono #" in linea:
+                                for m in re.findall(r"Monto:\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)", linea):
+                                    try:
+                                        total += float(m.replace(",", ""))
+                                    except ValueError:
+                                        pass
+                        return round(total, 2)
+
                     df_op_edit = cargar_datos_edicion(db_actual, "ordenes", fec_desde_edit, fec_hasta_edit)
                     
                     if df_op_edit is not None and not df_op_edit.empty:
@@ -17294,16 +17307,21 @@ elif opcion_menu == "📝 Asientos Contables":
                         dict_ope = {
                             (
                                 f"ID: {r['id']} | Prov: {r['proveedor'] or 'N/A'} | Fecha: {r['fecha_emision']} | "
-                                f"Factura: {r['nro_factura']} | Neto: {float(r['monto_neto']):,.2f} | Estado: {r['estado']}"
+                                f"Factura: {r['nro_factura']} | Bruto: {float(r['monto_bruto']):,.2f} | "
+                                f"Neto: {float(r['monto_neto']):,.2f} | Estado: {r['estado']}"
                             ): r
                             for _, r in df_op_edit.iterrows()
                         }
-                        sel_ope_label = st.selectbox("Selecciona la Orden de Pago a modificar de la lista superior:", list(dict_ope.keys()), key="sel_ope_edit_full")
+                        sel_ope_label = st.selectbox(
+                            "Selecciona la Orden de Pago a modificar de la lista superior:",
+                            list(dict_ope.keys()),
+                            key="sel_ope_edit_full"
+                        )
                         
                         fila_ope = dict_ope[sel_ope_label]
                         id_ope_sel = fila_ope['id']
                         
-                        with st.form("form_editar_orden_pago"):
+                        with st.form(f"form_editar_orden_pago_{id_ope_sel}"):
                             st.markdown(
                                 f"**Modificando la Orden ID:** `{id_ope_sel}` | "
                                 f"**Proveedor:** `{fila_ope['proveedor'] or 'N/A'}` | "
@@ -17312,7 +17330,6 @@ elif opcion_menu == "📝 Asientos Contables":
                             
                             col_eo1, col_eo2 = st.columns(2)
                             with col_eo1:
-                                import datetime
                                 fecha_actual_parseada = pd.to_datetime(fila_ope['fecha_emision']).date() if pd.notnull(fila_ope['fecha_emision']) else datetime.date.today()
                                 nueva_fecha_emision = st.date_input("Fecha de Emisión", value=fecha_actual_parseada)
                                 
@@ -17325,7 +17342,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             nuevo_neto_calc = nuevo_monto_bruto - nueva_ret_islr - nueva_ret_iva
                             st.info(f"💵 **Nuevo Monto Neto Calculado:** {nuevo_neto_calc:,.2f}")
                             
-                            nuevas_obs = st.text_area("Observaciones", value=fila_ope['observaciones'] or "").strip()
+                            nuevas_obs = st.text_area("Observaciones", value=fila_ope['observaciones'] or "", height=120).strip()
                             
                             col_bop1, col_bop2 = st.columns(2)
                             with col_bop1:
@@ -17335,17 +17352,40 @@ elif opcion_menu == "📝 Asientos Contables":
                                 
                             if btn_act_op:
                                 try:
+                                    abonado_obs = _sumar_abonos_obs_op(nuevas_obs)
+                                    if abonado_obs <= 0.009:
+                                        nuevo_estado_op = "Pendiente"
+                                    elif round(float(nuevo_monto_bruto) - abonado_obs, 2) < 0.01:
+                                        nuevo_estado_op = "Conciliado"
+                                    else:
+                                        nuevo_estado_op = "Pago Parcial"
+
                                     conn_uop = conectar_db(db_actual)
                                     with conn_uop.cursor() as cur_uop:
                                         cur_uop.execute("""
                                             UPDATE ordenes_pago 
-                                            SET fecha_emision = %s, nro_factura = %s, monto_bruto = %s, retencion_islr = %s, retencion_iva = %s, monto_neto = %s, observaciones = %s
+                                            SET fecha_emision = %s, nro_factura = %s, monto_bruto = %s,
+                                                retencion_islr = %s, retencion_iva = %s, monto_neto = %s,
+                                                observaciones = %s, estado = %s
                                             WHERE id = %s AND empresa_db = %s
-                                        """, (str(nueva_fecha_emision), nuevo_nro_fact, nuevo_monto_bruto, nueva_ret_islr, nueva_ret_iva, nuevo_neto_calc, nuevas_obs, id_ope_sel, str(db_actual)))
+                                        """, (
+                                            str(nueva_fecha_emision),
+                                            nuevo_nro_fact,
+                                            nuevo_monto_bruto,
+                                            nueva_ret_islr,
+                                            nueva_ret_iva,
+                                            nuevo_neto_calc,
+                                            nuevas_obs,
+                                            nuevo_estado_op,
+                                            id_ope_sel,
+                                            str(db_actual)
+                                        ))
                                         conn_uop.commit()
                                     conn_uop.close()
                                     cargar_datos_edicion.clear()
-                                    st.success("✅ ¡Orden de pago actualizada con éxito!")
+                                    if "cargar_datos_conciliacion_opt" in globals():
+                                        cargar_datos_conciliacion_opt.clear()
+                                    st.success(f"✅ ¡Orden de pago actualizada con éxito! Estado actual: {nuevo_estado_op}")
                                     st.rerun()
                                 except Exception as ex_uop:
                                     st.error(f"❌ Error al actualizar la orden: {ex_uop}")
@@ -17358,6 +17398,8 @@ elif opcion_menu == "📝 Asientos Contables":
                                         conn_dop.commit()
                                     conn_dop.close()
                                     cargar_datos_edicion.clear()
+                                    if "cargar_datos_conciliacion_opt" in globals():
+                                        cargar_datos_conciliacion_opt.clear()
                                     st.success("🗑️ Orden de pago eliminada con éxito.")
                                     st.rerun()
                                 except Exception as ex_dop:
