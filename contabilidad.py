@@ -16528,9 +16528,38 @@ elif opcion_menu == "📝 Asientos Contables":
                     st.warning(f"Aviso en historial: {ex_historial}")
         with tab3:
             st.markdown("### 🔗 Conciliación, Cruce Bancario y Emisión de Comprobante")
-            st.markdown("Cruza las órdenes de pago, registra primero el movimiento en el banco, selecciona la cuenta contable de salida, previsualiza el asiento y guárdalo en la base de datos.")
+            st.markdown("Cruza las órdenes de pago (totales o fraccionadas), registra primero el movimiento en el banco, selecciona la cuenta contable de salida, previsualiza el asiento y guárdalo en la base de datos.")
 
             try:
+                import re
+                import datetime
+                import pandas as pd
+
+                def _extraer_total_abonado_obs(obs_texto):
+                    if not obs_texto:
+                        return 0.0
+                    matches = re.findall(r"Monto:\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)", str(obs_texto))
+                    total = 0.0
+                    for m in matches:
+                        try:
+                            total += float(m.replace(",", ""))
+                        except ValueError:
+                            pass
+                    return round(total, 2)
+
+                def _contar_abonos_obs(obs_texto):
+                    if not obs_texto:
+                        return 0
+                    return len(re.findall(r"Monto:\s*[0-9]+", str(obs_texto)))
+
+                def _construir_nueva_observacion(obs_actual, num_ab, fec_p, ref_b, mto_a, comp_a, bco_nom):
+                    linea = (
+                        f"[Abono #{num_ab} | Fecha: {fec_p} | Ref: {ref_b} | "
+                        f"Monto: {float(mto_a):.2f} | Banco: {bco_nom} | Comp: {comp_a}]"
+                    )
+                    base = str(obs_actual).strip() if obs_actual else ""
+                    return f"{base}\n{linea}".strip() if base else linea
+
                 # --- FUNCIÓN OPTIMIZADA CON CACHÉ PARA PLAN DE CUENTAS Y ÓRDENES PENDIENTES ---
                 @st.cache_data(ttl=300, show_spinner=False)
                 def cargar_datos_conciliacion_opt(empresa):
@@ -16555,7 +16584,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                         'nombre': str(r_cta['nombre']).strip()
                                     }
 
-                            # 2. Órdenes de pago pendientes por conciliar
+                            # 2. Órdenes de pago pendientes o con pago parcial por conciliar
                             query_pendientes = """
                                 SELECT op.id, p.nombre AS proveedor, p.rif, p.banco AS banco_prov, p.nro_cuenta AS cuenta_prov, 
                                        op.nro_factura, op.monto_bruto, op.retencion_islr, op.retencion_iva, op.monto_neto, op.fecha_emision, op.observaciones, op.estado
@@ -16574,208 +16603,330 @@ elif opcion_menu == "📝 Asientos Contables":
                 lista_bancos_detalle, dict_bancos_detalle, df_pendientes = cargar_datos_conciliacion_opt(db_actual)
 
                 # ==========================================
-                # ⚡ PASO 1 Y 2: CONCILIACIÓN DE ÓRDENES
+                # ⚡ PASO 1 Y 2: CONCILIACIÓN DE ÓRDENES (TOTAL O FRACCIONADA)
                 # ==========================================
                 if df_pendientes is not None and not df_pendientes.empty:
-                    import pandas as pd
+                    df_pendientes = df_pendientes.copy()
                     df_pendientes['monto_neto'] = pd.to_numeric(df_pendientes['monto_neto'], errors='coerce').fillna(0.0)
-                    
-                    st.divider()
-                    st.markdown("#### ⚡ Paso 1: Datos Bancarios y Registro en Banco")
-                    
-                    dict_ops_pend = {
-                        f"ID: {row['id']} | Prov: {row['proveedor']} | Factura: {row['nro_factura']} | Neto: {row['monto_neto']:,.2f} | Estado: {row['estado']}": row['id']
-                        for _, row in df_pendientes.iterrows()
-                    }
-                    
-                    selected_op_label = st.selectbox("Selecciona la Orden de Pago a Conciliar", list(dict_ops_pend.keys()), key="select_op_cruce_tab3")
-                    fila_op_sel = df_pendientes[df_pendientes['id'] == dict_ops_pend[selected_op_label]].iloc[0]
-                    
-                    col_m1, col_m2 = st.columns(2)
-                    with col_m1:
-                        referencia_bancaria = st.text_input("Número de Referencia Bancaria (según Estado de Cuenta)", key="input_ref_banco_b").strip()
-                    with col_m2:
-                        fecha_pago_real = st.date_input("Fecha real del movimiento en el Banco", key="input_fec_banco_b")
+                    if 'observaciones' not in df_pendientes.columns:
+                        df_pendientes['observaciones'] = ""
 
-                    # --- TABLA BANCO MOVIMIENTOS ---
-                    st.divider()
-                    st.markdown("#### 📊 Movimientos Bancarios Registrados por Rango de Fecha")
-                    
-                    col_fec_bm1, col_fec_bm2 = st.columns(2)
-                    with col_fec_bm1:
-                        fec_desde_bm_tab3 = st.date_input("Desde la fecha (Movimiento)", key="bm_tab3_fec_desde")
-                    with col_fec_bm2:
-                        fec_hasta_bm_tab3 = st.date_input("Hasta la fecha (Movimiento)", key="bm_tab3_fec_hasta")
+                    df_pendientes['abonado_previo'] = df_pendientes['observaciones'].apply(_extraer_total_abonado_obs)
+                    df_pendientes['saldo_pendiente'] = (df_pendientes['monto_neto'] - df_pendientes['abonado_previo']).clip(lower=0.0).round(2)
 
-                    try:
-                        conn_v_bm = conectar_db(db_actual)
-                        if conn_v_bm:
-                            query_ver_bm = """
-                                SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id 
-                                FROM banco_movimientos 
-                                WHERE fecha_movimiento BETWEEN %s AND %s
-                                ORDER BY fecha_movimiento DESC, id DESC
-                            """
-                            df_ver_bm = ejecutar_consulta(query_ver_bm, conn_v_bm, params=(str(fec_desde_bm_tab3), str(fec_hasta_bm_tab3)))
-                            conn_v_bm.close()
+                    df_ops_activas = df_pendientes[df_pendientes['saldo_pendiente'] >= 0.01].copy()
 
-                            if df_ver_bm is not None and not df_ver_bm.empty:
-                                df_ver_bm['monto'] = pd.to_numeric(df_ver_bm['monto'], errors='coerce').fillna(0.0)
+                    if not df_ops_activas.empty:
+                        st.divider()
+                        st.markdown("#### ⚡ Paso 1: Datos Bancarios y Registro en Banco")
+                        
+                        dict_ops_pend = {
+                            (
+                                f"ID: {int(row['id'])} | Prov: {row['proveedor']} | Factura: {row['nro_factura']} | "
+                                f"Total: {row['monto_neto']:,.2f} | Abonado: {row['abonado_previo']:,.2f} | "
+                                f"Saldo: {row['saldo_pendiente']:,.2f} | Estado: {row['estado']}"
+                            ): int(row['id'])
+                            for _, row in df_ops_activas.iterrows()
+                        }
+                        
+                        selected_op_label = st.selectbox("Selecciona la Orden de Pago a Conciliar", list(dict_ops_pend.keys()), key="select_op_cruce_tab3")
+                        fila_op_sel = df_ops_activas[df_ops_activas['id'] == dict_ops_pend[selected_op_label]].iloc[0]
 
-                                st.dataframe(
-                                    df_ver_bm[['id', 'fecha_movimiento', 'banco_nombre', 'referencia', 'descripcion', 'monto', 'estado_conciliacion', 'asiento_id']],
-                                    use_container_width=True,
-                                    hide_index=True,
-                                    column_config={
-                                        "id": "ID",
-                                        "fecha_movimiento": "Fecha Mov.",
-                                        "banco_nombre": "Banco",
-                                        "referencia": "Referencia",
-                                        "descripcion": "Descripción",
-                                        "monto": st.column_config.NumberColumn("Monto", format="%,.2f", help="Monto del movimiento bancario"),
-                                        "estado_conciliacion": "Estado",
-                                        "asiento_id": "Comprobante"
-                                    }
-                                )
-                            else:
-                                st.info("ℹ️ No hay movimientos registrados en el rango de fechas seleccionado.")
-                    except Exception as err_v_bm:
-                        st.error(f"❌ Error al cargar los movimientos bancarios: {err_v_bm}")
+                        saldo_disp = float(fila_op_sel['saldo_pendiente'])
+                        num_abono_actual = _contar_abonos_obs(fila_op_sel['observaciones']) + 1
 
-                    st.divider()
-                    st.markdown("#### ⚡ Paso 2: Selección de Cuenta Contable, Previsualización y Registro en Asientos")
+                        if fila_op_sel['abonado_previo'] > 0:
+                            st.info(
+                                f"💡 Esta orden ya tiene **{num_abono_actual - 1}** abono(s) por **{fila_op_sel['abonado_previo']:,.2f}**. "
+                                f"Saldo disponible para el abono #{num_abono_actual}: **{saldo_disp:,.2f}**."
+                            )
 
-                    cta_banco_salida = st.selectbox(
-                        "🏦 Selecciona la Cuenta Bancaria / Salida de Dinero (Haber)", 
-                        options=lista_bancos_detalle if lista_bancos_detalle else ["No hay cuentas de detalle disponibles"],
-                        key="select_banco_salida_pago"
-                    )
+                        if fila_op_sel['observaciones']:
+                            with st.expander("📋 Ver historial de abonos / observaciones registradas en la orden"):
+                                st.text(str(fila_op_sel['observaciones']))
+                        
+                        col_m1, col_m2, col_m3 = st.columns(3)
+                        with col_m1:
+                            referencia_bancaria = st.text_input("Número de Referencia Bancaria (según Estado de Cuenta)", key="input_ref_banco_b").strip()
+                        with col_m2:
+                            fecha_pago_real = st.date_input("Fecha real del movimiento en el Banco", key="input_fec_banco_b")
+                        with col_m3:
+                            monto_abono = st.number_input(
+                                "Monto a Pagar / Abonar",
+                                min_value=0.01,
+                                max_value=max(0.01, saldo_disp),
+                                value=saldo_disp,
+                                step=0.01,
+                                format="%.2f",
+                                key=f"input_monto_abono_{int(fila_op_sel['id'])}"
+                            )
 
-                    info_banco_prev = dict_bancos_detalle.get(cta_banco_salida, {'codigo': '1.1.1.01.001', 'nombre': 'Banco Principal'})
-                    monto_prev = float(fila_op_sel['monto_neto'])
-                    n_fact_prev = str(fila_op_sel['nro_factura'])
-                    prov_prev = str(fila_op_sel['proveedor'])
-                    n_comp_prev = f"PAGO-{n_fact_prev}"
-                    desc_prev = f"Cancelación de Pago a {prov_prev} - Factura {n_fact_prev}"
-                    ref_prev = referencia_bancaria if referencia_bancaria else "(Pendiente de Ref)"
-                    fecha_prev = str(fecha_pago_real)
+                        # --- TABLA BANCO MOVIMIENTOS ---
+                        st.divider()
+                        st.markdown("#### 📊 Movimientos Bancarios Registrados por Rango de Fecha")
+                        
+                        col_fec_bm1, col_fec_bm2 = st.columns(2)
+                        with col_fec_bm1:
+                            fec_desde_bm_tab3 = st.date_input("Desde la fecha (Movimiento)", key="bm_tab3_fec_desde")
+                        with col_fec_bm2:
+                            fec_hasta_bm_tab3 = st.date_input("Hasta la fecha (Movimiento)", key="bm_tab3_fec_hasta")
 
-                    html_asiento = f"""
-                    <style>
-                        .tabla-asiento {{ width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 13px; margin: 10px 0; background-color: #ffffff; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-radius: 6px; overflow: hidden; }}
-                        .tabla-asiento th {{ background-color: #f8f9fa; color: #333; padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6; font-weight: bold; }}
-                        .tabla-asiento td {{ padding: 9px 10px; border-bottom: 1px solid #e9ecef; color: #212529; }}
-                        .monto-col {{ text-align: right; font-family: monospace; font-weight: bold; }}
-                        .badge-bloqueado {{ background-color: #e2e3e5; color: #383d41; padding: 2px 6px; border-radius: 4px; font-size: 11px; }}
-                    </style>
-                    <table class="tabla-asiento">
-                        <thead>
-                            <tr>
-                                <th>N° Comprobante</th><th>Descripción</th><th>Fecha</th><th>Plan Cuentas</th><th>Cuenta Contable</th><th>Referencia</th><th style="text-align: right;">Debe</th><th style="text-align: right;">Haber</th><th style="text-align: center;">Bloq</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td><b>{n_comp_prev}</b></td><td>{desc_prev}</td><td>{fecha_prev}</td><td><code>2.1.1.01.001</code></td><td>Proveedores Nacionales</td><td>{ref_prev}</td><td class="monto-col" style="color: #2b8a3e;">{monto_prev:,.2f}</td><td class="monto-col">0.00</td><td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
-                            </tr>
-                            <tr>
-                                <td><b>{n_comp_prev}</b></td><td>{desc_prev}</td><td>{fecha_prev}</td><td><code>{info_banco_prev['codigo']}</code></td><td>{info_banco_prev['nombre']}</td><td>{ref_prev}</td><td class="monto-col">0.00</td><td class="monto-col" style="color: #c92a2a;">{monto_prev:,.2f}</td><td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
-                            </tr>
-                        </tbody>
-                        <tfoot>
-                            <tr style="background-color: #f8f9fa; font-weight: bold;">
-                                <td colspan="6" style="text-align: right;">TOTALES:</td><td class="monto-col" style="color: #2b8a3e;">{monto_prev:,.2f}</td><td class="monto-col" style="color: #c92a2a;">{monto_prev:,.2f}</td><td></td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                    """
-                    st.markdown(html_asiento, unsafe_allow_html=True)
+                        try:
+                            conn_v_bm = conectar_db(db_actual)
+                            if conn_v_bm:
+                                query_ver_bm = """
+                                    SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id 
+                                    FROM banco_movimientos 
+                                    WHERE fecha_movimiento BETWEEN %s AND %s
+                                    ORDER BY fecha_movimiento DESC, id DESC
+                                """
+                                df_ver_bm = ejecutar_consulta(query_ver_bm, conn_v_bm, params=(str(fec_desde_bm_tab3), str(fec_hasta_bm_tab3)))
+                                conn_v_bm.close()
 
-                    col_btn_p1, col_btn_p2 = st.columns(2)
+                                if df_ver_bm is not None and not df_ver_bm.empty:
+                                    df_ver_bm['monto'] = pd.to_numeric(df_ver_bm['monto'], errors='coerce').fillna(0.0)
 
-                    with col_btn_p1:
-                        if st.button("📥 Registrar Movimiento en Banco", type="secondary", key="btn_guardar_banco_mov", use_container_width=True):
-                            if not referencia_bancaria:
-                                st.warning("⚠️ Debes introducir obligatoriamente la referencia bancaria del estado de cuenta.")
-                            else:
-                                try:
-                                    conn_bm = conectar_db(db_actual)
-                                    if conn_bm:
-                                        with conn_bm.cursor() as cur_bm:
-                                            import datetime
-                                            fecha_actual_hoy = datetime.date.today().strftime('%Y-%m-%d')
-                                            monto_a_pagar = float(fila_op_sel['monto_neto'])
-                                            n_fact_val = str(fila_op_sel['nro_factura'])
-                                            prov_nombre_val = str(fila_op_sel['proveedor'])
-                                            n_comp_asiento = f"PAGO-{n_fact_val}"
+                                    st.dataframe(
+                                        df_ver_bm[['id', 'fecha_movimiento', 'banco_nombre', 'referencia', 'descripcion', 'monto', 'estado_conciliacion', 'asiento_id']],
+                                        use_container_width=True,
+                                        hide_index=True,
+                                        column_config={
+                                            "id": "ID",
+                                            "fecha_movimiento": "Fecha Mov.",
+                                            "banco_nombre": "Banco",
+                                            "referencia": "Referencia",
+                                            "descripcion": "Descripción",
+                                            "monto": st.column_config.NumberColumn("Monto", format="%,.2f", help="Monto del movimiento bancario"),
+                                            "estado_conciliacion": "Estado",
+                                            "asiento_id": "Comprobante"
+                                        }
+                                    )
+                                else:
+                                    st.info("ℹ️ No hay movimientos registrados en el rango de fechas seleccionado.")
+                        except Exception as err_v_bm:
+                            st.error(f"❌ Error al cargar los movimientos bancarios: {err_v_bm}")
 
-                                            cur_bm.execute("""
-                                                INSERT INTO banco_movimientos (
-                                                    banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
-                                                    descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion
-                                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                            """, (
-                                                str(fila_op_sel['banco_prov']) if fila_op_sel['banco_prov'] else "Banco Emisor",
-                                                str(fila_op_sel['cuenta_prov']) if fila_op_sel['cuenta_prov'] else "N/A",
-                                                str(fecha_pago_real), referencia_bancaria, f"Pago Factura #{n_fact_val} - {prov_nombre_val}",
-                                                -monto_a_pagar, 'Pendiente Asiento', n_comp_asiento, fecha_actual_hoy
-                                            ))
+                        st.divider()
+                        st.markdown("#### ⚡ Paso 2: Selección de Cuenta Contable, Previsualización y Registro en Asientos")
 
-                                            cur_bm.execute("UPDATE ordenes_pago SET estado = 'Procesado' WHERE id = %s AND empresa_db = %s", (int(fila_op_sel['id']), str(db_actual)))
-                                            conn_bm.commit()
+                        cta_banco_salida = st.selectbox(
+                            "🏦 Selecciona la Cuenta Bancaria / Salida de Dinero (Haber)", 
+                            options=lista_bancos_detalle if lista_bancos_detalle else ["No hay cuentas de detalle disponibles"],
+                            key="select_banco_salida_pago"
+                        )
 
-                                        conn_bm.close()
-                                        cargar_datos_conciliacion_opt.clear()
-                                        st.success("✅ ¡Movimiento bancario registrado con éxito!")
-                                        st.rerun()
-                                except Exception as err_bm:
-                                    st.error(f"❌ Error al guardar en banco_movimientos: {err_bm}")
+                        info_banco_prev = dict_bancos_detalle.get(cta_banco_salida, {'codigo': '1.1.1.01.001', 'nombre': 'Banco Principal'})
+                        monto_prev = float(monto_abono)
+                        nuevo_saldo_prev = max(0.0, round(saldo_disp - monto_prev, 2))
+                        estado_resultante_prev = "Conciliado" if nuevo_saldo_prev < 0.01 else "Pago Parcial"
 
-                    with col_btn_p2:
-                        if st.button("💾 Guardar Asiento en Libro Diario y Conciliar", type="primary", key="btn_guardar_asiento_diario", use_container_width=True):
-                            if not referencia_bancaria:
-                                st.warning("⚠️ Asegúrate de haber ingresado la referencia bancaria.")
-                            elif not lista_bancos_detalle or "No hay cuentas" in cta_banco_salida:
-                                st.error("⚠️ Debes seleccionar una cuenta bancaria válida.")
-                            else:
-                                try:
-                                    conn_update = conectar_db(db_actual)
-                                    if conn_update:
-                                        with conn_update.cursor() as cursor_m:
-                                            monto_a_pagar = float(fila_op_sel['monto_neto'])
-                                            n_fact_val = str(fila_op_sel['nro_factura'])
-                                            prov_nombre_val = str(fila_op_sel['proveedor'])
-                                            n_comp_asiento = f"PAGO-{n_fact_val}"
+                        n_fact_prev = str(fila_op_sel['nro_factura'])
+                        prov_prev = str(fila_op_sel['proveedor'])
+                        n_comp_prev = f"PAGO-{n_fact_prev}-AB{num_abono_actual}"
+                        desc_prev = f"Abono #{num_abono_actual} a {prov_prev} - Factura {n_fact_prev} (Saldo tras pago: {nuevo_saldo_prev:,.2f})"
+                        ref_prev = referencia_bancaria if referencia_bancaria else "(Pendiente de Ref)"
+                        fecha_prev = str(fecha_pago_real)
 
-                                            query_asiento_pago = """
-                                                INSERT INTO asientos_contables (
-                                                    n_comprobante, descripcion, fecha, plan_cuentas, 
-                                                    cuenta_contable, referencia, debe, haber, bloqueado
-                                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
-                                            """
-                                            # Debe
-                                            cursor_m.execute(query_asiento_pago, (n_comp_asiento, f"Cancelación de Pago a {prov_nombre_val} - Factura {n_fact_val}", str(fecha_pago_real), "2.1.1.01.001", "Proveedores Nacionales", referencia_bancaria, monto_a_pagar, 0.00))
-                                            # Haber
-                                            cursor_m.execute(query_asiento_pago, (n_comp_asiento, f"Cancelación de Pago a {prov_nombre_val} - Factura {n_fact_val}", str(fecha_pago_real), info_banco_prev['codigo'], info_banco_prev['nombre'], referencia_bancaria, 0.00, monto_a_pagar))
-                                            # Update Orden
-                                            cursor_m.execute("UPDATE ordenes_pago SET referencia_banco = %s, fecha_pago = %s, estado = 'Conciliado' WHERE id = %s AND empresa_db = %s", (referencia_bancaria, fecha_pago_real, int(fila_op_sel['id']), str(db_actual)))
-                                            conn_update.commit()
+                        st.caption(
+                            f"**Estado resultante de la orden tras este abono:** `{estado_resultante_prev}` | "
+                            f"**Saldo restante:** `{nuevo_saldo_prev:,.2f}`"
+                        )
 
-                                        conn_update.close()
-                                        cargar_datos_conciliacion_opt.clear()
-                                        st.success(f"✅ ¡Proceso completado! Asiento `{n_comp_asiento}` guardado y orden #{fila_op_sel['id']} marcada como Conciliada.")
-                                        st.rerun()
-                                except Exception as ex_m:
-                                    st.error(f"❌ Error al registrar el asiento contable: {ex_m}")
+                        html_asiento = f"""
+                        <style>
+                            .tabla-asiento {{ width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 13px; margin: 10px 0; background-color: #ffffff; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-radius: 6px; overflow: hidden; }}
+                            .tabla-asiento th {{ background-color: #f8f9fa; color: #333; padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6; font-weight: bold; }}
+                            .tabla-asiento td {{ padding: 9px 10px; border-bottom: 1px solid #e9ecef; color: #212529; }}
+                            .monto-col {{ text-align: right; font-family: monospace; font-weight: bold; }}
+                            .badge-bloqueado {{ background-color: #e2e3e5; color: #383d41; padding: 2px 6px; border-radius: 4px; font-size: 11px; }}
+                        </style>
+                        <table class="tabla-asiento">
+                            <thead>
+                                <tr>
+                                    <th>N° Comprobante</th><th>Descripción</th><th>Fecha</th><th>Plan Cuentas</th><th>Cuenta Contable</th><th>Referencia</th><th style="text-align: right;">Debe</th><th style="text-align: right;">Haber</th><th style="text-align: center;">Bloq</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><b>{n_comp_prev}</b></td><td>{desc_prev}</td><td>{fecha_prev}</td><td><code>2.1.1.01.001</code></td><td>Proveedores Nacionales</td><td>{ref_prev}</td><td class="monto-col" style="color: #2b8a3e;">{monto_prev:,.2f}</td><td class="monto-col">0.00</td><td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
+                                </tr>
+                                <tr>
+                                    <td><b>{n_comp_prev}</b></td><td>{desc_prev}</td><td>{fecha_prev}</td><td><code>{info_banco_prev['codigo']}</code></td><td>{info_banco_prev['nombre']}</td><td>{ref_prev}</td><td class="monto-col">0.00</td><td class="monto-col" style="color: #c92a2a;">{monto_prev:,.2f}</td><td style="text-align: center;"><span class="badge-bloqueado">0</span></td>
+                                </tr>
+                            </tbody>
+                            <tfoot>
+                                <tr style="background-color: #f8f9fa; font-weight: bold;">
+                                    <td colspan="6" style="text-align: right;">TOTALES:</td><td class="monto-col" style="color: #2b8a3e;">{monto_prev:,.2f}</td><td class="monto-col" style="color: #c92a2a;">{monto_prev:,.2f}</td><td></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                        """
+                        st.markdown(html_asiento, unsafe_allow_html=True)
+
+                        col_btn_p1, col_btn_p2 = st.columns(2)
+
+                        with col_btn_p1:
+                            if st.button("📥 Registrar Movimiento en Banco", type="secondary", key="btn_guardar_banco_mov", use_container_width=True):
+                                if not referencia_bancaria:
+                                    st.warning("⚠️ Debes introducir obligatoriamente la referencia bancaria del estado de cuenta.")
+                                elif monto_abono <= 0 or monto_abono > saldo_disp + 0.01:
+                                    st.warning("⚠️ El monto del abono debe ser mayor a 0 y no superar el saldo pendiente.")
+                                else:
+                                    try:
+                                        conn_bm = conectar_db(db_actual)
+                                        if conn_bm:
+                                            with conn_bm.cursor() as cur_bm:
+                                                fecha_actual_hoy = datetime.date.today().strftime('%Y-%m-%d')
+                                                monto_a_pagar = round(float(monto_abono), 2)
+                                                nuevo_saldo = max(0.0, round(saldo_disp - monto_a_pagar, 2))
+                                                nuevo_estado = "Conciliado" if nuevo_saldo < 0.01 else "Pago Parcial"
+
+                                                n_fact_val = str(fila_op_sel['nro_factura'])
+                                                prov_nombre_val = str(fila_op_sel['proveedor'])
+                                                n_comp_asiento = f"PAGO-{n_fact_val}-AB{num_abono_actual}"
+                                                bco_reg = info_banco_prev['nombre'] if info_banco_prev else (
+                                                    str(fila_op_sel['banco_prov']) if fila_op_sel['banco_prov'] else "Banco Emisor"
+                                                )
+
+                                                nueva_obs = _construir_nueva_observacion(
+                                                    fila_op_sel['observaciones'],
+                                                    num_abono_actual,
+                                                    str(fecha_pago_real),
+                                                    referencia_bancaria,
+                                                    monto_a_pagar,
+                                                    n_comp_asiento,
+                                                    bco_reg
+                                                )
+
+                                                cur_bm.execute("""
+                                                    INSERT INTO banco_movimientos (
+                                                        banco_nombre, cuenta_numero, fecha_movimiento, referencia, 
+                                                        descripcion, monto, estado_conciliacion, asiento_id, fecha_importacion
+                                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                                """, (
+                                                    str(fila_op_sel['banco_prov']) if fila_op_sel['banco_prov'] else bco_reg,
+                                                    str(fila_op_sel['cuenta_prov']) if fila_op_sel['cuenta_prov'] else "N/A",
+                                                    str(fecha_pago_real),
+                                                    referencia_bancaria,
+                                                    f"Abono #{num_abono_actual} Factura #{n_fact_val} - {prov_nombre_val}",
+                                                    -monto_a_pagar,
+                                                    'Pendiente Asiento',
+                                                    n_comp_asiento,
+                                                    fecha_actual_hoy
+                                                ))
+
+                                                cur_bm.execute("""
+                                                    UPDATE ordenes_pago
+                                                    SET estado = %s,
+                                                        referencia_banco = %s,
+                                                        fecha_pago = %s,
+                                                        observaciones = %s
+                                                    WHERE id = %s AND empresa_db = %s
+                                                """, (
+                                                    nuevo_estado,
+                                                    referencia_bancaria,
+                                                    str(fecha_pago_real),
+                                                    nueva_obs,
+                                                    int(fila_op_sel['id']),
+                                                    str(db_actual)
+                                                ))
+                                                conn_bm.commit()
+
+                                            conn_bm.close()
+                                            cargar_datos_conciliacion_opt.clear()
+                                            st.success(f"✅ ¡Abono #{num_abono_actual} ({monto_a_pagar:,.2f}) registrado en banco! Estado actual: {nuevo_estado}.")
+                                            st.rerun()
+                                    except Exception as err_bm:
+                                        st.error(f"❌ Error al guardar en banco_movimientos: {err_bm}")
+
+                        with col_btn_p2:
+                            if st.button("💾 Guardar Asiento en Libro Diario y Conciliar", type="primary", key="btn_guardar_asiento_diario", use_container_width=True):
+                                if not referencia_bancaria:
+                                    st.warning("⚠️ Asegúrate de haber ingresado la referencia bancaria.")
+                                elif not lista_bancos_detalle or "No hay cuentas" in cta_banco_salida:
+                                    st.error("⚠️ Debes seleccionar una cuenta bancaria válida.")
+                                elif monto_abono <= 0 or monto_abono > saldo_disp + 0.01:
+                                    st.warning("⚠️ El monto del abono debe ser mayor a 0 y no superar el saldo pendiente.")
+                                else:
+                                    try:
+                                        conn_update = conectar_db(db_actual)
+                                        if conn_update:
+                                            with conn_update.cursor() as cursor_m:
+                                                monto_a_pagar = round(float(monto_abono), 2)
+                                                nuevo_saldo = max(0.0, round(saldo_disp - monto_a_pagar, 2))
+                                                nuevo_estado = "Conciliado" if nuevo_saldo < 0.01 else "Pago Parcial"
+
+                                                n_fact_val = str(fila_op_sel['nro_factura'])
+                                                prov_nombre_val = str(fila_op_sel['proveedor'])
+                                                n_comp_asiento = f"PAGO-{n_fact_val}-AB{num_abono_actual}"
+                                                desc_asiento = f"Abono #{num_abono_actual} a {prov_nombre_val} - Factura {n_fact_val}"
+
+                                                nueva_obs = _construir_nueva_observacion(
+                                                    fila_op_sel['observaciones'],
+                                                    num_abono_actual,
+                                                    str(fecha_pago_real),
+                                                    referencia_bancaria,
+                                                    monto_a_pagar,
+                                                    n_comp_asiento,
+                                                    info_banco_prev['nombre']
+                                                )
+
+                                                query_asiento_pago = """
+                                                    INSERT INTO asientos_contables (
+                                                        n_comprobante, descripcion, fecha, plan_cuentas, 
+                                                        cuenta_contable, referencia, debe, haber, bloqueado
+                                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
+                                                """
+                                                # Debe
+                                                cursor_m.execute(query_asiento_pago, (
+                                                    n_comp_asiento, desc_asiento, str(fecha_pago_real),
+                                                    "2.1.1.01.001", "Proveedores Nacionales",
+                                                    referencia_bancaria, monto_a_pagar, 0.00
+                                                ))
+                                                # Haber
+                                                cursor_m.execute(query_asiento_pago, (
+                                                    n_comp_asiento, desc_asiento, str(fecha_pago_real),
+                                                    info_banco_prev['codigo'], info_banco_prev['nombre'],
+                                                    referencia_bancaria, 0.00, monto_a_pagar
+                                                ))
+                                                # Update Orden conservando bitácora de abonos en observaciones
+                                                cursor_m.execute("""
+                                                    UPDATE ordenes_pago
+                                                    SET referencia_banco = %s,
+                                                        fecha_pago = %s,
+                                                        estado = %s,
+                                                        observaciones = %s
+                                                    WHERE id = %s AND empresa_db = %s
+                                                """, (
+                                                    referencia_bancaria,
+                                                    str(fecha_pago_real),
+                                                    nuevo_estado,
+                                                    nueva_obs,
+                                                    int(fila_op_sel['id']),
+                                                    str(db_actual)
+                                                ))
+                                                conn_update.commit()
+
+                                            conn_update.close()
+                                            cargar_datos_conciliacion_opt.clear()
+                                            st.success(
+                                                f"✅ ¡Abono #{num_abono_actual} por {monto_a_pagar:,.2f} asentado (`{n_comp_asiento}`)! "
+                                                f"Orden #{int(fila_op_sel['id'])} en estado: **{nuevo_estado}** (Saldo: {nuevo_saldo:,.2f})."
+                                            )
+                                            st.rerun()
+                                    except Exception as ex_m:
+                                        st.error(f"❌ Error al registrar el asiento contable: {ex_m}")
+                    else:
+                        st.info("🎉 ¡Excelente! No hay órdenes de pago con saldo pendiente por conciliar.")
                 else:
                     st.info("🎉 ¡Excelente! No hay órdenes de pago disponibles para conciliar.")
 
                 # ==========================================
-                # 📜 HISTORIAL DE PAGOS CONCILIADOS
+                # 📜 HISTORIAL DE PAGOS CONCILIADOS Y PARCIALES
                 # ==========================================
                 st.divider()
                 st.markdown("### 📜 Historial de Pagos Conciliados y Estado de Cuenta Interno")
-                st.markdown("Consulta, filtra por rango de fechas, edita referencias o revierte los pagos conciliados según tu control interno.")
+                st.markdown("Consulta, filtra por rango de fechas, edita referencias/abonos o revierte los pagos conciliados según tu control interno.")
 
                 col_fec1, col_fec2 = st.columns(2)
                 with col_fec1:
@@ -16787,29 +16938,47 @@ elif opcion_menu == "📝 Asientos Contables":
                 df_conciliados = None
                 if conn_conc:
                     query_conciliados = """
-                        SELECT op.id, p.nombre AS proveedor, op.nro_factura, op.monto_neto, op.referencia_banco, op.fecha_pago, op.estado
+                        SELECT op.id, p.nombre AS proveedor, op.nro_factura, op.monto_neto,
+                               op.referencia_banco, op.fecha_pago, op.estado, op.observaciones
                         FROM ordenes_pago op
                         JOIN proveedores_carga p ON op.proveedor_id = p.id
-                        WHERE op.empresa_db = %s AND op.estado = 'Conciliado' AND op.fecha_pago BETWEEN %s AND %s
-                        ORDER BY op.fecha_pago DESC
+                        WHERE op.empresa_db = %s
+                          AND op.estado IN ('Conciliado', 'Pago Parcial')
+                          AND op.fecha_pago BETWEEN %s AND %s
+                        ORDER BY op.fecha_pago DESC, op.id DESC
                     """
                     df_conciliados = ejecutar_consulta(query_conciliados, conn_conc, params=(str(db_actual), str(fecha_desde), str(fecha_hasta)))
                     conn_conc.close()
 
                 if df_conciliados is not None and not df_conciliados.empty:
-                    st.markdown(f"📊 Se encontraron **{len(df_conciliados)}** pago(s) conciliado(s) en el rango seleccionado.")
+                    df_conciliados = df_conciliados.copy()
+                    df_conciliados['monto_neto'] = pd.to_numeric(df_conciliados['monto_neto'], errors='coerce').fillna(0.0)
+                    df_conciliados['monto_abonado'] = df_conciliados['observaciones'].apply(_extraer_total_abonado_obs)
+                    df_conciliados['saldo_pendiente'] = (df_conciliados['monto_neto'] - df_conciliados['monto_abonado']).clip(lower=0.0).round(2)
+
+                    st.markdown(f"📊 Se encontraron **{len(df_conciliados)}** pago(s) registrado(s) en el rango seleccionado.")
                     st.dataframe(
                         df_conciliados, 
                         use_container_width=True, 
                         hide_index=True,
                         column_config={
-                            "monto_neto": st.column_config.NumberColumn("Monto Neto", format="%,.2f", help="Monto neto pagado")
+                            "monto_neto": st.column_config.NumberColumn("Monto Neto", format="%,.2f", help="Monto neto total de la orden"),
+                            "monto_abonado": st.column_config.NumberColumn("Total Abonado", format="%,.2f", help="Suma de abonos registrados"),
+                            "saldo_pendiente": st.column_config.NumberColumn("Saldo Pendiente", format="%,.2f", help="Saldo pendiente por pagar"),
+                            "observaciones": st.column_config.TextColumn("Historial de Abonos / Observaciones")
                         }
                     )
                     
                     st.markdown("#### ⚙️ Modificar o Revertir un Pago Conciliado")
                     
-                    dict_historial = {f"ID: {r['id']} | Factura: {r['nro_factura']} | Proveedor: {r['proveedor']} | Ref: {r['referencia_banco']}": r for _, r in df_conciliados.iterrows()}
+                    dict_historial = {
+                        (
+                            f"ID: {int(r['id'])} | Factura: {r['nro_factura']} | Proveedor: {r['proveedor']} | "
+                            f"Estado: {r['estado']} | Abonado: {r['monto_abonado']:,.2f}/{r['monto_neto']:,.2f} | "
+                            f"Ref: {r['referencia_banco']}"
+                        ): r
+                        for _, r in df_conciliados.iterrows()
+                    }
                     selected_hist_label = st.selectbox("Selecciona el registro a gestionar:", list(dict_historial.keys()), key="select_gestion_historial")
                     
                     if selected_hist_label:
@@ -16817,37 +16986,75 @@ elif opcion_menu == "📝 Asientos Contables":
                         
                         col_ed1, col_ed2 = st.columns(2)
                         with col_ed1:
-                            nuevo_ref_banco = st.text_input("Nueva Referencia Bancaria", value=str(row_sel['referencia_banco']), key=f"edit_ref_{row_sel['id']}")
+                            nuevo_ref_banco = st.text_input("Última Referencia Bancaria", value=str(row_sel['referencia_banco'] or ""), key=f"edit_ref_{int(row_sel['id'])}")
                         with col_ed2:
                             fecha_actual_pago = pd.to_datetime(row_sel['fecha_pago']).date() if pd.notnull(row_sel['fecha_pago']) else None
-                            nueva_fecha_pago = st.date_input("Nueva Fecha de Pago", value=fecha_actual_pago, key=f"edit_fecha_{row_sel['id']}")
+                            nueva_fecha_pago = st.date_input("Última Fecha de Pago", value=fecha_actual_pago, key=f"edit_fecha_{int(row_sel['id'])}")
+
+                        nuevas_obs = st.text_area(
+                            "Bitácora de Abonos / Observaciones",
+                            value=str(row_sel['observaciones'] or ""),
+                            height=110,
+                            key=f"edit_obs_{int(row_sel['id'])}"
+                        )
                         
                         col_btn_ed1, col_btn_ed2 = st.columns(2)
                         with col_btn_ed1:
-                            if st.button("💾 Guardar Cambios del Pago", type="primary", key=f"btn_save_edit_{row_sel['id']}", use_container_width=True):
+                            if st.button("💾 Guardar Cambios del Pago", type="primary", key=f"btn_save_edit_{int(row_sel['id'])}", use_container_width=True):
                                 try:
                                     conn_edit = conectar_db(db_actual)
                                     if conn_edit:
+                                        abonado_calc = _extraer_total_abonado_obs(nuevas_obs)
+                                        neto_calc = float(row_sel['monto_neto'])
+                                        if abonado_calc <= 0.009:
+                                            estado_calc = "Pendiente"
+                                        elif round(neto_calc - abonado_calc, 2) < 0.01:
+                                            estado_calc = "Conciliado"
+                                        else:
+                                            estado_calc = "Pago Parcial"
+
                                         with conn_edit.cursor() as cur_e:
-                                            cur_e.execute("UPDATE ordenes_pago SET referencia_banco = %s, fecha_pago = %s WHERE id = %s AND empresa_db = %s", (nuevo_ref_banco.strip(), nueva_fecha_pago, int(row_sel['id']), str(db_actual)))
+                                            cur_e.execute("""
+                                                UPDATE ordenes_pago
+                                                SET referencia_banco = %s,
+                                                    fecha_pago = %s,
+                                                    observaciones = %s,
+                                                    estado = %s
+                                                WHERE id = %s AND empresa_db = %s
+                                            """, (
+                                                nuevo_ref_banco.strip(),
+                                                nueva_fecha_pago,
+                                                nuevas_obs.strip(),
+                                                estado_calc,
+                                                int(row_sel['id']),
+                                                str(db_actual)
+                                            ))
                                             conn_edit.commit()
                                         conn_edit.close()
-                                        st.success(f"✅ ¡Pago ID #{row_sel['id']} actualizado correctamente!")
+                                        cargar_datos_conciliacion_opt.clear()
+                                        st.success(f"✅ ¡Pago ID #{int(row_sel['id'])} actualizado correctamente! Estado: {estado_calc}.")
                                         st.rerun()
                                 except Exception as err_ed:
                                     st.error(f"❌ Error al modificar el registro: {err_ed}")
                                     
                         with col_btn_ed2:
-                            if st.button("🔄 Revertir a Estado 'Pendiente'", type="secondary", key=f"btn_revert_{row_sel['id']}", use_container_width=True):
+                            if st.button("🔄 Revertir a Estado 'Pendiente'", type="secondary", key=f"btn_revert_{int(row_sel['id'])}", use_container_width=True):
                                 try:
                                     conn_rev = conectar_db(db_actual)
                                     if conn_rev:
                                         with conn_rev.cursor() as cur_r:
-                                            cur_r.execute("UPDATE ordenes_pago SET estado = 'Pendiente', referencia_banco = NULL, fecha_pago = NULL WHERE id = %s AND empresa_db = %s", (int(row_sel['id']), str(db_actual)))
+                                            cur_r.execute("""
+                                                UPDATE ordenes_pago
+                                                SET estado = 'Pendiente',
+                                                    referencia_banco = NULL,
+                                                    fecha_pago = NULL,
+                                                    observaciones = NULL
+                                                WHERE id = %s AND empresa_db = %s
+                                            """, (int(row_sel['id']), str(db_actual)))
                                             conn_rev.commit()
                                         conn_rev.close()
                                         cargar_datos_conciliacion_opt.clear()
-                                        st.warning(f"⚠️ El pago ID #{row_sel['id']} ha sido devuelto a estado **Pendiente**.")
+                                        st.warning(f"⚠️ El pago ID #{int(row_sel['id'])} ha sido devuelto a estado **Pendiente**.")
                                         st.rerun()
                                 except Exception as err_rev:
                                     st.error(f"❌ Error al revertir el registro: {err_rev}")
@@ -16874,7 +17081,6 @@ elif opcion_menu == "📝 Asientos Contables":
 
             except Exception as e:
                 st.error(f"Error en el módulo de conciliación: {e}")
-
         with tab4:
             st.markdown("### ✏️ Modificar y Actualizar Registros")
             st.markdown("Selecciona la tabla que deseas administrar, filtra por fechas y corrige o elimina el registro necesario.")
