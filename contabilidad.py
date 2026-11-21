@@ -16625,6 +16625,9 @@ elif opcion_menu == "📝 Asientos Contables":
                 # ==========================================
                 # ⚡ PASO 1 Y 2: CONCILIACIÓN DE ÓRDENES (TOTAL O FRACCIONADA)
                 # ==========================================
+                # ==========================================
+                # ⚡ PASO 1 Y 2: CONCILIACIÓN DE ÓRDENES (TOTAL O FRACCIONADA)
+                # ==========================================
                 if df_pendientes is not None and not df_pendientes.empty:
                     df_pendientes = df_pendientes.copy()
                     df_pendientes['monto_neto'] = pd.to_numeric(df_pendientes['monto_neto'], errors='coerce').fillna(0.0)
@@ -16668,9 +16671,32 @@ elif opcion_menu == "📝 Asientos Contables":
                         num_abono_actual = _contar_abonos_obs(fila_op_sel['observaciones']) + 1
 
                         if fila_op_sel['abonado_previo'] > 0:
+                            lineas_detalle_abonos = []
+                            patron_ab = re.compile(
+                                r"^\[Abono #(\d+)\s*\|\s*Fecha:\s*([^|]+)\|\s*Ref:\s*([^|]+)\|\s*Monto:\s*([^|]+)\|\s*Banco:\s*([^|]+)\|\s*Comp:\s*([^\]]+)\]$"
+                            )
+                            for linea in str(fila_op_sel['observaciones'] or "").splitlines():
+                                l_strip = linea.strip()
+                                m_ab = patron_ab.match(l_strip)
+                                if m_ab:
+                                    try:
+                                        mto_num = float(m_ab.group(4).strip().replace(",", ""))
+                                        mto_fmt = f"{mto_num:,.2f}"
+                                    except ValueError:
+                                        mto_fmt = m_ab.group(4).strip()
+                                    lineas_detalle_abonos.append(
+                                        f"- **Abono #{m_ab.group(1).strip()}** | Fecha: `{m_ab.group(2).strip()}` | "
+                                        f"Ref: `{m_ab.group(3).strip()}` | Monto: **{mto_fmt}** | "
+                                        f"Banco: {m_ab.group(5).strip()} | Comp: `{m_ab.group(6).strip()}`"
+                                    )
+                                elif "Abono #" in l_strip:
+                                    lineas_detalle_abonos.append(f"- {l_strip}")
+
+                            detalle_md = "\n".join(lineas_detalle_abonos)
                             st.info(
-                                f"💡 Esta orden ya tiene **{num_abono_actual - 1}** abono(s) por **{fila_op_sel['abonado_previo']:,.2f}**. "
-                                f"Saldo disponible para el abono #{num_abono_actual}: **{saldo_disp:,.2f}**."
+                                f"💡 Esta orden ya tiene **{num_abono_actual - 1}** abono(s) registrado(s):\n\n"
+                                f"{detalle_md}\n\n"
+                                f"➡️ **Saldo disponible para el abono #{num_abono_actual}:** **{saldo_disp:,.2f}**"
                             )
 
                         if fila_op_sel['observaciones']:
