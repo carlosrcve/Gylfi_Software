@@ -17100,13 +17100,23 @@ elif opcion_menu == "📝 Asientos Contables":
                     conn = conectar_db(empresa)
                     if conn:
                         if tabla == "proveedores":
-                            df = ejecutar_consulta("SELECT id, empresa_db, nombre, rif, codigo_cuenta, descripcion_cuenta, telefono, email, banco, nro_cuenta, tipo_cuenta FROM proveedores_carga WHERE empresa_db = %s", conn, params=(str(empresa),))
+                            df = ejecutar_consulta(
+                                "SELECT id, empresa_db, nombre, rif, codigo_cuenta, descripcion_cuenta, telefono, email, banco, nro_cuenta, tipo_cuenta FROM proveedores_carga WHERE empresa_db = %s",
+                                conn,
+                                params=(str(empresa),),
+                            )
                         elif tabla == "ordenes":
-                            query = "SELECT id, nro_factura, monto_bruto, retencion_islr, retencion_iva, monto_neto, estado, observaciones, fecha_emision FROM ordenes_pago WHERE empresa_db = %s AND fecha_emision BETWEEN %s AND %s ORDER BY fecha_emision DESC"
+                            query = (
+                                "SELECT id, nro_factura, monto_bruto, retencion_islr, retencion_iva, monto_neto, estado, observaciones, fecha_emision "
+                                "FROM ordenes_pago WHERE empresa_db = %s AND fecha_emision BETWEEN %s AND %s ORDER BY fecha_emision DESC"
+                            )
                             df = ejecutar_consulta(query, conn, params=(str(empresa), str(f_desde), str(f_hasta)))
                         elif tabla == "banco":
-                            query = "SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id FROM banco_movimientos WHERE empresa_db = %s AND fecha_movimiento BETWEEN %s AND %s ORDER BY fecha_movimiento DESC LIMIT 100"
-                            df = ejecutar_consulta(query, conn, params=(str(empresa), str(f_desde), str(f_hasta)))
+                            query = (
+                                "SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id "
+                                "FROM banco_movimientos WHERE fecha_movimiento BETWEEN %s AND %s ORDER BY fecha_movimiento DESC LIMIT 100"
+                            )
+                            df = ejecutar_consulta(query, conn, params=(str(f_desde), str(f_hasta)))
                         conn.close()
                 except Exception:
                     pass
