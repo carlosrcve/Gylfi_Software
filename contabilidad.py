@@ -11321,6 +11321,23 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                     columns=["Columna", "Tipo de Dato", "Permite NULL", "Llave", "Valor por Defecto", "Extra"]
                 )
 
+                # Obtener lista de bases de datos de clientes (excluyendo esquemas del sistema)
+                bds_disponibles = []
+                try:
+                    cur_dbs = conn.cursor()
+                    cur_dbs.execute("SHOW DATABASES")
+                    sistemas_excluidos = {"information_schema", "mysql", "performance_schema", "sys"}
+                    bds_disponibles = [
+                        row[0] for row in cur_dbs.fetchall()
+                        if row[0].lower() not in sistemas_excluidos
+                    ]
+                    cur_dbs.close()
+                except Exception:
+                    bds_disponibles = [db_actual]
+
+                if db_actual not in bds_disponibles:
+                    bds_disponibles.insert(0, db_actual)
+
                 # --- SUB-FRAME DE COLUMNAS ACTUALES ---
                 with st.container(border=True):
                     st.markdown(f"#### Columnas actuales de `{tabla_sel}`")
@@ -11340,28 +11357,106 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                             ["VARCHAR(150)", "VARCHAR(255)", "INT", "DECIMAL(18,2)", "DATE", "TEXT"],
                             key="add_col_type"
                         )
-                        if st.button("Crear Columna", use_container_width=True, type="primary"):
-                            if nueva_col and nueva_col.isidentifier():
-                                try:
-                                    cur = conn.cursor()
-                                    cur.execute(
-                                        f"ALTER TABLE `{db_actual}`.`{tabla_sel}` ADD COLUMN `{nueva_col}` {tipo_col} NULL"
-                                    )
-                                    conn.commit()
-                                    cur.close()
-                                    st.session_state[f"msg_col_creada_{tabla_sel}"] = (
-                                        f"✅ Registro exitoso: se creó la columna `{nueva_col}` ({tipo_col}) en `{db_actual}`.`{tabla_sel}`."
-                                    )
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error MySQL: {e}")
-                            else:
-                                st.error("Nombre de columna inválido (usa solo letras y guion bajo).")
 
-                        # Mostrar el mensaje guardado tras el rerun y limpiarlo para que no quede pegado
+                        aplicar_a_todas_bds = st.checkbox(
+                            "Aplicar a todas las bases de datos",
+                            value=False,
+                            key=f"chk_all_dbs_add_{tabla_sel}"
+                        )
+
+                        if aplicar_a_todas_bds:
+                            bds_destino = bds_disponibles
+                            st.caption(f"Se intentará aplicar en **{len(bds_destino)}** bases de datos.")
+                        else:
+                            bds_destino = st.multiselect(
+                                "Bases de datos destino:",
+                                options=bds_disponibles,
+                                default=[db_actual],
+                                key=f"ms_dbs_add_{tabla_sel}"
+                            )
+
+                        if st.button("Crear Columna", use_container_width=True, type="primary"):
+                            if not nueva_col or not nueva_col.isidentifier():
+                                st.error("Nombre de columna inválido (usa solo letras y guion bajo).")
+                            elif not bds_destino:
+                                st.warning("Selecciona al menos una base de datos.")
+                            else:
+                                creadas_en = []
+                                omitidas_ya_existe = []
+                                omitidas_sin_tabla = []
+                                errores_bd = []
+
+                                cur = conn.cursor()
+                                try:
+                                    for bd_dest in bds_destino:
+                                        cur.execute(
+                                            """
+                                            SELECT COUNT(*)
+                                            FROM INFORMATION_SCHEMA.TABLES
+                                            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+                                            """,
+                                            (bd_dest, tabla_sel),
+                                        )
+                                        if cur.fetchone()[0] == 0:
+                                            omitidas_sin_tabla.append(bd_dest)
+                                            continue
+
+                                        cur.execute(
+                                            """
+                                            SELECT COUNT(*)
+                                            FROM INFORMATION_SCHEMA.COLUMNS
+                                            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s
+                                            """,
+                                            (bd_dest, tabla_sel, nueva_col),
+                                        )
+                                        if cur.fetchone()[0] > 0:
+                                            omitidas_ya_existe.append(bd_dest)
+                                            continue
+
+                                        try:
+                                            cur.execute(
+                                                f"ALTER TABLE `{bd_dest}`.`{tabla_sel}` ADD COLUMN `{nueva_col}` {tipo_col} NULL"
+                                            )
+                                            creadas_en.append(bd_dest)
+                                        except Exception as e_bd:
+                                            errores_bd.append(f"`{bd_dest}`: {e_bd}")
+
+                                    conn.commit()
+                                finally:
+                                    cur.close()
+
+                                st.session_state[f"msg_col_creada_{tabla_sel}"] = {
+                                    "col": nueva_col,
+                                    "tipo": tipo_col,
+                                    "tabla": tabla_sel,
+                                    "creadas_en": creadas_en,
+                                    "omitidas_ya_existe": omitidas_ya_existe,
+                                    "omitidas_sin_tabla": omitidas_sin_tabla,
+                                    "errores_bd": errores_bd,
+                                }
+                                st.rerun()
+
+                        # Mostrar el resumen tras el rerun y limpiarlo para que no quede pegado
                         msg_clave = f"msg_col_creada_{tabla_sel}"
                         if st.session_state.get(msg_clave):
-                            st.success(st.session_state.pop(msg_clave))
+                            res = st.session_state.pop(msg_clave)
+                            if res["creadas_en"]:
+                                st.success(
+                                    f"✅ Columna `{res['col']}` ({res['tipo']}) creada en `{res['tabla']}` "
+                                    f"en: {', '.join(f'`{d}`' for d in res['creadas_en'])}."
+                                )
+                            if res["omitidas_ya_existe"]:
+                                st.info(
+                                    f"ℹ️ Ya existía `{res['col']}` en: "
+                                    f"{', '.join(f'`{d}`' for d in res['omitidas_ya_existe'])}."
+                                )
+                            if res["omitidas_sin_tabla"]:
+                                st.warning(
+                                    f"⚠️ Tabla `{res['tabla']}` no encontrada en: "
+                                    f"{', '.join(f'`{d}`' for d in res['omitidas_sin_tabla'])}."
+                                )
+                            for err in res["errores_bd"]:
+                                st.error(f"❌ Error MySQL en {err}")
 
                     with col_mod:
                         st.markdown("##### ✏️ Modificar Columna")
@@ -11974,14 +12069,14 @@ import calendar
 from datetime import date, datetime
 
 TABLAS_CIERRE_CONFIG = {
-    "Asientos Contables": {"tabla": "asientos_contables", "col_fecha": "fecha", "col_bloqueo": "bloqueo"},
-    "Libro de Ventas": {"tabla": "libro_ventas", "col_fecha": "fecha_factura", "col_bloqueo": "bloqueo"},
-    "Libro de Compras": {"tabla": "libro_compras", "col_fecha": "fecha_factura", "col_bloqueo": "bloqueo"},
-    "Retenciones de IVA": {"tabla": "retenciones_iva", "col_fecha": "fecha_comprobante", "col_bloqueo": "bloqueo"},
-    "Retenciones de ISLR": {"tabla": "retenciones_islr", "col_fecha": "fecha_operacion", "col_bloqueo": "bloqueo"},
-    "Movimientos Bancarios": {"tabla": "banco_movimientos", "col_fecha": "fecha", "col_bloqueo": "bloqueo"},
-    "Archivo TXT": {"tabla": "archivo_txt", "col_fecha": "fecha", "col_bloqueo": "bloqueo"},
-    "Saldos Iniciales": {"tabla": "saldos_iniciales", "col_fecha": "fecha", "col_bloqueo": "bloqueo"},
+    "Asientos Contables": {"tabla": "asientos_contables","col_fecha": "fecha","col_bloqueo": "bloqueado"},
+    "Libro de Ventas": {"tabla": "libro_ventas","col_fecha": "fecha_factura","col_bloqueo": "bloqueado"},
+    "Libro de Compras": {"tabla": "libro_compras","col_fecha": "fecha_operacion","col_bloqueo": "bloqueado"},
+    "Retenciones de IVA": {"tabla": "retenciones_iva","col_fecha": "Fecha_Factura","col_bloqueo": "bloqueado"},
+    "Retenciones de ISLR": {"tabla": "retenciones_islr","col_fecha": "fecha_operacion","col_bloqueo": "bloqueado"},
+    "Movimientos Bancarios": {"tabla": "banco_movimientos","col_fecha": "fecha_movimiento","col_bloqueo": "bloqueado"},
+    "Archivo TXT": {"tabla": "archivo_txt","col_fecha": "FechadeFactura","col_bloqueo": "bloqueado"},
+    "Saldos Iniciales": {"tabla": "saldos_iniciales","col_fecha": "fecha","col_bloqueo": "bloqueado"},
 }
 
 MESES_ES = {
