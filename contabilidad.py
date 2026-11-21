@@ -16663,9 +16663,10 @@ elif opcion_menu == "📝 Asientos Contables":
                         
                         dict_ops_pend = {
                             (
-                                f"ID: {int(row['id'])} | Prov: {row['proveedor']} | Factura: {row['nro_factura']} | "
-                                f"Total: {row['monto_neto']:,.2f} | Abonado: {row['abonado_previo']:,.2f} | "
-                                f"Saldo: {row['saldo_pendiente']:,.2f} | Estado: {row['estado']}"
+                                f"ID: {int(row['id'])} | Fecha: {row['fecha_emision']} | Prov: {row['proveedor']} | "
+                                f"Factura: {row['nro_factura']} | Total: {row['monto_neto']:,.2f} | "
+                                f"Abonado: {row['abonado_previo']:,.2f} | Saldo: {row['saldo_pendiente']:,.2f} | "
+                                f"Estado: {row['estado']}"
                             ): int(row['id'])
                             for _, row in df_ops_activas.iterrows()
                         }
