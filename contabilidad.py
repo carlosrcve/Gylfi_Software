@@ -11594,33 +11594,127 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                             [c for c in lista_nombres_col if c != "id"],
                             key=f"del_col_sel_{tabla_sel}"
                         )
+
+                        if "bds_disponibles" not in locals():
+                            try:
+                                cur_dbs = conn.cursor()
+                                cur_dbs.execute("SHOW DATABASES")
+                                sistemas_excluidos = {"information_schema", "mysql", "performance_schema", "sys"}
+                                bds_disponibles = [
+                                    row[0] for row in cur_dbs.fetchall()
+                                    if row[0].lower() not in sistemas_excluidos
+                                ]
+                                cur_dbs.close()
+                            except Exception:
+                                bds_disponibles = [db_actual]
+                            if db_actual not in bds_disponibles:
+                                bds_disponibles.insert(0, db_actual)
+
+                        aplicar_a_todas_bds_del = st.checkbox(
+                            "Eliminar en todas las bases de datos",
+                            value=False,
+                            key=f"chk_all_dbs_del_{tabla_sel}"
+                        )
+
+                        if aplicar_a_todas_bds_del:
+                            bds_destino_del = bds_disponibles
+                            st.caption(f"Se aplicará en **{len(bds_destino_del)}** bases de datos.")
+                        else:
+                            bds_destino_del = st.multiselect(
+                                "Bases de datos destino:",
+                                options=bds_disponibles,
+                                default=[db_actual],
+                                key=f"ms_dbs_del_{tabla_sel}"
+                            )
+
                         confirmar_del = st.checkbox(
                             "Confirmo que revisé las funciones vinculadas",
                             key=f"chk_del_col_{tabla_sel}"
                         )
 
                         if st.button("Eliminar Columna", use_container_width=True, key=f"btn_del_col_{tabla_sel}"):
-                            if confirmar_del and col_a_del:
-                                try:
-                                    cur = conn.cursor()
-                                    cur.execute(
-                                        f"ALTER TABLE `{db_actual}`.`{tabla_sel}` DROP COLUMN `{col_a_del}`"
-                                    )
-                                    conn.commit()
-                                    cur.close()
-                                    st.session_state[f"msg_col_del_{tabla_sel}"] = (
-                                        f"🗑️ Columna eliminada: `{col_a_del}` fue borrada de `{db_actual}`.`{tabla_sel}`."
-                                    )
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Error MySQL: {e}")
-                            else:
+                            if not confirmar_del:
                                 st.info("Marca la casilla de confirmación antes de eliminar.")
+                            elif not col_a_del:
+                                st.warning("Selecciona una columna válida para eliminar.")
+                            elif not bds_destino_del:
+                                st.warning("Selecciona al menos una base de datos.")
+                            else:
+                                eliminadas_en = []
+                                omitidas_sin_col = []
+                                omitidas_sin_tabla = []
+                                errores_bd = []
+
+                                cur = conn.cursor()
+                                try:
+                                    for bd_dest in bds_destino_del:
+                                        cur.execute(
+                                            """
+                                            SELECT COUNT(*)
+                                            FROM INFORMATION_SCHEMA.TABLES
+                                            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+                                            """,
+                                            (bd_dest, tabla_sel),
+                                        )
+                                        if cur.fetchone()[0] == 0:
+                                            omitidas_sin_tabla.append(bd_dest)
+                                            continue
+
+                                        cur.execute(
+                                            """
+                                            SELECT COUNT(*)
+                                            FROM INFORMATION_SCHEMA.COLUMNS
+                                            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s
+                                            """,
+                                            (bd_dest, tabla_sel, col_a_del),
+                                        )
+                                        if cur.fetchone()[0] == 0:
+                                            omitidas_sin_col.append(bd_dest)
+                                            continue
+
+                                        try:
+                                            cur.execute(
+                                                f"ALTER TABLE `{bd_dest}`.`{tabla_sel}` DROP COLUMN `{col_a_del}`"
+                                            )
+                                            eliminadas_en.append(bd_dest)
+                                        except Exception as e_bd:
+                                            errores_bd.append(f"`{bd_dest}`: {e_bd}")
+
+                                    conn.commit()
+                                finally:
+                                    cur.close()
+
+                                st.session_state[f"msg_col_del_{tabla_sel}"] = {
+                                    "col": col_a_del,
+                                    "tabla": tabla_sel,
+                                    "eliminadas_en": eliminadas_en,
+                                    "omitidas_sin_col": omitidas_sin_col,
+                                    "omitidas_sin_tabla": omitidas_sin_tabla,
+                                    "errores_bd": errores_bd,
+                                }
+                                st.rerun()
 
                         # Mostrar mensaje de confirmación tras el rerun y limpiarlo
                         msg_del_clave = f"msg_col_del_{tabla_sel}"
                         if st.session_state.get(msg_del_clave):
-                            st.warning(st.session_state.pop(msg_del_clave))
+                            res_del = st.session_state.pop(msg_del_clave)
+                            if res_del["eliminadas_en"]:
+                                st.warning(
+                                    f"🗑️ Columna `{res_del['col']}` eliminada de `{res_del['tabla']}` "
+                                    f"en: {', '.join(f'`{d}`' for d in res_del['eliminadas_en'])}."
+                                )
+                            if res_del["omitidas_sin_col"]:
+                                st.info(
+                                    f"ℹ️ No existía `{res_del['col']}` en: "
+                                    f"{', '.join(f'`{d}`' for d in res_del['omitidas_sin_col'])}."
+                                )
+                            if res_del["omitidas_sin_tabla"]:
+                                st.warning(
+                                    f"⚠️ Tabla `{res_del['tabla']}` no encontrada en: "
+                                    f"{', '.join(f'`{d}`' for d in res_del['omitidas_sin_tabla'])}."
+                                )
+                            for err in res_del["errores_bd"]:
+                                st.error(f"❌ Error MySQL en {err}")
 
             with tab_code:
                 with st.container(border=True):
