@@ -11282,8 +11282,6 @@ def obtener_datos_punto_equilibrio(db_nombre, anio, mes):
     return 0.0, 0.0, 0.0
 
 
-
-
 def render_gestor_esquemas_mysql(conn, db_actual):
     # --- SELECTOR PRINCIPAL DE VISTA (RADIO) ---
     with st.container(border=True):
@@ -14228,12 +14226,51 @@ elif opcion_menu == "📝 Asientos Contables":
                             except Exception as e:
                                 st.error(f"Error técnico: {str(e)}")
 
-                        excel_data = exportar_a_excel(df_editado)
+                        # --- BLOQUE DE EXPORTACIÓN A EXCEL CON DESCRIPCIÓN ---
+                        df_excel = df_editado.copy()
+
+                        if "descripcion" not in df_excel.columns:
+                            df_excel["descripcion"] = ""
+                        df_excel["descripcion"] = df_excel["descripcion"].fillna("").astype(str)
+
+                        if "plan_cuentas" in df_excel.columns:
+                            df_excel["plan_cuentas"] = df_excel["plan_cuentas"].astype(str).apply(
+                                lambda x: x.split(" - ")[0].strip() if " - " in x else x.strip()
+                            )
+
+                        columnas_orden = [
+                            "id",
+                            "n_comprobante",
+                            "fecha",
+                            "descripcion",
+                            "plan_cuentas",
+                            "cuenta_contable",
+                            "referencia",
+                            "debe",
+                            "haber",
+                        ]
+                        df_excel = df_excel[[c for c in columnas_orden if c in df_excel.columns]].rename(columns={
+                            "id": "ID",
+                            "n_comprobante": "Comprobante",
+                            "fecha": "Fecha",
+                            "descripcion": "Descripción",
+                            "plan_cuentas": "Plan Cuentas",
+                            "cuenta_contable": "Cuenta Contable",
+                            "referencia": "Referencia",
+                            "debe": "Debe",
+                            "haber": "Haber",
+                        })
+
+                        buffer_excel = io.BytesIO()
+                        with pd.ExcelWriter(buffer_excel, engine="openpyxl") as writer:
+                            df_excel.to_excel(writer, index=False, sheet_name="Libro Diario")
+
                         st.download_button(
                             label="📥 Descargar Datos Visualizados",
-                            data=excel_data,
+                            data=buffer_excel.getvalue(),
                             file_name="Libro_Diario_Filtrado.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="btn_descargar_diario_excel"
                         )
                         
                         t_debe = pd.to_numeric(df_editado['debe'], errors='coerce').sum()
