@@ -16625,9 +16625,6 @@ elif opcion_menu == "📝 Asientos Contables":
                 # ==========================================
                 # ⚡ PASO 1 Y 2: CONCILIACIÓN DE ÓRDENES (TOTAL O FRACCIONADA)
                 # ==========================================
-                # ==========================================
-                # ⚡ PASO 1 Y 2: CONCILIACIÓN DE ÓRDENES (TOTAL O FRACCIONADA)
-                # ==========================================
                 if df_pendientes is not None and not df_pendientes.empty:
                     df_pendientes = df_pendientes.copy()
                     df_pendientes['monto_neto'] = pd.to_numeric(df_pendientes['monto_neto'], errors='coerce').fillna(0.0)
@@ -16825,30 +16822,36 @@ elif opcion_menu == "📝 Asientos Contables":
 
                         with col_btn_p1:
                             if st.button("📥 Registrar Movimiento en Banco", type="secondary", key="btn_guardar_banco_mov", use_container_width=True):
+                                monto_a_pagar = round(float(monto_abono), 2)
                                 if not referencia_bancaria:
                                     st.warning("⚠️ Debes introducir obligatoriamente la referencia bancaria del estado de cuenta.")
-                                elif monto_abono <= 0 or monto_abono > saldo_disp + 0.01:
+                                elif monto_a_pagar <= 0 or monto_a_pagar > saldo_disp + 0.01:
                                     st.warning("⚠️ El monto del abono debe ser mayor a 0 y no superar el saldo pendiente.")
+                                elif _existe_abono_similar(fila_op_sel['observaciones'], referencia_bancaria, monto_a_pagar):
+                                    st.warning("⚠️ Ya existe un abono registrado en esta orden con esa misma referencia bancaria y monto.")
                                 else:
                                     try:
                                         conn_bm = conectar_db(db_actual)
                                         if conn_bm:
                                             with conn_bm.cursor() as cur_bm:
                                                 fecha_actual_hoy = datetime.date.today().strftime('%Y-%m-%d')
-                                                monto_a_pagar = round(float(monto_abono), 2)
                                                 nuevo_saldo = max(0.0, round(saldo_disp - monto_a_pagar, 2))
                                                 nuevo_estado = "Conciliado" if nuevo_saldo < 0.01 else "Pago Parcial"
 
                                                 n_fact_val = str(fila_op_sel['nro_factura'])
                                                 prov_nombre_val = str(fila_op_sel['proveedor'])
-                                                n_comp_asiento = f"PAGO-{n_fact_val}-AB{num_abono_actual}"
+                                                num_abono_seguro, n_comp_asiento = _obtener_siguiente_comp(
+                                                    fila_op_sel['observaciones'],
+                                                    n_fact_val,
+                                                    num_abono_actual
+                                                )
                                                 bco_reg = info_banco_prev['nombre'] if info_banco_prev else (
                                                     str(fila_op_sel['banco_prov']) if fila_op_sel['banco_prov'] else "Banco Emisor"
                                                 )
 
                                                 nueva_obs = _construir_nueva_observacion(
                                                     fila_op_sel['observaciones'],
-                                                    num_abono_actual,
+                                                    num_abono_seguro,
                                                     str(fecha_pago_real),
                                                     referencia_bancaria,
                                                     monto_a_pagar,
@@ -16866,7 +16869,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                                     str(fila_op_sel['cuenta_prov']) if fila_op_sel['cuenta_prov'] else "N/A",
                                                     str(fecha_pago_real),
                                                     referencia_bancaria,
-                                                    f"Abono #{num_abono_actual} Factura #{n_fact_val} - {prov_nombre_val}",
+                                                    f"Abono #{num_abono_seguro} Factura #{n_fact_val} - {prov_nombre_val}",
                                                     -monto_a_pagar,
                                                     'Pendiente Asiento',
                                                     n_comp_asiento,
@@ -16892,36 +16895,42 @@ elif opcion_menu == "📝 Asientos Contables":
 
                                             conn_bm.close()
                                             cargar_datos_conciliacion_opt.clear()
-                                            st.success(f"✅ ¡Abono #{num_abono_actual} ({monto_a_pagar:,.2f}) registrado en banco! Estado actual: {nuevo_estado}.")
+                                            st.success(f"✅ ¡Abono #{num_abono_seguro} ({monto_a_pagar:,.2f}) registrado en banco! Estado actual: {nuevo_estado}.")
                                             st.rerun()
                                     except Exception as err_bm:
                                         st.error(f"❌ Error al guardar en banco_movimientos: {err_bm}")
 
                         with col_btn_p2:
                             if st.button("💾 Guardar Asiento en Libro Diario y Conciliar", type="primary", key="btn_guardar_asiento_diario", use_container_width=True):
+                                monto_a_pagar = round(float(monto_abono), 2)
                                 if not referencia_bancaria:
                                     st.warning("⚠️ Asegúrate de haber ingresado la referencia bancaria.")
                                 elif not lista_bancos_detalle or "No hay cuentas" in cta_banco_salida:
                                     st.error("⚠️ Debes seleccionar una cuenta bancaria válida.")
-                                elif monto_abono <= 0 or monto_abono > saldo_disp + 0.01:
+                                elif monto_a_pagar <= 0 or monto_a_pagar > saldo_disp + 0.01:
                                     st.warning("⚠️ El monto del abono debe ser mayor a 0 y no superar el saldo pendiente.")
+                                elif _existe_abono_similar(fila_op_sel['observaciones'], referencia_bancaria, monto_a_pagar):
+                                    st.warning("⚠️ Ya existe un abono registrado en esta orden con esa misma referencia bancaria y monto.")
                                 else:
                                     try:
                                         conn_update = conectar_db(db_actual)
                                         if conn_update:
                                             with conn_update.cursor() as cursor_m:
-                                                monto_a_pagar = round(float(monto_abono), 2)
                                                 nuevo_saldo = max(0.0, round(saldo_disp - monto_a_pagar, 2))
                                                 nuevo_estado = "Conciliado" if nuevo_saldo < 0.01 else "Pago Parcial"
 
                                                 n_fact_val = str(fila_op_sel['nro_factura'])
                                                 prov_nombre_val = str(fila_op_sel['proveedor'])
-                                                n_comp_asiento = f"PAGO-{n_fact_val}-AB{num_abono_actual}"
-                                                desc_asiento = f"Abono #{num_abono_actual} a {prov_nombre_val} - Factura {n_fact_val}"
+                                                num_abono_seguro, n_comp_asiento = _obtener_siguiente_comp(
+                                                    fila_op_sel['observaciones'],
+                                                    n_fact_val,
+                                                    num_abono_actual
+                                                )
+                                                desc_asiento = f"Abono #{num_abono_seguro} a {prov_nombre_val} - Factura {n_fact_val}"
 
                                                 nueva_obs = _construir_nueva_observacion(
                                                     fila_op_sel['observaciones'],
-                                                    num_abono_actual,
+                                                    num_abono_seguro,
                                                     str(fecha_pago_real),
                                                     referencia_bancaria,
                                                     monto_a_pagar,
@@ -16968,9 +16977,10 @@ elif opcion_menu == "📝 Asientos Contables":
                                             conn_update.close()
                                             cargar_datos_conciliacion_opt.clear()
                                             st.success(
-                                                f"✅ ¡Abono #{num_abono_actual} por {monto_a_pagar:,.2f} asentado (`{n_comp_asiento}`)! "
+                                                f"✅ ¡Abono #{num_abono_seguro} por {monto_a_pagar:,.2f} asentado (`{n_comp_asiento}`)! "
                                                 f"Orden #{int(fila_op_sel['id'])} en estado: **{nuevo_estado}** (Saldo: {nuevo_saldo:,.2f})."
                                             )
+                                            st.rerun()
                                     except Exception as ex_m:
                                         st.error(f"❌ Error al registrar el asiento contable: {ex_m}")
                     else:
