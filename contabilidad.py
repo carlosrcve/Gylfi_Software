@@ -8076,7 +8076,17 @@ def cobranzas_facutras(conn):
             with col_m2:
                 fecha_cobro_real = st.date_input("Fecha de Cobro (Banco)", value=date.today(), key="input_fec_banco_cob")
             with col_m3:
-                monto_abono = st.number_input("Monto de este Abono / Cuota", min_value=0.01, max_value=saldo_restante, value=saldo_restante, step=10.0, format="%.2f", key="input_monto_abono")
+                max_abono = max(0.01, saldo_restante)
+                val_abono = min(max_abono, max(0.01, saldo_restante))
+                monto_abono = st.number_input(
+                    "Monto de este Abono / Cuota",
+                    min_value=0.01,
+                    max_value=max_abono,
+                    value=val_abono,
+                    step=10.0,
+                    format="%.2f",
+                    key=f"input_monto_abono_{int(fila_cob_sel['id'])}"
+                )
 
             col_cta1, col_cta2 = st.columns(2)
             with col_cta1:
@@ -16536,21 +16546,29 @@ elif opcion_menu == "📝 Asientos Contables":
                 import pandas as pd
 
                 def _extraer_total_abonado_obs(obs_texto):
+                    """Suma únicamente los montos de líneas de abonos registrados ([Abono #...])."""
                     if not obs_texto:
                         return 0.0
-                    matches = re.findall(r"Monto:\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)", str(obs_texto))
                     total = 0.0
-                    for m in matches:
-                        try:
-                            total += float(m.replace(",", ""))
-                        except ValueError:
-                            pass
+                    for linea in str(obs_texto).splitlines():
+                        if "[Abono #" in linea or "Abono #" in linea:
+                            matches = re.findall(r"Monto:\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)", linea)
+                            for m in matches:
+                                try:
+                                    total += float(m.replace(",", ""))
+                                except ValueError:
+                                    pass
                     return round(total, 2)
 
+
                 def _contar_abonos_obs(obs_texto):
+                    """Cuenta únicamente las líneas reales de abonos registrados."""
                     if not obs_texto:
                         return 0
-                    return len(re.findall(r"Monto:\s*[0-9]+", str(obs_texto)))
+                    return sum(
+                        1 for linea in str(obs_texto).splitlines()
+                        if "[Abono #" in linea or "Abono #" in linea
+                    )
 
                 def _construir_nueva_observacion(obs_actual, num_ab, fec_p, ref_b, mto_a, comp_a, bco_nom):
                     linea = (
