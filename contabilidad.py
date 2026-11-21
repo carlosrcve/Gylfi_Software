@@ -16586,13 +16586,15 @@ elif opcion_menu == "📝 Asientos Contables":
 
                             # 2. Órdenes de pago pendientes o con pago parcial por conciliar
                             query_pendientes = """
-                                SELECT op.id, p.nombre AS proveedor, p.rif, p.banco AS banco_prov, p.nro_cuenta AS cuenta_prov, 
-                                       op.nro_factura, op.monto_bruto, op.retencion_islr, op.retencion_iva, op.monto_neto, op.fecha_emision, op.observaciones, op.estado
+                                SELECT op.id, COALESCE(p.nombre, 'Sin Proveedor') AS proveedor, p.rif,
+                                       p.banco AS banco_prov, p.nro_cuenta AS cuenta_prov,
+                                       op.nro_factura, op.monto_bruto, op.retencion_islr, op.retencion_iva,
+                                       op.monto_neto, op.fecha_emision, op.observaciones, op.estado
                                 FROM ordenes_pago op
-                                JOIN proveedores_carga p ON op.proveedor_id = p.id
+                                LEFT JOIN proveedores_carga p ON op.proveedor_id = p.id
                                 WHERE op.empresa_db = %s 
                                   AND (op.estado NOT IN ('Conciliado', 'Pagado') OR op.estado IS NULL)
-                                ORDER BY op.fecha_emision DESC
+                                ORDER BY op.id DESC, op.fecha_emision DESC
                             """
                             df_ops_pend = ejecutar_consulta(query_pendientes, conn, params=(str(empresa),))
                             conn.close()
@@ -16628,8 +16630,20 @@ elif opcion_menu == "📝 Asientos Contables":
                             ): int(row['id'])
                             for _, row in df_ops_activas.iterrows()
                         }
-                        
-                        selected_op_label = st.selectbox("Selecciona la Orden de Pago a Conciliar", list(dict_ops_pend.keys()), key="select_op_cruce_tab3")
+
+                        col_sel_op, col_btn_ref = st.columns([4.2, 1])
+                        with col_sel_op:
+                            selected_op_label = st.selectbox(
+                                "Selecciona la Orden de Pago a Conciliar",
+                                list(dict_ops_pend.keys()),
+                                key="select_op_cruce_tab3"
+                            )
+                        with col_btn_ref:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            if st.button("🔄 Actualizar", key="btn_refrescar_ops_tab3", use_container_width=True):
+                                cargar_datos_conciliacion_opt.clear()
+                                st.rerun()
+
                         fila_op_sel = df_ops_activas[df_ops_activas['id'] == dict_ops_pend[selected_op_label]].iloc[0]
 
                         saldo_disp = float(fila_op_sel['saldo_pendiente'])
@@ -17129,7 +17143,7 @@ elif opcion_menu == "📝 Asientos Contables":
 
             # ==========================================
             # 🏢 1. PROVEEDORES CARGA
-            # ==========================================
+            # =========================================
             if sub_gestion == "Proveedores Carga":
                 st.markdown("#### 🏢 Editar / Actualizar Proveedor de Carga")
                 try:
