@@ -17362,36 +17362,51 @@ elif opcion_menu == "📝 Asientos Contables":
 
                         st.divider()
                         st.markdown(f"**Modificando Movimiento ID:** `{id_bm_sel}`")
-                        
+
+                        fecha_actual_bm = pd.to_datetime(fila_bm['fecha_movimiento'], errors='coerce').date()
+                        if pd.isna(fecha_actual_bm):
+                            fecha_actual_bm = None
+
                         col_be1, col_be2 = st.columns(2)
                         with col_be1:
                             nuevo_banco_nom = st.text_input("Banco Nombre", value=fila_bm['banco_nombre'] or "", key=f"nb_{id_bm_sel}").strip()
                             nuevo_nro_cta_bm = st.text_input("Cuenta Número", value=fila_bm['cuenta_numero'] or "", key=f"nc_{id_bm_sel}").strip()
                             nueva_ref_bm = st.text_input("Referencia Bancaria", value=fila_bm['referencia'] or "", key=f"nr_{id_bm_sel}").strip()
+                            nueva_fecha_bm = st.date_input("Fecha Movimiento", value=fecha_actual_bm, key=f"nf_{id_bm_sel}")
                         with col_be2:
                             nuevo_monto_bm = st.number_input("Monto", value=float(fila_bm['monto']), step=100.00, format="%.2f", key=f"nm_{id_bm_sel}")
-                            
+
                             estados_posibles = ["Conciliado", "Pendiente Asiento", "No Conciliado"]
                             idx_est = estados_posibles.index(fila_bm['estado_conciliacion']) if fila_bm['estado_conciliacion'] in estados_posibles else 0
                             nuevo_estado_conc = st.selectbox("Estado Conciliación", estados_posibles, index=idx_est, key=f"ne_{id_bm_sel}")
-                            
+
                             nuevo_asiento_id = st.text_input("Asiento ID asociado", value=fila_bm['asiento_id'] or "", key=f"na_{id_bm_sel}").strip()
-                        
+
                         nueva_desc_bm = st.text_area("Descripción del Movimiento", value=fila_bm['descripcion'] or "", key=f"nd_{id_bm_sel}").strip()
-                        
+
                         if st.button("💾 Actualizar Movimiento", type="primary", key=f"btn_act_bm_{id_bm_sel}", use_container_width=True):
                             try:
                                 conn_ubm = conectar_db(db_actual)
                                 with conn_ubm.cursor() as cur_ubm:
                                     cur_ubm.execute("""
                                         UPDATE banco_movimientos 
-                                        SET banco_nombre = %s, cuenta_numero = %s, referencia = %s, monto = %s, estado_conciliacion = %s, asiento_id = %s, descripcion = %s
+                                        SET banco_nombre = %s, cuenta_numero = %s, fecha_movimiento = %s, referencia = %s, monto = %s, estado_conciliacion = %s, asiento_id = %s, descripcion = %s
                                         WHERE id = %s
-                                    """, (nuevo_banco_nom, nuevo_nro_cta_bm, nueva_ref_bm, nuevo_monto_bm, nuevo_estado_conc, nuevo_asiento_id, nueva_desc_bm, id_bm_sel))
+                                    """, (
+                                        nuevo_banco_nom,
+                                        nuevo_nro_cta_bm,
+                                        str(nueva_fecha_bm) if nueva_fecha_bm else None,
+                                        nueva_ref_bm,
+                                        nuevo_monto_bm,
+                                        nuevo_estado_conc,
+                                        nuevo_asiento_id,
+                                        nueva_desc_bm,
+                                        id_bm_sel
+                                    ))
                                     conn_ubm.commit()
                                 conn_ubm.close()
                                 cargar_datos_edicion.clear()
-                                
+
                                 st.session_state.msg_alerta_bm = ("success", f"✅ ¡Movimiento ID #{id_bm_sel} actualizado con éxito!")
                                 st.rerun()
                             except Exception as ex_ubm:
