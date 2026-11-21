@@ -16927,7 +16927,6 @@ elif opcion_menu == "📝 Asientos Contables":
                                                 f"✅ ¡Abono #{num_abono_actual} por {monto_a_pagar:,.2f} asentado (`{n_comp_asiento}`)! "
                                                 f"Orden #{int(fila_op_sel['id'])} en estado: **{nuevo_estado}** (Saldo: {nuevo_saldo:,.2f})."
                                             )
-                                            st.rerun()
                                     except Exception as ex_m:
                                         st.error(f"❌ Error al registrar el asiento contable: {ex_m}")
                     else:
