@@ -14055,13 +14055,16 @@ if opcion_menu == "🏠 Inicio":
                     f"etiqueta_{idx + 1}_{str(post.get('categoria', 'post')).lower().replace(' ', '_')}_"
                     f"{str(post.get('fecha', '')).replace('/', '_')}.png"
                 )
-                st.download_button(
-                    label="descargar imagen en PNG",
-                    data=png_bytes,
-                    file_name=nombre_archivo,
-                    mime="image/png",
-                    key=f"dl_card_png_{idx}_{post.get('categoria', '')}_{post.get('fecha', '')}",
-                )
+
+                _, col_der = st.columns([0.78, 0.22])
+                with col_der:
+                    st.download_button(
+                        label="descargar imagen en PNG",
+                        data=png_bytes,
+                        file_name=nombre_archivo,
+                        mime="image/png",
+                        key=f"dl_card_png_{idx}_{post.get('categoria', '')}_{post.get('fecha', '')}",
+                    )
 
 
     # --- PERÍODO DE CONSULTA (CON SOPORTE PARA 2027) ---
