@@ -13682,6 +13682,11 @@ if opcion_menu == "🏠 Inicio":
     import pandas as pd
 
 
+    import calendar
+    import datetime as dt
+    import pandas as pd
+
+
     def obtener_deuda_proveedores_cierre_mes(conn, anio_actual, mes_num_actual, cuenta_codigo="2.1.1.01.001"):
         """
         Calcula la deuda acumulada con Proveedores Nacionales (cuenta de pasivo, naturaleza haber)
@@ -13689,30 +13694,34 @@ if opcion_menu == "🏠 Inicio":
         """
         ultimo_dia = calendar.monthrange(int(anio_actual), int(mes_num_actual))[1]
         fecha_corte = dt.date(int(anio_actual), int(mes_num_actual), ultimo_dia).strftime("%Y-%m-%d")
-        patron_cuenta = f"{str(cuenta_codigo).strip()}%"
+        codigo_limpio = str(cuenta_codigo).strip()
+        patron_codigo = f"{codigo_limpio}%"
+        patron_nombre = "%proveedores nacionales%"
 
+        # 1. Saldos iniciales (sin cortar por fecha salvo que lo necesites)
         df_si = ejecutar_consulta(
             """
             SELECT COALESCE(SUM(haber), 0) AS haber_si,
                    COALESCE(SUM(debe), 0) AS debe_si
             FROM saldos_iniciales
-            WHERE cuenta_contable LIKE %s
-              AND fecha <= %s
+            WHERE TRIM(cuenta_contable) LIKE %s
+               OR LOWER(cuenta_contable) LIKE %s
             """,
             conn,
-            params=(patron_cuenta, fecha_corte)
+            params=(patron_codigo, patron_nombre)
         )
 
+        # 2. Movimientos en asientos_contables hasta el último día del mes seleccionado
         df_mov = ejecutar_consulta(
             """
             SELECT COALESCE(SUM(haber), 0) AS haber_mov,
                    COALESCE(SUM(debe), 0) AS debe_mov
             FROM asientos_contables
-            WHERE cuenta_contable LIKE %s
+            WHERE (TRIM(cuenta_contable) LIKE %s OR LOWER(cuenta_contable) LIKE %s)
               AND fecha <= %s
             """,
             conn,
-            params=(patron_cuenta, fecha_corte)
+            params=(patron_codigo, patron_nombre, fecha_corte)
         )
 
         haber_si = float(pd.to_numeric(df_si.iloc[0]["haber_si"], errors="coerce") or 0.0) if (df_si is not None and not df_si.empty) else 0.0
