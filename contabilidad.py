@@ -13973,10 +13973,12 @@ if opcion_menu == "🏠 Inicio":
                         "severidad": "critico",
                         "etiqueta": "ÓRDENES PEND.",
                         "titular_html": (
-                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> hay una deuda pendiente "
-                            f"de <span class='hl'>{deuda_per:,.2f}</span> en <span class='hl'>{cant_per} orden(es)</span> con proveedores."
+                            f"Freno operativo en <span class='hl'>{mes_nombre_actual} {anio_actual}</span>: "
+                            f"<span class='hl'>{cant_per} orden(es) de pago</span> por "
+                            f"<span class='hl'>{deuda_per:,.2f}</span> siguen sin pagarse ni conciliarse en banco, "
+                            f"evidenciando retraso en el ciclo de tesorería y cruce de facturas."
                         ),
-                        "contexto": f"BD: {db_actual} • Órdenes de pago",
+                        "contexto": f"BD: {db_actual} • Órdenes de pago sin conciliar/pagar",
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
 
