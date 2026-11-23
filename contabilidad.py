@@ -12681,8 +12681,6 @@ if menu_lateral == "📊 Auditoría Contable":
 
         from datetime import datetime
 
-        from datetime import datetime
-
         st.divider()
         st.subheader("📅 Período de Consulta")
 
@@ -12695,29 +12693,23 @@ if menu_lateral == "📊 Auditoría Contable":
 
         anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or datetime.today().year)
 
-        if "cierre_mes_anio" not in st.session_state:
-            st.session_state["cierre_mes_anio"] = anio_fiscal
+        if "año_seleccionado" not in st.session_state:
+            st.session_state["año_seleccionado"] = anio_fiscal
 
-        if "cierre_anual_anio" not in st.session_state:
-            st.session_state["cierre_anual_anio"] = anio_fiscal
+        if "mes_seleccionado" not in st.session_state or st.session_state["mes_seleccionado"] not in dic_meses:
+            st.session_state["mes_seleccionado"] = meses_lista[0]
 
-        if "cierre_mes_sel" not in st.session_state or st.session_state["cierre_mes_sel"] not in dic_meses:
-            st.session_state["cierre_mes_sel"] = meses_lista[0]
-
-        anio_mes = st.number_input(
+        st.number_input(
             "Año",
+            step=1,
             min_value=2000,
             max_value=2100,
-            step=1,
-            key="cierre_mes_anio",
+            key="año_seleccionado",
         )
-        anio_cierre = anio_mes
-        st.session_state["cierre_anual_anio"] = int(anio_cierre)
-
-        mes_nombre = st.selectbox(
+        st.selectbox(
             "Mes",
             meses_lista,
-            key="cierre_mes_sel",
+            key="mes_seleccionado",
         )
 
 
