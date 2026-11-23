@@ -14073,7 +14073,8 @@ if opcion_menu == "🏠 Inicio":
                             "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                         })
 
-            # 3. Efectivo / Bancos / Liquidez (naturaleza deudora: Debe - Haber)
+
+            # Saldo final = saldo_inicial + debe - haber
             fecha_inicio_mes = f"{anio_actual:04d}-{mes_num_actual:02d}-01"
 
             df_si_base_bco = ejecutar_consulta(
@@ -14108,7 +14109,7 @@ if opcion_menu == "🏠 Inicio":
                 else 0.0
             )
 
-            saldo_ini_bco = round(saldo_base_bco + arrastre_prev_bco, 2)
+            saldo_inicial_bco = round(saldo_base_bco + arrastre_prev_bco, 2)
 
             df_bancos = ejecutar_consulta(
                 """
@@ -14129,32 +14130,32 @@ if opcion_menu == "🏠 Inicio":
                 debe_bco = float(pd.to_numeric(df_bancos.iloc[0]["total_debe"], errors="coerce") or 0.0)
                 haber_bco = float(pd.to_numeric(df_bancos.iloc[0]["total_haber"], errors="coerce") or 0.0)
 
-                flujo_neto_bco = round(debe_bco - haber_bco, 2)
-                saldo_final_bco = round(saldo_ini_bco + flujo_neto_bco, 2)
+                saldo_final_bco = round(saldo_inicial_bco + debe_bco - haber_bco, 2)
 
-                if cant_bco > 0 or abs(saldo_ini_bco) >= 0.01 or abs(saldo_final_bco) >= 0.01:
+                if cant_bco > 0 or abs(saldo_inicial_bco) >= 0.01 or abs(saldo_final_bco) >= 0.01:
                     if saldo_final_bco < 0:
                         sev_bco = "critico"
                         etiq_bco = "LIQUIDEZ"
                         txt_bco = (
                             f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos cierran con "
                             f"un saldo negativo de <span class='hl'>{abs(saldo_final_bco):,.2f}</span> "
-                            f"(Saldo inicial: {saldo_ini_bco:,.2f} • Entradas: {debe_bco:,.2f} / Salidas: {haber_bco:,.2f})."
+                            f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
                         )
                     elif saldo_final_bco == 0:
                         sev_bco = "atencion"
                         etiq_bco = "LIQUIDEZ"
                         txt_bco = (
                             f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos cierran en "
-                            f"<span class='hl'>0.00</span> (Saldo inicial: {saldo_ini_bco:,.2f} • Flujo mes: {flujo_neto_bco:+,.2f})."
+                            f"<span class='hl'>0.00</span> "
+                            f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
                         )
                     else:
                         sev_bco = "positivo"
                         etiq_bco = "LIQUIDEZ"
                         txt_bco = (
                             f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos presentan un "
-                            f"saldo de <span class='hl'>{saldo_final_bco:,.2f}</span> "
-                            f"(Saldo inicial: {saldo_ini_bco:,.2f} • Entradas: {debe_bco:,.2f} / Salidas: {haber_bco:,.2f})."
+                            f"saldo final de <span class='hl'>{saldo_final_bco:,.2f}</span> "
+                            f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
                         )
 
                     posts_periodo.append({
@@ -14162,7 +14163,7 @@ if opcion_menu == "🏠 Inicio":
                         "severidad": sev_bco,
                         "etiqueta": etiq_bco,
                         "titular_html": txt_bco,
-                        "contexto": f"Ctas. {prefijo_efectivo_bancos} • Saldo inicial arrastre + {cant_bco} mov(s)",
+                        "contexto": f"Ctas. {prefijo_efectivo_bancos} • Saldo inicial + Debe - Haber ({cant_bco} mov)",
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
 
