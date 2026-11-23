@@ -13902,6 +13902,12 @@ if opcion_menu == "🏠 Inicio":
         "info": "DATO",
     }
 
+    # --- PREFIJOS DE PLAN DE CUENTAS (AJUSTA SI TU PLAN USA OTROS CÓDIGOS) ---
+    prefijo_efectivo_bancos = "1.1.1%"          # Efectivo / Bancos / Liquidez (activo: Debe - Haber)
+    prefijo_ingresos = "4%"                     # Ingresos operacionales (acreedora: Haber - Debe)
+    prefijo_costos_gastos = ("5%", "6%")        # Costos y Gastos (deudora: Debe - Haber)
+    prefijos_impuestos = ("2.1.3%", "1.1.4%")   # Pasivos fiscales / Retenciones / Créditos fiscales
+
     posts_periodo = []
     conn_feed = conectar_db(db_actual)
     if conn_feed:
@@ -14066,6 +14072,210 @@ if opcion_menu == "🏠 Inicio":
                             "contexto": f"BD: {db_actual} • Libro / Asientos",
                             "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                         })
+
+            # 3. Efectivo / Bancos / Liquidez (naturaleza deudora: Debe - Haber)
+            df_bancos = ejecutar_consulta(
+                """
+                SELECT COUNT(*) AS cant_movs,
+                       COALESCE(SUM(debe), 0) AS total_debe,
+                       COALESCE(SUM(haber), 0) AS total_haber
+                FROM asientos_contables
+                WHERE plan_cuentas LIKE %s
+                  AND YEAR(fecha) = %s
+                  AND MONTH(fecha) = %s
+                """,
+                conn_feed,
+                params=(prefijo_efectivo_bancos, anio_actual, mes_num_actual)
+            )
+            if df_bancos is not None and not df_bancos.empty:
+                cant_bco = int(pd.to_numeric(df_bancos.iloc[0]["cant_movs"], errors="coerce") or 0)
+                debe_bco = float(pd.to_numeric(df_bancos.iloc[0]["total_debe"], errors="coerce") or 0.0)
+                haber_bco = float(pd.to_numeric(df_bancos.iloc[0]["total_haber"], errors="coerce") or 0.0)
+                flujo_neto_bco = round(debe_bco - haber_bco, 2)
+
+                if cant_bco > 0:
+                    if flujo_neto_bco < 0:
+                        sev_bco = "critico"
+                        etiq_bco = "LIQUIDEZ"
+                        txt_bco = (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> el flujo neto de Efectivo y Bancos "
+                            f"es negativo en <span class='hl'>{abs(flujo_neto_bco):,.2f}</span> "
+                            f"(Entradas/Debe: {debe_bco:,.2f} / Salidas/Haber: {haber_bco:,.2f})."
+                        )
+                    elif flujo_neto_bco == 0:
+                        sev_bco = "atencion"
+                        etiq_bco = "LIQUIDEZ"
+                        txt_bco = (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos cierran el mes "
+                            f"en <span class='hl'>0.00</span> neto (Entradas: {debe_bco:,.2f} / Salidas: {haber_bco:,.2f})."
+                        )
+                    else:
+                        sev_bco = "positivo"
+                        etiq_bco = "LIQUIDEZ"
+                        txt_bco = (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos registran un flujo neto "
+                            f"positivo de <span class='hl'>{flujo_neto_bco:,.2f}</span> "
+                            f"(Entradas/Debe: {debe_bco:,.2f} / Salidas/Haber: {haber_bco:,.2f})."
+                        )
+
+                    posts_periodo.append({
+                        "categoria": "Efectivo y Bancos",
+                        "severidad": sev_bco,
+                        "etiqueta": etiq_bco,
+                        "titular_html": txt_bco,
+                        "contexto": f"Ctas. {prefijo_efectivo_bancos} • {cant_bco} mov(s) en asientos_contables",
+                        "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                    })
+
+            # 4. Ingresos / Ventas vs. Costos o Gastos del período
+            df_ing = ejecutar_consulta(
+                """
+                SELECT COUNT(*) AS cant_movs,
+                       COALESCE(SUM(haber - debe), 0) AS neto_ingresos
+                FROM asientos_contables
+                WHERE plan_cuentas LIKE %s
+                  AND YEAR(fecha) = %s
+                  AND MONTH(fecha) = %s
+                """,
+                conn_feed,
+                params=(prefijo_ingresos, anio_actual, mes_num_actual)
+            )
+            df_cg = ejecutar_consulta(
+                """
+                SELECT COUNT(*) AS cant_movs,
+                       COALESCE(SUM(debe - haber), 0) AS neto_costos_gastos
+                FROM asientos_contables
+                WHERE (plan_cuentas LIKE %s OR plan_cuentas LIKE %s)
+                  AND YEAR(fecha) = %s
+                  AND MONTH(fecha) = %s
+                """,
+                conn_feed,
+                params=(prefijo_costos_gastos[0], prefijo_costos_gastos[1], anio_actual, mes_num_actual)
+            )
+            ing_neto = float(pd.to_numeric(df_ing.iloc[0]["neto_ingresos"], errors="coerce") or 0.0) if (df_ing is not None and not df_ing.empty) else 0.0
+            cant_ing = int(pd.to_numeric(df_ing.iloc[0]["cant_movs"], errors="coerce") or 0) if (df_ing is not None and not df_ing.empty) else 0
+            cg_neto = float(pd.to_numeric(df_cg.iloc[0]["neto_costos_gastos"], errors="coerce") or 0.0) if (df_cg is not None and not df_cg.empty) else 0.0
+            cant_cg = int(pd.to_numeric(df_cg.iloc[0]["cant_movs"], errors="coerce") or 0) if (df_cg is not None and not df_cg.empty) else 0
+
+            if (cant_ing + cant_cg) > 0:
+                margen_operativo = round(ing_neto - cg_neto, 2)
+                if margen_operativo < 0:
+                    sev_res = "critico"
+                    etiq_res = "MARGEN"
+                elif margen_operativo == 0:
+                    sev_res = "atencion"
+                    etiq_res = "MARGEN"
+                else:
+                    sev_res = "positivo"
+                    etiq_res = "MARGEN"
+
+                posts_periodo.append({
+                    "categoria": "Resultados del Período",
+                    "severidad": sev_res,
+                    "etiqueta": etiq_res,
+                    "titular_html": (
+                        f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> los Ingresos netos son de "
+                        f"<span class='hl'>{ing_neto:,.2f}</span> frente a Costos/Gastos por "
+                        f"<span class='hl'>{cg_neto:,.2f}</span> (diferencia neta: <span class='hl'>{margen_operativo:,.2f}</span>)."
+                    ),
+                    "contexto": f"Ing. {prefijo_ingresos} ({cant_ing}) vs. C/G ({cant_cg})",
+                    "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                })
+
+            # 5. Impuestos / Retenciones (IVA / ISLR / Tributos) en asientos_contables
+            df_imp = ejecutar_consulta(
+                """
+                SELECT COUNT(*) AS cant_movs,
+                       COALESCE(SUM(debe), 0) AS total_debe,
+                       COALESCE(SUM(haber), 0) AS total_haber
+                FROM asientos_contables
+                WHERE (plan_cuentas LIKE %s OR plan_cuentas LIKE %s
+                       OR UPPER(cuenta_contable) LIKE %s OR UPPER(cuenta_contable) LIKE %s)
+                  AND YEAR(fecha) = %s
+                  AND MONTH(fecha) = %s
+                """,
+                conn_feed,
+                params=(
+                    prefijos_impuestos[0],
+                    prefijos_impuestos[1],
+                    "%IVA%",
+                    "%ISLR%",
+                    anio_actual,
+                    mes_num_actual,
+                )
+            )
+            if df_imp is not None and not df_imp.empty:
+                cant_imp = int(pd.to_numeric(df_imp.iloc[0]["cant_movs"], errors="coerce") or 0)
+                debe_imp = float(pd.to_numeric(df_imp.iloc[0]["total_debe"], errors="coerce") or 0.0)
+                haber_imp = float(pd.to_numeric(df_imp.iloc[0]["total_haber"], errors="coerce") or 0.0)
+                neto_imp = round(haber_imp - debe_imp, 2)
+
+                if cant_imp > 0:
+                    posts_periodo.append({
+                        "categoria": "Impuestos y Retenciones",
+                        "severidad": "atencion" if neto_imp > 0 else "info",
+                        "etiqueta": "TRIBUTOS",
+                        "titular_html": (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> se registraron "
+                            f"<span class='hl'>{cant_imp} movimiento(s)</span> fiscales/retenciones "
+                            f"(Haber: {haber_imp:,.2f} / Debe: {debe_imp:,.2f} • Neto: <span class='hl'>{neto_imp:,.2f}</span>)."
+                        ),
+                        "contexto": f"IVA / ISLR • {cant_imp} mov(s) en asientos_contables",
+                        "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                    })
+
+            # 6. Cierre / Bloqueo del Período (columna bloqueado en asientos_contables)
+            df_cierre = ejecutar_consulta(
+                """
+                SELECT COUNT(*) AS total_regs,
+                       COALESCE(SUM(CASE WHEN bloqueado = 1 THEN 1 ELSE 0 END), 0) AS regs_bloqueados
+                FROM asientos_contables
+                WHERE YEAR(fecha) = %s
+                  AND MONTH(fecha) = %s
+                """,
+                conn_feed,
+                params=(anio_actual, mes_num_actual)
+            )
+            if df_cierre is not None and not df_cierre.empty:
+                tot_cierre = int(pd.to_numeric(df_cierre.iloc[0]["total_regs"], errors="coerce") or 0)
+                bloq_cierre = int(pd.to_numeric(df_cierre.iloc[0]["regs_bloqueados"], errors="coerce") or 0)
+
+                if tot_cierre > 0 and bloq_cierre == tot_cierre:
+                    posts_periodo.append({
+                        "categoria": "Cierre Contable",
+                        "severidad": "positivo",
+                        "etiqueta": "CERRADO",
+                        "titular_html": (
+                            f"El período <span class='hl'>{mes_nombre_actual} {anio_actual}</span> está "
+                            f"<span class='hl'>bloqueado</span> en su totalidad ({bloq_cierre}/{tot_cierre} asientos)."
+                        ),
+                        "contexto": f"bloqueado = 1 • asientos_contables",
+                        "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                    })
+                elif bloq_cierre > 0:
+                    posts_periodo.append({
+                        "categoria": "Cierre Contable",
+                        "severidad": "atencion",
+                        "etiqueta": "PARCIAL",
+                        "titular_html": (
+                            f"El período <span class='hl'>{mes_nombre_actual} {anio_actual}</span> tiene un bloqueo parcial: "
+                            f"<span class='hl'>{bloq_cierre}</span> de <span class='hl'>{tot_cierre}</span> asientos bloqueados."
+                        ),
+                        "contexto": f"bloqueado = 1 • asientos_contables",
+                        "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                    })
+                elif tot_cierre > 0:
+                    posts_periodo.append({
+                        "categoria": "Cierre Contable",
+                        "severidad": "info",
+                        "etiqueta": "ABIERTO",
+                        "titular_html": (
+                            f"El período <span class='hl'>{mes_nombre_actual} {anio_actual}</span> permanece "
+                            f"<span class='hl'>abierto</span> para edición ({tot_cierre} asiento(s))."
+                        ),
+                        "contexto": f"bloqueado = 0 • asientos_contables",
+                        "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                    })
         finally:
             conn_feed.close()
 
