@@ -13737,12 +13737,98 @@ if opcion_menu == "🏠 Inicio":
         return deuda_final, fecha_corte
 
 
+    
     import html
+    import io
+    import textwrap
+    from PIL import Image, ImageDraw, ImageFont
+    import pandas as pd
     import streamlit as st
 
 
     def _limpiar_html(texto_html: str) -> str:
         return "\n".join(linea.lstrip() for linea in texto_html.splitlines()).strip()
+
+
+    def generar_png_etiqueta_post(post: dict, etiquetas_sev: dict | None = None) -> bytes:
+        """
+        Genera una imagen PNG tipo tarjeta/etiqueta a partir de un dict de post.
+        """
+        if etiquetas_sev is None:
+            etiquetas_sev = {
+                "critico": "CRÍTICO",
+                "atencion": "ATENCIÓN",
+                "positivo": "AVANCE",
+                "info": "DATO",
+            }
+
+        sev = str(post.get("severidad", "info")).lower()
+        colores_sev = {
+            "critico": {"borde": (255, 77, 79), "badge_bg": (66, 24, 28), "badge_fg": (255, 120, 117), "hl": (255, 107, 107)},
+            "atencion": {"borde": (245, 158, 11), "badge_bg": (64, 45, 14), "badge_fg": (251, 191, 36), "hl": (251, 191, 36)},
+            "positivo": {"borde": (34, 197, 94), "badge_bg": (18, 56, 34), "badge_fg": (74, 222, 128), "hl": (74, 222, 128)},
+            "info": {"borde": (88, 166, 255), "badge_bg": (22, 44, 74), "badge_fg": (121, 192, 255), "hl": (88, 166, 255)},
+        }
+        paleta = colores_sev.get(sev, colores_sev["info"])
+
+        ancho, alto = 960, 300
+        bg_card = (13, 17, 23)
+        bg_linea = (22, 27, 34)
+        fg_texto = (240, 246, 252)
+        fg_muted = (139, 148, 158)
+
+        img = Image.new("RGB", (ancho, alto), bg_card)
+        draw = ImageDraw.Draw(img)
+
+        # Borde izquierdo de severidad
+        draw.rectangle([0, 0, 10, alto], fill=paleta["borde"])
+
+        font_cat = ImageFont.load_default()
+        font_body = ImageFont.load_default()
+        font_foot = ImageFont.load_default()
+
+        categoria = str(post.get("categoria", "General"))
+        badge = str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO")).upper()
+        contexto = str(post.get("contexto", ""))
+        fecha = str(post.get("fecha", ""))
+
+        # Limpiar etiquetas HTML simples del titular para el PNG
+        cuerpo_limpio = (
+            str(post.get("titular_html", ""))
+            .replace("<span class='hl'>", "")
+            .replace('<span class="hl">', "")
+            .replace("</span>", "")
+            .strip()
+        )
+
+        # Encabezado: categoría y badge
+        draw.text((32, 26), categoria, fill=fg_muted, font=font_cat)
+        badge_w = max(90, len(badge) * 9 + 24)
+        draw.rounded_rectangle(
+            [ancho - 32 - badge_w, 20, ancho - 32, 48],
+            radius=12,
+            fill=paleta["badge_bg"],
+            outline=paleta["borde"],
+            width=1,
+        )
+        draw.text((ancho - 32 - badge_w + 12, 28), badge, fill=paleta["badge_fg"], font=font_body)
+
+        # Cuerpo envuelto en líneas
+        lineas = textwrap.wrap(cuerpo_limpio, width=78)
+        y_actual = 82
+        for linea in lineas[:4]:
+            draw.text((32, y_actual), linea, fill=fg_texto, font=font_body)
+            y_actual += 28
+
+        # Pie de página
+        draw.line([(32, alto - 58), (ancho - 32, alto - 58)], fill=bg_linea, width=1)
+        draw.text((32, alto - 40), contexto, fill=fg_muted, font=font_foot)
+        fecha_w = len(fecha) * 7
+        draw.text((ancho - 32 - fecha_w, alto - 40), fecha, fill=fg_muted, font=font_foot)
+
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
 
 
     def renderizar_feed_financiero(posts, titulo="📡 Feed Financiero en Vivo"):
@@ -13947,6 +14033,7 @@ if opcion_menu == "🏠 Inicio":
                 unsafe_allow_html=True,
             )
 
+
     # --- PERÍODO DE CONSULTA (CON SOPORTE PARA 2027) ---
     st.divider()
     st.subheader("📅 Período de Consulta")
@@ -14100,6 +14187,32 @@ if opcion_menu == "🏠 Inicio":
         posts_periodo,
         titulo=f"📡 Feed Financiero • {mes_nombre_actual} {anio_actual}"
     )
+
+    etiquetas_sev_feed = {
+        "critico": "CRÍTICO",
+        "atencion": "ATENCIÓN",
+        "positivo": "AVANCE",
+        "info": "DATO",
+    }
+
+    if posts_periodo:
+        with st.expander("🖼️ Descargar etiquetas en PNG"):
+            for idx, post in enumerate(posts_periodo):
+                png_bytes = generar_png_etiqueta_post(post, etiquetas_sev_feed)
+                nombre_archivo = (
+                    f"etiqueta_{idx + 1}_{anio_actual}_{mes_num_actual:02d}_"
+                    f"{str(post.get('categoria', 'post')).lower().replace(' ', '_')}.png"
+                )
+                st.download_button(
+                    label=(
+                        f"Descargar PNG: {post.get('categoria', 'General')} • "
+                        f"{post.get('etiqueta') or etiquetas_sev_feed.get(post.get('severidad', 'info'), 'DATO')}"
+                    ),
+                    data=png_bytes,
+                    file_name=nombre_archivo,
+                    mime="image/png",
+                    key=f"dl_png_{idx}_{anio_actual}_{mes_num_actual:02d}",
+                )
 
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
