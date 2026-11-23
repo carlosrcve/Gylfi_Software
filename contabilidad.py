@@ -13844,13 +13844,48 @@ if opcion_menu == "🏠 Inicio":
             _limpiar_html(
                 """
                 <style>
+                .fin-tags-scroll {
+                    display: flex;
+                    flex-direction: row;
+                    align-items: center;
+                    gap: 8px;
+                    overflow-x: auto;
+                    overflow-y: hidden;
+                    white-space: nowrap;
+                    padding: 8px 4px 12px 4px;
+                    margin-bottom: 8px;
+                    scrollbar-width: thin;
+                    scrollbar-color: #30363d #161b22;
+                }
+                .fin-tags-scroll::-webkit-scrollbar {
+                    height: 6px;
+                }
+                .fin-tags-scroll::-webkit-scrollbar-thumb {
+                    background: #30363d;
+                    border-radius: 999px;
+                }
+                .fin-feed-list-scroll {
+                    max-height: 220px; /* Ajusta a 520px cuando tengas más tarjetas */
+                    overflow-y: auto;
+                    overflow-x: hidden;
+                    padding-right: 6px;
+                    scrollbar-width: thin;
+                    scrollbar-color: #30363d #161b22;
+                }
+                .fin-feed-list-scroll::-webkit-scrollbar {
+                    width: 6px;
+                }
+                .fin-feed-list-scroll::-webkit-scrollbar-thumb {
+                    background: #30363d;
+                    border-radius: 999px;
+                }
                 .fin-feed-card {
                     background: #0d1117;
                     border: 1px solid #21262d;
                     border-left: 4px solid #58a6ff;
                     border-radius: 12px;
                     padding: 16px 18px 52px 18px;
-                    margin-bottom: 0px;
+                    margin-bottom: 12px;
                     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
                 }
                 .fin-feed-card.sev-critico { border-left-color: #ff4d4f; }
@@ -13947,13 +13982,25 @@ if opcion_menu == "🏠 Inicio":
             "info": "DATO",
         }
 
+        # Barra deslizadora horizontal con todas las etiquetas de los posts
+        chips_html = []
         etiquetas_unicas = []
         for post in posts:
+            sev = post.get("severidad", "info")
+            sev_clase = f"sev-{sev}" if sev in etiquetas_sev else "sev-info"
             cat_txt = html.escape(str(post.get("categoria", "General")))
-            badge_lbl = html.escape(str(post.get("etiqueta") or etiquetas_sev.get(post.get("severidad", "info"), "DATO")))
+            badge_lbl = html.escape(str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO")))
             etiqueta_completa = f"{cat_txt} • {badge_lbl}"
             if etiqueta_completa not in etiquetas_unicas:
                 etiquetas_unicas.append(etiqueta_completa)
+            chips_html.append(
+                f'<div class="{sev_clase}"><span class="fin-badge">{cat_txt} • {badge_lbl}</span></div>'
+            )
+
+        st.markdown(
+            f'<div class="fin-tags-scroll">{"".join(chips_html)}</div>',
+            unsafe_allow_html=True,
+        )
 
         filtro_etiqueta = None
         if hasattr(st, "pills") and len(etiquetas_unicas) > 1:
@@ -13964,6 +14011,7 @@ if opcion_menu == "🏠 Inicio":
                 key="feed_filtro_etiquetas",
             )
 
+        items_html = []
         for idx, post in enumerate(posts):
             sev = post.get("severidad", "info")
             sev_clase = f"sev-{sev}" if sev in etiquetas_sev else "sev-info"
@@ -13982,7 +14030,7 @@ if opcion_menu == "🏠 Inicio":
             cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&quot;hl&quot;&gt;", "<span class='hl'>")
             cuerpo_seguro = cuerpo_seguro.replace("&lt;/span&gt;", "</span>")
 
-            st.markdown(
+            items_html.append(
                 _limpiar_html(
                     f"""
                     <div class="fin-feed-card {sev_clase}">
@@ -13997,13 +14045,28 @@ if opcion_menu == "🏠 Inicio":
                         </div>
                     </div>
                     """
-                ),
+                )
+            )
+
+        if items_html:
+            st.markdown(
+                f'<div class="fin-feed-list-scroll">{"".join(items_html)}</div>',
                 unsafe_allow_html=True,
             )
 
+        # Botones de descarga PNG por cada tarjeta filtrada
+        for idx, post in enumerate(posts):
+            sev = post.get("severidad", "info")
+            cat_txt = str(post.get("categoria", "General"))
+            badge_lbl = str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO"))
+            etiqueta_completa = f"{cat_txt} • {badge_lbl}"
+
+            if filtro_etiqueta and filtro_etiqueta != "Todas" and etiqueta_completa != filtro_etiqueta:
+                continue
+
             png_bytes = generar_png_etiqueta_post(post, etiquetas_sev)
             nombre_archivo = (
-                f"etiqueta_{idx + 1}_{str(post.get('categoria', 'post')).lower().replace(' ', '_')}_"
+                f"etiqueta_{idx + 1}_{cat_txt.lower().replace(' ', '_')}_"
                 f"{str(post.get('fecha', '')).replace('/', '_')}.png"
             )
             _, col_btn = st.columns([0.78, 0.22])
@@ -14013,9 +14076,9 @@ if opcion_menu == "🏠 Inicio":
                     data=png_bytes,
                     file_name=nombre_archivo,
                     mime="image/png",
-                    key=f"dl_card_png_{idx}_{post.get('categoria', '')}_{post.get('fecha', '')}",
+                    key=f"dl_card_png_{idx}_{cat_txt}_{post.get('fecha', '')}",
                     use_container_width=True,
-            )
+                )
 
 
     # --- PERÍODO DE CONSULTA (CON SOPORTE PARA 2027) ---
