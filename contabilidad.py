@@ -13826,88 +13826,88 @@ if opcion_menu == "🏠 Inicio":
     mes_num_actual = dic_meses.get(mes_nombre_actual, 1)
 
     posts_periodo = []
-        conn_feed = conectar_db(db_actual)
-        if conn_feed:
-            try:
-                # 1. Órdenes de pago pendientes del período
-                df_op_per = ejecutar_consulta(
-                    """
-                    SELECT COALESCE(SUM(monto_bruto), 0) AS deuda_bruta, COUNT(*) AS cant_ops
-                    FROM ordenes_pago
-                    WHERE empresa_db = %s
-                      AND YEAR(fecha_emision) = %s
-                      AND MONTH(fecha_emision) = %s
-                      AND (estado NOT IN ('Conciliado', 'Pagado') OR estado IS NULL)
-                    """,
-                    conn_feed,
-                    params=(str(db_actual), anio_actual, mes_num_actual)
-                )
-                if df_op_per is not None and not df_op_per.empty:
-                    deuda_per = float(pd.to_numeric(df_op_per.iloc[0]["deuda_bruta"], errors="coerce") or 0.0)
-                    cant_per = int(pd.to_numeric(df_op_per.iloc[0]["cant_ops"], errors="coerce") or 0)
-                    if deuda_per > 0:
+    conn_feed = conectar_db(db_actual)
+    if conn_feed:
+        try:
+            # 1. Órdenes de pago pendientes del período
+            df_op_per = ejecutar_consulta(
+                """
+                SELECT COALESCE(SUM(monto_bruto), 0) AS deuda_bruta, COUNT(*) AS cant_ops
+                FROM ordenes_pago
+                WHERE empresa_db = %s
+                  AND YEAR(fecha_emision) = %s
+                  AND MONTH(fecha_emision) = %s
+                  AND (estado NOT IN ('Conciliado', 'Pagado') OR estado IS NULL)
+                """,
+                conn_feed,
+                params=(str(db_actual), anio_actual, mes_num_actual)
+            )
+            if df_op_per is not None and not df_op_per.empty:
+                deuda_per = float(pd.to_numeric(df_op_per.iloc[0]["deuda_bruta"], errors="coerce") or 0.0)
+                cant_per = int(pd.to_numeric(df_op_per.iloc[0]["cant_ops"], errors="coerce") or 0)
+                if deuda_per > 0:
+                    posts_periodo.append({
+                        "categoria": "Proveedores",
+                        "severidad": "critico",
+                        "titular_html": (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> hay una deuda pendiente "
+                            f"de <span class='hl'>{deuda_per:,.2f}</span> en <span class='hl'>{cant_per} orden(es)</span> con proveedores."
+                        ),
+                        "contexto": f"BD: {db_actual} • Órdenes de pago",
+                        "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                    })
+
+            # 2. Actividad / saldos desde asientos_contables en el período
+            # Ajusta 'fecha' y 'debe'/'haber' si en tu tabla tienen otro nombre
+            df_asientos = ejecutar_consulta(
+                """
+                SELECT COUNT(*) AS cant_registros,
+                       COALESCE(SUM(debe), 0) AS total_debe,
+                       COALESCE(SUM(haber), 0) AS total_haber
+                FROM asientos_contables
+                WHERE YEAR(fecha) = %s
+                  AND MONTH(fecha) = %s
+                """,
+                conn_feed,
+                params=(anio_actual, mes_num_actual)
+            )
+            if df_asientos is not None and not df_asientos.empty:
+                cant_ast = int(pd.to_numeric(df_asientos.iloc[0]["cant_registros"], errors="coerce") or 0)
+                tot_debe = float(pd.to_numeric(df_asientos.iloc[0]["total_debe"], errors="coerce") or 0.0)
+                tot_haber = float(pd.to_numeric(df_asientos.iloc[0]["total_haber"], errors="coerce") or 0.0)
+
+                if cant_ast > 0:
+                    diff_cuadre = round(abs(tot_debe - tot_haber), 2)
+                    if diff_cuadre >= 0.01:
                         posts_periodo.append({
-                            "categoria": "Proveedores",
+                            "categoria": "Contabilidad",
                             "severidad": "critico",
                             "titular_html": (
-                                f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> hay una deuda pendiente "
-                                f"de <span class='hl'>{deuda_per:,.2f}</span> en <span class='hl'>{cant_per} orden(es)</span> con proveedores."
+                                f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> los asientos presentan "
+                                f"una diferencia entre Debe y Haber de <span class='hl'>{diff_cuadre:,.2f}</span>."
                             ),
-                            "contexto": f"BD: {db_actual} • Órdenes de pago",
+                            "contexto": f"{cant_ast} movimiento(s) en asientos_contables",
                             "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                         })
+                    else:
+                        posts_periodo.append({
+                            "categoria": "Contabilidad",
+                            "severidad": "positivo",
+                            "titular_html": (
+                                f"Se registraron <span class='hl'>{cant_ast} movimiento(s)</span> en "
+                                f"<span class='hl'>{mes_nombre_actual} {anio_actual}</span> con un volumen de "
+                                f"<span class='hl'>{tot_debe:,.2f}</span> debidamente cuadrado."
+                            ),
+                            "contexto": f"BD: {db_actual} • Libro / Asientos",
+                            "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                        })
+        finally:
+            conn_feed.close()
 
-                # 2. Actividad / saldos desde asientos_contables en el período
-                # Ajusta 'fecha' y 'debe'/'haber' si en tu tabla tienen otro nombre
-                df_asientos = ejecutar_consulta(
-                    """
-                    SELECT COUNT(*) AS cant_registros,
-                           COALESCE(SUM(debe), 0) AS total_debe,
-                           COALESCE(SUM(haber), 0) AS total_haber
-                    FROM asientos_contables
-                    WHERE YEAR(fecha) = %s
-                      AND MONTH(fecha) = %s
-                    """,
-                    conn_feed,
-                    params=(anio_actual, mes_num_actual)
-                )
-                if df_asientos is not None and not df_asientos.empty:
-                    cant_ast = int(pd.to_numeric(df_asientos.iloc[0]["cant_registros"], errors="coerce") or 0)
-                    tot_debe = float(pd.to_numeric(df_asientos.iloc[0]["total_debe"], errors="coerce") or 0.0)
-                    tot_haber = float(pd.to_numeric(df_asientos.iloc[0]["total_haber"], errors="coerce") or 0.0)
-
-                    if cant_ast > 0:
-                        diff_cuadre = round(abs(tot_debe - tot_haber), 2)
-                        if diff_cuadre >= 0.01:
-                            posts_periodo.append({
-                                "categoria": "Contabilidad",
-                                "severidad": "critico",
-                                "titular_html": (
-                                    f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> los asientos presentan "
-                                    f"una diferencia entre Debe y Haber de <span class='hl'>{diff_cuadre:,.2f}</span>."
-                                ),
-                                "contexto": f"{cant_ast} movimiento(s) en asientos_contables",
-                                "fecha": f"{mes_num_actual:02d}/{anio_actual}",
-                            })
-                        else:
-                            posts_periodo.append({
-                                "categoria": "Contabilidad",
-                                "severidad": "positivo",
-                                "titular_html": (
-                                    f"Se registraron <span class='hl'>{cant_ast} movimiento(s)</span> en "
-                                    f"<span class='hl'>{mes_nombre_actual} {anio_actual}</span> con un volumen de "
-                                    f"<span class='hl'>{tot_debe:,.2f}</span> debidamente cuadrado."
-                                ),
-                                "contexto": f"BD: {db_actual} • Libro / Asientos",
-                                "fecha": f"{mes_num_actual:02d}/{anio_actual}",
-                            })
-            finally:
-                conn_feed.close()
-
-        renderizar_feed_financiero(
-            posts_periodo,
-            titulo=f"📡 Feed Financiero • {mes_nombre_actual} {anio_actual}"
-        )
+    renderizar_feed_financiero(
+        posts_periodo,
+        titulo=f"📡 Feed Financiero • {mes_nombre_actual} {anio_actual}"
+    )
 
 
 elif opcion_menu == "📂 Plan de Cuentas":
