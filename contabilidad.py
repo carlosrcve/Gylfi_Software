@@ -13713,13 +13713,27 @@ if opcion_menu == "🏠 Inicio":
         return buf.getvalue()
 
 
-    def renderizar_feed_financiero(posts, titulo="📡 Feed Financiero en Vivo"):
-        st.markdown(f"#### {titulo}")
+    @st.cache_data(show_spinner=False)
+def _png_post_cacheado(post_key: tuple, etiquetas_items: tuple) -> bytes:
+    post_dict = {
+        "categoria": post_key[0],
+        "severidad": post_key[1],
+        "etiqueta": post_key[2],
+        "titular_html": post_key[3],
+        "contexto": post_key[4],
+        "fecha": post_key[5],
+    }
+    return generar_png_etiqueta_post(post_dict, dict(etiquetas_items))
 
-        if not posts:
-            st.info("Todo en orden por ahora: no hay alertas financieras relevantes para mostrar.")
-            return
 
+def renderizar_feed_financiero(posts, titulo="📡 Feed Financiero en Vivo"):
+    st.markdown(f"#### {titulo}")
+
+    if not posts:
+        st.info("Todo en orden por ahora: no hay alertas financieras relevantes para mostrar.")
+        return
+
+    if not st.session_state.get("_feed_css_inyectado"):
         st.markdown(
             _limpiar_html(
                 """
@@ -13731,7 +13745,7 @@ if opcion_menu == "🏠 Inicio":
                     gap: 10px;
                     width: 100%;
                     max-width: 100%;
-                    overflow-x: scroll !important;
+                    overflow-x: auto !important;
                     overflow-y: hidden !important;
                     white-space: nowrap !important;
                     padding: 10px 6px 14px 6px;
@@ -13742,24 +13756,16 @@ if opcion_menu == "🏠 Inicio":
                     scrollbar-width: thin;
                     scrollbar-color: #58a6ff #0d1117;
                 }
-                .fin-tags-scroll::-webkit-scrollbar {
-                    height: 8px;
-                }
-                .fin-tags-scroll::-webkit-scrollbar-track {
-                    background: #0d1117;
-                    border-radius: 999px;
-                }
-                .fin-tags-scroll::-webkit-scrollbar-thumb {
-                    background: #58a6ff;
-                    border-radius: 999px;
-                }
+                .fin-tags-scroll::-webkit-scrollbar { height: 8px; }
+                .fin-tags-scroll::-webkit-scrollbar-track { background: #0d1117; border-radius: 999px; }
+                .fin-tags-scroll::-webkit-scrollbar-thumb { background: #58a6ff; border-radius: 999px; }
                 .fin-feed-card {
                     background: #0d1117;
                     border: 1px solid #21262d;
                     border-left: 4px solid #58a6ff;
                     border-radius: 12px;
                     padding: 16px 18px 44px 18px;
-                    margin-bottom: 0px;
+                    margin-bottom: 10px;
                     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
                 }
                 .fin-feed-card.sev-critico { border-left-color: #ff4d4f; }
@@ -13826,8 +13832,8 @@ if opcion_menu == "🏠 Inicio":
                 div[data-testid="stDownloadButton"] {
                     display: flex;
                     justify-content: flex-end;
-                    margin-top: -32px;
-                    margin-bottom: 12px;
+                    margin-top: -42px;
+                    margin-bottom: 14px;
                     padding-right: 14px;
                 }
                 div[data-testid="stDownloadButton"] > button {
@@ -13852,131 +13858,136 @@ if opcion_menu == "🏠 Inicio":
             ),
             unsafe_allow_html=True,
         )
+        st.session_state["_feed_css_inyectado"] = True
 
-        etiquetas_sev = {
-            "critico": "CRÍTICO",
-            "atencion": "ATENCIÓN",
-            "positivo": "AVANCE",
-            "info": "DATO",
-        }
-
-        chips_html = []
-        etiquetas_unicas = []
-        for post in posts:
-            sev = post.get("severidad", "info")
-            sev_clase = f"sev-{sev}" if sev in etiquetas_sev else "sev-info"
-            cat_txt = html.escape(str(post.get("categoria", "General")))
-            badge_lbl = html.escape(str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO")))
-            etiqueta_completa = f"{cat_txt} • {badge_lbl}"
-            if etiqueta_completa not in etiquetas_unicas:
-                etiquetas_unicas.append(etiqueta_completa)
-            chips_html.append(
-                f'<div class="{sev_clase}" style="flex:0 0 auto;"><span class="fin-badge">{cat_txt} • {badge_lbl}</span></div>'
-            )
-
-        # Espaciador invisible para garantizar scroll horizontal incluso con pocas etiquetas
-        chips_html.append('<div style="flex:0 0 auto; min-width: 420px; height: 1px;"></div>')
-
-        st.markdown(
-            f'<div class="fin-tags-scroll">{"".join(chips_html)}</div>',
-            unsafe_allow_html=True,
-        )
-
-        filtro_etiqueta = None
-        if hasattr(st, "pills") and len(etiquetas_unicas) > 1:
-            filtro_etiqueta = st.pills(
-                "Filtrar por etiqueta",
-                options=["Todas"] + etiquetas_unicas,
-                default="Todas",
-                key="feed_filtro_etiquetas",
-            )
-
-        contenedor_scroll_vertical = st.container(height=240)
-        with contenedor_scroll_vertical:
-            for idx, post in enumerate(posts):
-                sev = post.get("severidad", "info")
-                sev_clase = f"sev-{sev}" if sev in etiquetas_sev else "sev-info"
-                cat_txt = html.escape(str(post.get("categoria", "General")))
-                ctx_txt = html.escape(str(post.get("contexto", "")))
-                fec_txt = html.escape(str(post.get("fecha", "")))
-                badge_lbl = html.escape(str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO")))
-                etiqueta_completa = f"{cat_txt} • {badge_lbl}"
-
-                if filtro_etiqueta and filtro_etiqueta != "Todas" and etiqueta_completa != filtro_etiqueta:
-                    continue
-
-                cuerpo_raw = str(post.get("titular_html", ""))
-                cuerpo_seguro = html.escape(cuerpo_raw)
-                cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&#x27;hl&#x27;&gt;", "<span class='hl'>")
-                cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&quot;hl&quot;&gt;", "<span class='hl'>")
-                cuerpo_seguro = cuerpo_seguro.replace("&lt;/span&gt;", "</span>")
-
-                st.markdown(
-                    _limpiar_html(
-                        f"""
-                        <div class="fin-feed-card {sev_clase}">
-                            <div class="fin-feed-top">
-                                <span><strong>{cat_txt}</strong></span>
-                                <span class="fin-badge">{badge_lbl}</span>
-                            </div>
-                            <div class="fin-feed-body">{cuerpo_seguro}</div>
-                            <div class="fin-feed-footer">
-                                <span>{ctx_txt}</span>
-                                <span>{fec_txt}</span>
-                            </div>
-                        </div>
-                        """
-                    ),
-                    unsafe_allow_html=True,
-                )
-
-                png_bytes = generar_png_etiqueta_post(post, etiquetas_sev)
-                nombre_archivo = (
-                    f"etiqueta_{idx + 1}_{str(post.get('categoria', 'post')).lower().replace(' ', '_')}_"
-                    f"{str(post.get('fecha', '')).replace('/', '_')}.png"
-                )
-
-                _, col_der = st.columns([0.75, 0.25])
-                with col_der:
-                    st.download_button(
-                        label="descargar imagen en PNG",
-                        data=png_bytes,
-                        file_name=nombre_archivo,
-                        mime="image/png",
-                        key=f"dl_card_png_{idx}_{post.get('categoria', '')}_{post.get('fecha', '')}",
-                    )
-
-
-    # --- FEED FINANCIERO VINCULADO AL PERÍODO DEL SIDEBAR ---
-    dic_meses = {
-        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4,
-        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8,
-        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-    }
-    meses_lista = list(dic_meses.keys())
-
-    anio_actual = int(st.session_state.get("año_seleccionado") or datetime.today().year)
-    mes_nombre_actual = st.session_state.get("mes_seleccionado") or meses_lista[0]
-    if mes_nombre_actual not in dic_meses:
-        mes_nombre_actual = meses_lista[0]
-    mes_num_actual = dic_meses.get(mes_nombre_actual, 1)
-
-    etiquetas_sev_feed = {
+    etiquetas_sev = {
         "critico": "CRÍTICO",
         "atencion": "ATENCIÓN",
         "positivo": "AVANCE",
         "info": "DATO",
     }
+    etiquetas_items = tuple(etiquetas_sev.items())
 
-    # --- PREFIJOS DE PLAN DE CUENTAS (AJUSTA SI TU PLAN USA OTROS CÓDIGOS) ---
-    prefijo_efectivo_bancos = "1.1.1%"          # Efectivo / Bancos / Liquidez (activo: Debe - Haber)
-    prefijo_ingresos = "4%"                     # Ingresos operacionales (acreedora: Haber - Debe)
-    prefijo_costos_gastos = ("5%", "6%")        # Costos y Gastos (deudora: Debe - Haber)
-    prefijos_impuestos = ("2.1.3%", "1.1.4%")   # Pasivos fiscales / Retenciones / Créditos fiscales
+    chips_html = []
+    etiquetas_unicas = []
+    for post in posts:
+        sev = post.get("severidad", "info")
+        sev_clase = f"sev-{sev}" if sev in etiquetas_sev else "sev-info"
+        cat_txt = html.escape(str(post.get("categoria", "General")))
+        badge_lbl = html.escape(str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO")))
+        etiqueta_completa = f"{cat_txt} • {badge_lbl}"
+        if etiqueta_completa not in etiquetas_unicas:
+            etiquetas_unicas.append(etiqueta_completa)
+        chips_html.append(
+            f'<div class="{sev_clase}" style="flex:0 0 auto;"><span class="fin-badge">{cat_txt} • {badge_lbl}</span></div>'
+        )
 
-    posts_periodo = []
-    conn_feed = conectar_db(db_actual)
-    if conn_feed:
+    st.markdown(
+        f'<div class="fin-tags-scroll">{"".join(chips_html)}</div>',
+        unsafe_allow_html=True,
+    )
+
+    filtro_etiqueta = None
+    if hasattr(st, "pills") and len(etiquetas_unicas) > 1:
+        filtro_etiqueta = st.pills(
+            "Filtrar por etiqueta",
+            options=["Todas"] + etiquetas_unicas,
+            default="Todas",
+            key="feed_filtro_etiquetas",
+        )
+
+    contenedor_scroll_vertical = st.container(height=240)
+    with contenedor_scroll_vertical:
+        for idx, post in enumerate(posts):
+            sev = post.get("severidad", "info")
+            sev_clase = f"sev-{sev}" if sev in etiquetas_sev else "sev-info"
+            cat_raw = str(post.get("categoria", "General"))
+            ctx_raw = str(post.get("contexto", ""))
+            fec_raw = str(post.get("fecha", ""))
+            badge_raw = str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO"))
+            cuerpo_raw = str(post.get("titular_html", ""))
+
+            etiqueta_completa = f"{cat_raw} • {badge_raw}"
+            if filtro_etiqueta and filtro_etiqueta != "Todas" and etiqueta_completa != filtro_etiqueta:
+                continue
+
+            cat_txt = html.escape(cat_raw)
+            ctx_txt = html.escape(ctx_raw)
+            fec_txt = html.escape(fec_raw)
+            badge_lbl = html.escape(badge_raw)
+
+            cuerpo_seguro = html.escape(cuerpo_raw)
+            cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&#x27;hl&#x27;&gt;", "<span class='hl'>")
+            cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&quot;hl&quot;&gt;", "<span class='hl'>")
+            cuerpo_seguro = cuerpo_seguro.replace("&lt;/span&gt;", "</span>")
+
+            st.markdown(
+                _limpiar_html(
+                    f"""
+                    <div class="fin-feed-card {sev_clase}">
+                        <div class="fin-feed-top">
+                            <span><strong>{cat_txt}</strong></span>
+                            <span class="fin-badge">{badge_lbl}</span>
+                        </div>
+                        <div class="fin-feed-body">{cuerpo_seguro}</div>
+                        <div class="fin-feed-footer">
+                            <span>{ctx_txt}</span>
+                            <span>{fec_txt}</span>
+                        </div>
+                    </div>
+                    """
+                ),
+                unsafe_allow_html=True,
+            )
+
+            post_key = (cat_raw, sev, badge_raw, cuerpo_raw, ctx_raw, fec_raw)
+            png_bytes = _png_post_cacheado(post_key, etiquetas_items)
+            nombre_archivo = (
+                f"etiqueta_{idx + 1}_{cat_raw.lower().replace(' ', '_')}_"
+                f"{fec_raw.replace('/', '_')}.png"
+            )
+
+            st.download_button(
+                label="descargar imagen en PNG",
+                data=png_bytes,
+                file_name=nombre_archivo,
+                mime="image/png",
+                key=f"dl_card_png_{idx}_{cat_raw}_{fec_raw}",
+            )
+
+    @st.cache_data(ttl=120, show_spinner=False)
+    def _construir_posts_feed_periodo(
+        db_actual: str,
+        anio_actual: int,
+        mes_num_actual: int,
+        mes_nombre_actual: str,
+    ) -> list:
+        posts_periodo = []
+        conn_feed = conectar_db(db_actual)
+        if not conn_feed:
+            return posts_periodo
+
+        ultimo_dia_mes = calendar.monthrange(anio_actual, mes_num_actual)[1]
+        fecha_inicio_mes = f"{anio_actual:04d}-{mes_num_actual:02d}-01"
+        fecha_fin_mes = f"{anio_actual:04d}-{mes_num_actual:02d}-{ultimo_dia_mes:02d}"
+
+        ctas_pasivo_fiscal = (
+            "2.1.2.01.001",  # I.V.A. Debito Fiscal
+            "2.1.2.01.002",  # I.V.A. por Pagar
+            "2.1.2.01.005",  # Retencion ISLR Proveedores
+            "2.1.2.01.006",  # ISLR por Pagar
+        )
+        nombres_pasivo_fiscal = {
+            "2.1.2.01.001": "I.V.A. Débito Fiscal",
+            "2.1.2.01.002": "I.V.A. por Pagar",
+            "2.1.2.01.005": "Retención ISLR Proveedores",
+            "2.1.2.01.006": "ISLR por Pagar",
+        }
+        ctas_credito_fiscal = (
+            "2.1.2.01.003",  # Retencioes IVA en Compras
+            "2.1.2.01.004",  # Retencioes Anticipado ISLR
+        )
+
         try:
             # 0. Deuda acumulada con Proveedores Nacionales (2.1.1.01.001) al cierre del mes
             deuda_prov_cierre, fecha_corte = obtener_deuda_proveedores_cierre_mes(
@@ -14040,78 +14051,51 @@ if opcion_menu == "🏠 Inicio":
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
 
-            # 1b. Cuentas por Cobrar Comerciales (grupo 1.1.2.01 y cuentas de detalle) en asientos_contables
-            df_cxc = ejecutar_consulta(
+            # 2. Resumen consolidado del mes en asientos_contables (cuadre, CxC, bancos, impuestos, cierre)
+            df_res_mes = ejecutar_consulta(
                 """
-                SELECT COUNT(*) AS cant_movs,
-                       COALESCE(SUM(debe), 0) AS total_debe,
-                       COALESCE(SUM(haber), 0) AS total_haber
+                SELECT
+                    COUNT(*) AS cant_ast,
+                    COALESCE(SUM(debe), 0) AS tot_debe,
+                    COALESCE(SUM(haber), 0) AS tot_haber,
+                    COALESCE(SUM(CASE WHEN bloqueado = 1 THEN 1 ELSE 0 END), 0) AS regs_bloqueados,
+
+                    SUM(CASE WHEN plan_cuentas LIKE %s THEN 1 ELSE 0 END) AS cant_cxc,
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE %s THEN debe ELSE 0 END), 0) AS debe_cxc,
+                    COALESCE(SUM(CASE WHEN plan_cuentas LIKE %s THEN haber ELSE 0 END), 0) AS haber_cxc,
+
+                    SUM(CASE WHEN (LOWER(plan_cuentas) LIKE %s OR LOWER(cuenta_contable) LIKE %s OR LOWER(cuenta_contable) LIKE %s) THEN 1 ELSE 0 END) AS cant_bco,
+                    COALESCE(SUM(CASE WHEN (LOWER(plan_cuentas) LIKE %s OR LOWER(cuenta_contable) LIKE %s OR LOWER(cuenta_contable) LIKE %s) THEN debe ELSE 0 END), 0) AS debe_bco_sql,
+                    COALESCE(SUM(CASE WHEN (LOWER(plan_cuentas) LIKE %s OR LOWER(cuenta_contable) LIKE %s OR LOWER(cuenta_contable) LIKE %s) THEN haber ELSE 0 END), 0) AS haber_bco_sql,
+
+                    SUM(CASE WHEN plan_cuentas IN (%s, %s, %s, %s, %s, %s) THEN 1 ELSE 0 END) AS cant_imp,
+                    COALESCE(SUM(CASE WHEN plan_cuentas IN (%s, %s, %s, %s) THEN haber ELSE 0 END), 0) AS haber_pas,
+                    COALESCE(SUM(CASE WHEN plan_cuentas IN (%s, %s, %s, %s) THEN debe ELSE 0 END), 0) AS debe_pas,
+                    COALESCE(SUM(CASE WHEN plan_cuentas IN (%s, %s) THEN debe - haber ELSE 0 END), 0) AS neto_cred
                 FROM asientos_contables
-                WHERE plan_cuentas LIKE %s
-                  AND YEAR(fecha) = %s
-                  AND MONTH(fecha) = %s
+                WHERE fecha BETWEEN %s AND %s
                 """,
                 conn_feed,
-                params=("1.1.2.01%", anio_actual, mes_num_actual)
+                params=(
+                    "1.1.2.01%", "1.1.2.01%", "1.1.2.01%",
+                    "1.1.01%", "%banco%", "%caja%",
+                    "1.1.01%", "%banco%", "%caja%",
+                    "1.1.01%", "%banco%", "%caja%",
+                    *ctas_pasivo_fiscal, *ctas_credito_fiscal,
+                    *ctas_pasivo_fiscal,
+                    *ctas_pasivo_fiscal,
+                    *ctas_credito_fiscal,
+                    fecha_inicio_mes,
+                    fecha_fin_mes,
+                )
             )
-            if df_cxc is not None and not df_cxc.empty:
-                cant_cxc = int(pd.to_numeric(df_cxc.iloc[0]["cant_movs"], errors="coerce") or 0)
-                debe_cxc = float(pd.to_numeric(df_cxc.iloc[0]["total_debe"], errors="coerce") or 0.0)
-                haber_cxc = float(pd.to_numeric(df_cxc.iloc[0]["total_haber"], errors="coerce") or 0.0)
-                neto_cxc = round(debe_cxc - haber_cxc, 2)
 
-                if cant_cxc > 0 or abs(neto_cxc) >= 0.01:
-                    if neto_cxc > 0:
-                        sev_cxc = "atencion"
-                        etiq_cxc = "COBRANZAS"
-                        texto_cxc = (
-                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> las Cuentas por Cobrar Comerciales "
-                            f"(grupo <span class='hl'>1.1.2.01</span>) tienen un saldo neto por cobrar de "
-                            f"<span class='hl'>{neto_cxc:,.2f}</span> (Debe: {debe_cxc:,.2f} / Haber: {haber_cxc:,.2f})."
-                        )
-                    elif neto_cxc < 0:
-                        sev_cxc = "critico"
-                        etiq_cxc = "SALDO ACREEDOR"
-                        texto_cxc = (
-                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> las Cuentas por Cobrar Comerciales "
-                            f"(grupo <span class='hl'>1.1.2.01</span>) presentan un saldo neto acreedor/anticipo de "
-                            f"<span class='hl'>{abs(neto_cxc):,.2f}</span> (Debe: {debe_cxc:,.2f} / Haber: {haber_cxc:,.2f})."
-                        )
-                    else:
-                        sev_cxc = "positivo"
-                        etiq_cxc = "COMPENSADO"
-                        texto_cxc = (
-                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> las Cuentas por Cobrar Comerciales "
-                            f"(grupo <span class='hl'>1.1.2.01</span>) están compensadas con un neto de "
-                            f"<span class='hl'>{neto_cxc:,.2f}</span> (Debe: {debe_cxc:,.2f} / Haber: {haber_cxc:,.2f})."
-                        )
-
-                    posts_periodo.append({
-                        "categoria": "Cuentas por Cobrar",
-                        "severidad": sev_cxc,
-                        "etiqueta": etiq_cxc,
-                        "titular_html": texto_cxc,
-                        "contexto": f"Ctas. 1.1.2.01% • {cant_cxc} mov(s) en asientos_contables",
-                        "fecha": f"{mes_num_actual:02d}/{anio_actual}",
-                    })
-
-            # 2. Actividad / saldos desde asientos_contables en el período
-            df_asientos = ejecutar_consulta(
-                """
-                SELECT COUNT(*) AS cant_registros,
-                       COALESCE(SUM(debe), 0) AS total_debe,
-                       COALESCE(SUM(haber), 0) AS total_haber
-                FROM asientos_contables
-                WHERE YEAR(fecha) = %s
-                  AND MONTH(fecha) = %s
-                """,
-                conn_feed,
-                params=(anio_actual, mes_num_actual)
-            )
-            if df_asientos is not None and not df_asientos.empty:
-                cant_ast = int(pd.to_numeric(df_asientos.iloc[0]["cant_registros"], errors="coerce") or 0)
-                tot_debe = float(pd.to_numeric(df_asientos.iloc[0]["total_debe"], errors="coerce") or 0.0)
-                tot_haber = float(pd.to_numeric(df_asientos.iloc[0]["total_haber"], errors="coerce") or 0.0)
+            if df_res_mes is not None and not df_res_mes.empty:
+                r0 = df_res_mes.iloc[0]
+                cant_ast = int(pd.to_numeric(r0["cant_ast"], errors="coerce") or 0)
+                tot_debe = float(pd.to_numeric(r0["tot_debe"], errors="coerce") or 0.0)
+                tot_haber = float(pd.to_numeric(r0["tot_haber"], errors="coerce") or 0.0)
+                bloq_cierre = int(pd.to_numeric(r0["regs_bloqueados"], errors="coerce") or 0)
 
                 if cant_ast > 0:
                     diff_cuadre = round(abs(tot_debe - tot_haber), 2)
@@ -14141,30 +14125,50 @@ if opcion_menu == "🏠 Inicio":
                             "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                         })
 
+                # CxC 1.1.2.01%
+                cant_cxc = int(pd.to_numeric(r0["cant_cxc"], errors="coerce") or 0)
+                debe_cxc = float(pd.to_numeric(r0["debe_cxc"], errors="coerce") or 0.0)
+                haber_cxc = float(pd.to_numeric(r0["haber_cxc"], errors="coerce") or 0.0)
+                neto_cxc = round(debe_cxc - haber_cxc, 2)
 
-            # Saldo final = saldo_inicial + debe - haber
-            # 3. Efectivo / Bancos / Liquidez: sincronizado con calcular_flujo_caja_detallado + fallback
-            ultimo_dia_mes = calendar.monthrange(anio_actual, mes_num_actual)[1]
-            fecha_inicio_feed = f"{anio_actual:04d}-{mes_num_actual:02d}-01"
-            fecha_fin_feed = f"{anio_actual:04d}-{mes_num_actual:02d}-{ultimo_dia_mes:02d}"
+                if cant_cxc > 0 or abs(neto_cxc) >= 0.01:
+                    if neto_cxc > 0:
+                        sev_cxc, etiq_cxc = "atencion", "COBRANZAS"
+                        texto_cxc = (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> las Cuentas por Cobrar Comerciales "
+                            f"(grupo <span class='hl'>1.1.2.01</span>) tienen un saldo neto por cobrar de "
+                            f"<span class='hl'>{neto_cxc:,.2f}</span> (Debe: {debe_cxc:,.2f} / Haber: {haber_cxc:,.2f})."
+                        )
+                    elif neto_cxc < 0:
+                        sev_cxc, etiq_cxc = "critico", "SALDO ACREEDOR"
+                        texto_cxc = (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> las Cuentas por Cobrar Comerciales "
+                            f"(grupo <span class='hl'>1.1.2.01</span>) presentan un saldo neto acreedor/anticipo de "
+                            f"<span class='hl'>{abs(neto_cxc):,.2f}</span> (Debe: {debe_cxc:,.2f} / Haber: {haber_cxc:,.2f})."
+                        )
+                    else:
+                        sev_cxc, etiq_cxc = "positivo", "COMPENSADO"
+                        texto_cxc = (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> las Cuentas por Cobrar Comerciales "
+                            f"(grupo <span class='hl'>1.1.2.01</span>) están compensadas con un neto de "
+                            f"<span class='hl'>{neto_cxc:,.2f}</span> (Debe: {debe_cxc:,.2f} / Haber: {haber_cxc:,.2f})."
+                        )
 
-            flujo_bco = {}
-            try:
-                flujo_bco = calcular_flujo_caja_detallado(
-                    conn_feed,
-                    db_name=db_actual,
-                    fecha_inicio=fecha_inicio_feed,
-                    fecha_fin=fecha_fin_feed
-                ) or {}
-            except Exception:
-                flujo_bco = {}
+                    posts_periodo.append({
+                        "categoria": "Cuentas por Cobrar",
+                        "severidad": sev_cxc,
+                        "etiqueta": etiq_cxc,
+                        "titular_html": texto_cxc,
+                        "contexto": f"Ctas. 1.1.2.01% • {cant_cxc} mov(s) en asientos_contables",
+                        "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                    })
 
-            saldo_inicial_bco = round(float(flujo_bco.get("saldo_inicial") or 0.0), 2)
-            debe_bco = round(float(flujo_bco.get("total_entradas") or 0.0), 2)
-            haber_bco = round(float(flujo_bco.get("total_salidas") or 0.0), 2)
+                # 3. Efectivo / Bancos / Liquidez
+                cant_bco = int(pd.to_numeric(r0["cant_bco"], errors="coerce") or 0)
+                debe_bco = round(float(pd.to_numeric(r0["debe_bco_sql"], errors="coerce") or 0.0), 2)
+                haber_bco = round(float(pd.to_numeric(r0["haber_bco_sql"], errors="coerce") or 0.0), 2)
+                saldo_inicial_bco = 0.0
 
-            # Fallback directo si calcular_flujo_caja_detallado devolvió todo en 0
-            if saldo_inicial_bco == 0.0 and debe_bco == 0.0 and haber_bco == 0.0:
                 df_si_sb = ejecutar_consulta(
                     """
                     SELECT COALESCE(SUM(saldo_inicial), 0) AS saldo_ini
@@ -14175,221 +14179,111 @@ if opcion_menu == "🏠 Inicio":
                     params=(anio_actual, mes_nombre_actual)
                 )
                 if df_si_sb is not None and not df_si_sb.empty:
-                    saldo_inicial_bco = round(float(pd.to_numeric(df_si_sb.iloc[0]["saldo_ini"], errors="coerce") or 0.0), 2)
+                    saldo_inicial_bco = round(
+                        float(pd.to_numeric(df_si_sb.iloc[0]["saldo_ini"], errors="coerce") or 0.0), 2
+                    )
 
-                df_mov_sb = ejecutar_consulta(
-                    """
-                    SELECT COALESCE(SUM(debe), 0) AS total_debe,
-                           COALESCE(SUM(haber), 0) AS total_haber
-                    FROM asientos_contables
-                    WHERE fecha BETWEEN %s AND %s
-                      AND (
-                            LOWER(plan_cuentas) LIKE %s
-                            OR LOWER(cuenta_contable) LIKE %s
-                            OR LOWER(cuenta_contable) LIKE %s
+                saldo_final_bco = round(saldo_inicial_bco + debe_bco - haber_bco, 2)
+                if cant_bco > 0 or abs(saldo_inicial_bco) >= 0.01 or abs(saldo_final_bco) >= 0.01:
+                    if saldo_final_bco < 0:
+                        sev_bco, etiq_bco = "critico", "LIQUIDEZ"
+                        txt_bco = (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos cierran con "
+                            f"un saldo negativo de <span class='hl'>{abs(saldo_final_bco):,.2f}</span> "
+                            f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
                         )
+                    elif saldo_final_bco == 0:
+                        sev_bco, etiq_bco = "atencion", "LIQUIDEZ"
+                        txt_bco = (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos cierran en "
+                            f"<span class='hl'>0.00</span> "
+                            f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
+                        )
+                    else:
+                        sev_bco, etiq_bco = "positivo", "LIQUIDEZ"
+                        txt_bco = (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos presentan un "
+                            f"saldo final de <span class='hl'>{saldo_final_bco:,.2f}</span> "
+                            f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
+                        )
+
+                    posts_periodo.append({
+                        "categoria": "Efectivo y Bancos",
+                        "severidad": sev_bco,
+                        "etiqueta": etiq_bco,
+                        "titular_html": txt_bco,
+                        "contexto": f"Flujo de Caja • Saldo inicial + Debe - Haber ({cant_bco} mov)",
+                        "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                    })
+
+                # 4. Impuestos / Retenciones con arrastre mes a mes
+                df_arrastre_imp = ejecutar_consulta(
+                    """
+                    SELECT COALESCE(SUM(saldo_cta), 0) AS saldo_ini_pas
+                    FROM (
+                        SELECT (haber - debe) AS saldo_cta
+                        FROM saldos_iniciales
+                        WHERE plan_cuentas IN (%s, %s, %s, %s)
+                          AND fecha < %s
+                        UNION ALL
+                        SELECT (haber - debe) AS saldo_cta
+                        FROM asientos_contables
+                        WHERE plan_cuentas IN (%s, %s, %s, %s)
+                          AND fecha < %s
+                    ) prev_imp
                     """,
                     conn_feed,
-                    params=(fecha_inicio_feed, fecha_fin_feed, "1.1.01%", "%banco%", "%caja%")
+                    params=(*ctas_pasivo_fiscal, fecha_inicio_mes, *ctas_pasivo_fiscal, fecha_inicio_mes)
                 )
-                if df_mov_sb is not None and not df_mov_sb.empty:
-                    debe_bco = round(float(pd.to_numeric(df_mov_sb.iloc[0]["total_debe"], errors="coerce") or 0.0), 2)
-                    haber_bco = round(float(pd.to_numeric(df_mov_sb.iloc[0]["total_haber"], errors="coerce") or 0.0), 2)
-
-            saldo_final_bco = round(saldo_inicial_bco + debe_bco - haber_bco, 2)
-
-            df_cnt_bco = ejecutar_consulta(
-                """
-                SELECT COUNT(*) AS cant_movs
-                FROM asientos_contables
-                WHERE fecha BETWEEN %s AND %s
-                  AND (
-                        LOWER(plan_cuentas) LIKE %s
-                        OR LOWER(cuenta_contable) LIKE %s
-                        OR LOWER(cuenta_contable) LIKE %s
-                    )
-                """,
-                conn_feed,
-                params=(fecha_inicio_feed, fecha_fin_feed, "1.1.01%", "%banco%", "%caja%")
-            )
-            cant_bco = (
-                int(pd.to_numeric(df_cnt_bco.iloc[0]["cant_movs"], errors="coerce") or 0)
-                if (df_cnt_bco is not None and not df_cnt_bco.empty)
-                else 0
-            )
-
-            if cant_bco > 0 or abs(saldo_inicial_bco) >= 0.01 or abs(saldo_final_bco) >= 0.01:
-                if saldo_final_bco < 0:
-                    sev_bco = "critico"
-                    etiq_bco = "LIQUIDEZ"
-                    txt_bco = (
-                        f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos cierran con "
-                        f"un saldo negativo de <span class='hl'>{abs(saldo_final_bco):,.2f}</span> "
-                        f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
-                    )
-                elif saldo_final_bco == 0:
-                    sev_bco = "atencion"
-                    etiq_bco = "LIQUIDEZ"
-                    txt_bco = (
-                        f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos cierran en "
-                        f"<span class='hl'>0.00</span> "
-                        f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
-                    )
-                else:
-                    sev_bco = "positivo"
-                    etiq_bco = "LIQUIDEZ"
-                    txt_bco = (
-                        f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos presentan un "
-                        f"saldo final de <span class='hl'>{saldo_final_bco:,.2f}</span> "
-                        f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
-                    )
-
-                posts_periodo.append({
-                    "categoria": "Efectivo y Bancos",
-                    "severidad": sev_bco,
-                    "etiqueta": etiq_bco,
-                    "titular_html": txt_bco,
-                    "contexto": f"Flujo de Caja • Saldo inicial + Debe - Haber ({cant_bco} mov)",
-                    "fecha": f"{mes_num_actual:02d}/{anio_actual}",
-                })
-
-            # 5. Impuestos / Retenciones (IVA / ISLR / Tributos) con arrastre mes a mes
-            fecha_inicio_imp = f"{anio_actual:04d}-{mes_num_actual:02d}-01"
-            ultimo_dia_imp = calendar.monthrange(anio_actual, mes_num_actual)[1]
-            fecha_fin_imp = f"{anio_actual:04d}-{mes_num_actual:02d}-{ultimo_dia_imp:02d}"
-
-            # Pasivos fiscales / retenciones por enterar (aumentan por Haber, disminuyen por Debe -> Haber - Debe)
-            ctas_pasivo_fiscal = (
-                "2.1.2.01.001",  # I.V.A. Debito Fiscal
-                "2.1.2.01.002",  # I.V.A. por Pagar
-                "2.1.2.01.005",  # Retencion ISLR Proveedores
-                "2.1.2.01.006",  # ISLR por Pagar
-            )
-
-            nombres_pasivo_fiscal = {
-                "2.1.2.01.001": "I.V.A. Débito Fiscal",
-                "2.1.2.01.002": "I.V.A. por Pagar",
-                "2.1.2.01.005": "Retención ISLR Proveedores",
-                "2.1.2.01.006": "ISLR por Pagar",
-            }
-
-            # Retenciones descontables / anticipos / créditos fiscales (aumentan por Debe -> Debe - Haber)
-            ctas_credito_fiscal = (
-                "2.1.2.01.003",  # Retencioes IVA en Compras
-                "2.1.2.01.004",  # Retencioes Anticipado ISLR
-            )
-
-            # 5a. Saldo inicial base en saldos_iniciales (antes del mes actual)
-            df_si_base_pas = ejecutar_consulta(
-                """
-                SELECT COALESCE(SUM(haber - debe), 0) AS saldo_base_pas
-                FROM saldos_iniciales
-                WHERE plan_cuentas IN (%s, %s, %s, %s)
-                  AND fecha < %s
-                """,
-                conn_feed,
-                params=(*ctas_pasivo_fiscal, fecha_inicio_imp)
-            )
-            saldo_base_pas = (
-                float(pd.to_numeric(df_si_base_pas.iloc[0]["saldo_base_pas"], errors="coerce") or 0.0)
-                if (df_si_base_pas is not None and not df_si_base_pas.empty)
-                else 0.0
-            )
-
-            # 5b. Arrastre acumulado en asientos_contables de meses anteriores al mes actual
-            df_prev_pas = ejecutar_consulta(
-                """
-                SELECT COALESCE(SUM(haber - debe), 0) AS arrastre_prev_pas
-                FROM asientos_contables
-                WHERE plan_cuentas IN (%s, %s, %s, %s)
-                  AND fecha < %s
-                """,
-                conn_feed,
-                params=(*ctas_pasivo_fiscal, fecha_inicio_imp)
-            )
-            arrastre_prev_pas = (
-                float(pd.to_numeric(df_prev_pas.iloc[0]["arrastre_prev_pas"], errors="coerce") or 0.0)
-                if (df_prev_pas is not None and not df_prev_pas.empty)
-                else 0.0
-            )
-
-            saldo_ini_pas = round(saldo_base_pas + arrastre_prev_pas, 2)
-
-            # 5c. Movimientos del mes en asientos_contables
-            df_imp = ejecutar_consulta(
-                """
-                SELECT COUNT(*) AS cant_movs,
-                       COALESCE(SUM(CASE WHEN plan_cuentas IN (%s, %s, %s, %s) THEN haber ELSE 0 END), 0) AS haber_pas,
-                       COALESCE(SUM(CASE WHEN plan_cuentas IN (%s, %s, %s, %s) THEN debe ELSE 0 END), 0) AS debe_pas,
-                       COALESCE(SUM(CASE WHEN plan_cuentas IN (%s, %s) THEN debe - haber ELSE 0 END), 0) AS neto_cred
-                FROM asientos_contables
-                WHERE plan_cuentas IN (%s, %s, %s, %s, %s, %s)
-                  AND YEAR(fecha) = %s
-                  AND MONTH(fecha) = %s
-                """,
-                conn_feed,
-                params=(
-                    *ctas_pasivo_fiscal,
-                    *ctas_pasivo_fiscal,
-                    *ctas_credito_fiscal,
-                    *ctas_pasivo_fiscal,
-                    *ctas_credito_fiscal,
-                    anio_actual,
-                    mes_num_actual,
+                saldo_ini_pas = (
+                    round(float(pd.to_numeric(df_arrastre_imp.iloc[0]["saldo_ini_pas"], errors="coerce") or 0.0), 2)
+                    if (df_arrastre_imp is not None and not df_arrastre_imp.empty)
+                    else 0.0
                 )
-            )
 
-            # 5d. Desglose por cuenta contable del saldo acumulado al cierre del mes
-            df_det_ctas = ejecutar_consulta(
-                """
-                SELECT plan_cuentas,
-                       MAX(cuenta_contable) AS cuenta_contable,
-                       COALESCE(SUM(saldo_cta), 0) AS saldo_cta
-                FROM (
-                    SELECT plan_cuentas, cuenta_contable, (haber - debe) AS saldo_cta
-                    FROM saldos_iniciales
-                    WHERE plan_cuentas IN (%s, %s, %s, %s)
-                      AND fecha <= %s
-                    UNION ALL
-                    SELECT plan_cuentas, cuenta_contable, (haber - debe) AS saldo_cta
-                    FROM asientos_contables
-                    WHERE plan_cuentas IN (%s, %s, %s, %s)
-                      AND fecha <= %s
-                ) sub
-                GROUP BY plan_cuentas
-                """,
-                conn_feed,
-                params=(
-                    *ctas_pasivo_fiscal,
-                    fecha_fin_imp,
-                    *ctas_pasivo_fiscal,
-                    fecha_fin_imp,
-                )
-            )
-
-            detalle_ctas_texto = ""
-            ctas_activas_codigos = []
-            if df_det_ctas is not None and not df_det_ctas.empty:
-                partes_cta = []
-                for _, fila_cta in df_det_ctas.iterrows():
-                    cod_cta = str(fila_cta["plan_cuentas"] or "").strip()
-                    nom_cta = str(fila_cta["cuenta_contable"] or "").strip() or nombres_pasivo_fiscal.get(cod_cta, "")
-                    val_cta = round(float(pd.to_numeric(fila_cta["saldo_cta"], errors="coerce") or 0.0), 2)
-                    if abs(val_cta) >= 0.01:
-                        ctas_activas_codigos.append(cod_cta)
-                        partes_cta.append(f"{cod_cta} {nom_cta}: {val_cta:,.2f}".strip())
-                if partes_cta:
-                    detalle_ctas_texto = " • Cuentas: " + " | ".join(partes_cta)
-
-            if df_imp is not None and not df_imp.empty:
-                cant_imp = int(pd.to_numeric(df_imp.iloc[0]["cant_movs"], errors="coerce") or 0)
-                haber_pas = float(pd.to_numeric(df_imp.iloc[0]["haber_pas"], errors="coerce") or 0.0)
-                debe_pas = float(pd.to_numeric(df_imp.iloc[0]["debe_pas"], errors="coerce") or 0.0)
+                cant_imp = int(pd.to_numeric(r0["cant_imp"], errors="coerce") or 0)
+                haber_pas = float(pd.to_numeric(r0["haber_pas"], errors="coerce") or 0.0)
+                debe_pas = float(pd.to_numeric(r0["debe_pas"], errors="coerce") or 0.0)
                 neto_mes_pas = round(haber_pas - debe_pas, 2)
                 saldo_acum_pas = round(saldo_ini_pas + neto_mes_pas, 2)
-                neto_cred_mes = round(float(pd.to_numeric(df_imp.iloc[0]["neto_cred"], errors="coerce") or 0.0), 2)
+                neto_cred_mes = round(float(pd.to_numeric(r0["neto_cred"], errors="coerce") or 0.0), 2)
 
+                detalle_ctas_texto = ""
+                ctas_activas_codigos = []
                 if cant_imp > 0 or abs(saldo_ini_pas) >= 0.01 or abs(saldo_acum_pas) >= 0.01:
+                    df_det_ctas = ejecutar_consulta(
+                        """
+                        SELECT plan_cuentas,
+                               MAX(cuenta_contable) AS cuenta_contable,
+                               COALESCE(SUM(saldo_cta), 0) AS saldo_cta
+                        FROM (
+                            SELECT plan_cuentas, cuenta_contable, (haber - debe) AS saldo_cta
+                            FROM saldos_iniciales
+                            WHERE plan_cuentas IN (%s, %s, %s, %s)
+                              AND fecha <= %s
+                            UNION ALL
+                            SELECT plan_cuentas, cuenta_contable, (haber - debe) AS saldo_cta
+                            FROM asientos_contables
+                            WHERE plan_cuentas IN (%s, %s, %s, %s)
+                              AND fecha <= %s
+                        ) sub
+                        GROUP BY plan_cuentas
+                        """,
+                        conn_feed,
+                        params=(*ctas_pasivo_fiscal, fecha_fin_mes, *ctas_pasivo_fiscal, fecha_fin_mes)
+                    )
+                    if df_det_ctas is not None and not df_det_ctas.empty:
+                        partes_cta = []
+                        for _, fila_cta in df_det_ctas.iterrows():
+                            cod_cta = str(fila_cta["plan_cuentas"] or "").strip()
+                            nom_cta = str(fila_cta["cuenta_contable"] or "").strip() or nombres_pasivo_fiscal.get(cod_cta, "")
+                            val_cta = round(float(pd.to_numeric(fila_cta["saldo_cta"], errors="coerce") or 0.0), 2)
+                            if abs(val_cta) >= 0.01:
+                                ctas_activas_codigos.append(cod_cta)
+                                partes_cta.append(f"{cod_cta} {nom_cta}: {val_cta:,.2f}".strip())
+                        if partes_cta:
+                            detalle_ctas_texto = " • Cuentas: " + " | ".join(partes_cta)
+
                     ref_ctas = ", ".join(ctas_activas_codigos) if ctas_activas_codigos else "2.1.2.01.001–006"
                     posts_periodo.append({
                         "categoria": "Impuestos y Retenciones",
@@ -14407,32 +14301,18 @@ if opcion_menu == "🏠 Inicio":
                         "contexto": f"Ctas. {ref_ctas} • Arrastre mes a mes [Haber - Debe]",
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
-            # 6. Cierre / Bloqueo del Período (columna bloqueado en asientos_contables)
-            df_cierre = ejecutar_consulta(
-                """
-                SELECT COUNT(*) AS total_regs,
-                       COALESCE(SUM(CASE WHEN bloqueado = 1 THEN 1 ELSE 0 END), 0) AS regs_bloqueados
-                FROM asientos_contables
-                WHERE YEAR(fecha) = %s
-                  AND MONTH(fecha) = %s
-                """,
-                conn_feed,
-                params=(anio_actual, mes_num_actual)
-            )
-            if df_cierre is not None and not df_cierre.empty:
-                tot_cierre = int(pd.to_numeric(df_cierre.iloc[0]["total_regs"], errors="coerce") or 0)
-                bloq_cierre = int(pd.to_numeric(df_cierre.iloc[0]["regs_bloqueados"], errors="coerce") or 0)
 
-                if tot_cierre > 0 and bloq_cierre == tot_cierre:
+                # 5. Cierre / Bloqueo del Período
+                if cant_ast > 0 and bloq_cierre == cant_ast:
                     posts_periodo.append({
                         "categoria": "Cierre Contable",
                         "severidad": "positivo",
                         "etiqueta": "CERRADO",
                         "titular_html": (
                             f"El período <span class='hl'>{mes_nombre_actual} {anio_actual}</span> está "
-                            f"<span class='hl'>bloqueado</span> en su totalidad ({bloq_cierre}/{tot_cierre} asientos)."
+                            f"<span class='hl'>bloqueado</span> en su totalidad ({bloq_cierre}/{cant_ast} asientos)."
                         ),
-                        "contexto": f"bloqueado = 1 • asientos_contables",
+                        "contexto": "bloqueado = 1 • asientos_contables",
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
                 elif bloq_cierre > 0:
@@ -14442,34 +14322,60 @@ if opcion_menu == "🏠 Inicio":
                         "etiqueta": "PARCIAL",
                         "titular_html": (
                             f"El período <span class='hl'>{mes_nombre_actual} {anio_actual}</span> tiene un bloqueo parcial: "
-                            f"<span class='hl'>{bloq_cierre}</span> de <span class='hl'>{tot_cierre}</span> asientos bloqueados."
+                            f"<span class='hl'>{bloq_cierre}</span> de <span class='hl'>{cant_ast}</span> asientos bloqueados."
                         ),
-                        "contexto": f"bloqueado = 1 • asientos_contables",
+                        "contexto": "bloqueado = 1 • asientos_contables",
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
-                elif tot_cierre > 0:
+                elif cant_ast > 0:
                     posts_periodo.append({
                         "categoria": "Cierre Contable",
                         "severidad": "info",
                         "etiqueta": "ABIERTO",
                         "titular_html": (
                             f"El período <span class='hl'>{mes_nombre_actual} {anio_actual}</span> permanece "
-                            f"<span class='hl'>abierto</span> para edición ({tot_cierre} asiento(s))."
+                            f"<span class='hl'>abierto</span> para edición ({cant_ast} asiento(s))."
                         ),
-                        "contexto": f"bloqueado = 0 • asientos_contables",
+                        "contexto": "bloqueado = 0 • asientos_contables",
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
         finally:
-            conn_feed.close()
+            try:
+                conn_feed.close()
+            except Exception:
+                pass
 
-    prioridad_sev = {"critico": 0, "atencion": 1, "info": 2, "positivo": 3}
-    posts_periodo.sort(key=lambda p: prioridad_sev.get(p.get("severidad", "info"), 2))
+        prioridad_sev = {"critico": 0, "atencion": 1, "info": 2, "positivo": 3}
+        posts_periodo.sort(key=lambda p: prioridad_sev.get(p.get("severidad", "info"), 2))
+        return posts_periodo
+
+
+    # --- FEED FINANCIERO VINCULADO AL PERÍODO DEL SIDEBAR ---
+    dic_meses = {
+        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4,
+        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8,
+        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+    }
+    meses_lista = list(dic_meses.keys())
+
+    anio_actual = int(st.session_state.get("año_seleccionado") or datetime.today().year)
+    mes_nombre_actual = st.session_state.get("mes_seleccionado") or meses_lista[0]
+    if mes_nombre_actual not in dic_meses:
+        mes_nombre_actual = meses_lista[0]
+    mes_num_actual = dic_meses.get(mes_nombre_actual, 1)
+
+    posts_periodo = _construir_posts_feed_periodo(
+        str(db_actual),
+        anio_actual,
+        mes_num_actual,
+        mes_nombre_actual,
+    )
 
     renderizar_feed_financiero(
         posts_periodo,
         titulo=f"📡 Feed Financiero • {mes_nombre_actual} {anio_actual}"
     )
-    
+        
 
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
