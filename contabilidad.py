@@ -12421,43 +12421,85 @@ def gestionar_sidebar():
 
         # --- Selección de Empresa (Optimizada con caché y session_state) ---
         if menu == "📊 Auditoría Contable":
+            es_admin_general = str(user_rol or "").strip().lower() in (
+                "admin",
+                "administrador",
+                "administrador general",
+            )
+
             # Llamada a la función con caché (evita latencia de red innecesaria)
             registros_cache = _obtener_empresas_sidebar_cache(user_rol, user_limpio)
             df_sidebar = pd.DataFrame(registros_cache)
+
+            # Si es administrador general, intentamos traer todos los clientes de contabilidad
+            if es_admin_general:
+                df_all_clientes = pd.DataFrame()
+                try:
+                    conn_admin = conectar_db() if "conectar_db" in globals() else None
+                    if conn_admin is not None:
+                        for tbl_clientes in ("empresas_clientes", "clientes_contabilidad", "clientes", "empresas"):
+                            try:
+                                df_tmp = ejecutar_consulta(f"SELECT * FROM {tbl_clientes}", conn_admin)
+                                if df_tmp is not None and not df_tmp.empty:
+                                    df_all_clientes = df_tmp
+                                    break
+                            except Exception:
+                                continue
+                        try:
+                            conn_admin.close()
+                        except Exception:
+                            pass
+                except Exception:
+                    df_all_clientes = pd.DataFrame()
+
+                if not df_all_clientes.empty:
+                    df_sidebar = df_all_clientes
 
             # 🛠️ Fallback de seguridad si el usuario es 'anderson' y no vino mapeado en la BD
             if df_sidebar.empty and user_limpio == 'anderson':
                 df_sidebar = pd.DataFrame([{
                     'id': 1,
                     'nombre_empresa': 'Gomas Puente Hierro 2023, C.A.',
-                    'db_nombre': 'gomas_puente_hierro'  # Cambia por el nombre real de su base de datos en MySQL
+                    'db_nombre': 'gomas_puente_hierro'
                 }])
 
-            if user_rol != 'admin' and df_sidebar.empty:
+            if not es_admin_general and df_sidebar.empty:
                 st.error(f"❌ El usuario '{nombre_usuario_actual}' no tiene una empresa asignada en la base de datos o en las relaciones de usuario.")
                 st.stop()
 
             if not df_sidebar.empty:
                 # 🔍 BÚSQUEDA DINÁMICA DE COLUMNAS PARA EVITAR KEYERRORS
                 cols_disponibles = [str(c).lower() for c in df_sidebar.columns]
-                
+
                 posibles_nombres = ['nombre_empresa', 'nombre', 'empresa', 'cliente', 'razon_social']
                 col_empresa = next((df_sidebar.columns[cols_disponibles.index(p)] for p in posibles_nombres if p in cols_disponibles), None)
                 if not col_empresa and len(df_sidebar.columns) > 0:
                     col_empresa = df_sidebar.columns[0]
 
-                posibles_dbs = ['db_nombre', 'database', 'base_datos', 'db']
+                posibles_dbs = ['db_nombre', 'database', 'base_datos', 'db', 'empresa_db']
                 col_db = next((df_sidebar.columns[cols_disponibles.index(p)] for p in posibles_dbs if p in cols_disponibles), None)
                 if not col_db and len(df_sidebar.columns) > 1:
                     col_db = df_sidebar.columns[1]
 
+                df_sidebar = df_sidebar.dropna(subset=[col_empresa]).drop_duplicates(subset=[col_empresa]).reset_index(drop=True)
                 nombres_empresas = df_sidebar[col_empresa].tolist() if col_empresa else []
-                nombre_seleccionado = nombres_empresas[0] if nombres_empresas else "Empresa Desconocida"
 
-                st.markdown(f"**🏢 Empresa Asignada:**")
-                st.info(f"{str(nombre_seleccionado).upper()}")
+                if es_admin_general and len(nombres_empresas) > 0:
+                    st.markdown("**🏢 Seleccionar Cliente de Contabilidad:**")
+                    nombre_previo = st.session_state.get("CLIENTE_NOMBRE") or st.session_state.get("cliente_seleccionado_previo")
+                    idx_default = nombres_empresas.index(nombre_previo) if nombre_previo in nombres_empresas else 0
 
-                st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
+                    nombre_seleccionado = st.selectbox(
+                        "Cliente / Base de datos",
+                        options=nombres_empresas,
+                        index=idx_default,
+                        key="sb_admin_cliente_contabilidad",
+                        label_visibility="collapsed",
+                    )
+                else:
+                    nombre_seleccionado = nombres_empresas[0] if nombres_empresas else "Empresa Desconocida"
+                    st.markdown("**🏢 Empresa Asignada:**")
+                    st.info(f"{str(nombre_seleccionado).upper()}")
 
                 fila_seleccionada = df_sidebar[df_sidebar[col_empresa] == nombre_seleccionado] if col_empresa else pd.DataFrame()
                 if fila_seleccionada.empty:
@@ -12465,12 +12507,18 @@ def gestionar_sidebar():
 
                 datos_sel = fila_seleccionada.iloc[0]
                 db_seleccionada = str(datos_sel[col_db]).strip() if col_db else "rishon_letzion_ca"
-                
-                # --- ALMACENAMIENTO SEGURO EN SESSION_STATE ---
+
+                # Si cambió la empresa seleccionada, reseteamos cachés/estados dependientes del cliente
+                db_anterior = st.session_state.get("DB_ACTUAL")
+                if db_anterior and db_anterior != db_seleccionada:
+                    for clave_reset in ("flujo_caja_cache", "feed_financiero_cache", "resumen_contable_cache"):
+                        st.session_state.pop(clave_reset, None)
+
+                st.session_state['cliente_seleccionado_previo'] = nombre_seleccionado
                 st.session_state['DB_ACTUAL'] = db_seleccionada
                 st.session_state['db_a_conectar'] = db_seleccionada
                 st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
-                if 'id' in datos_sel:
+                if 'id' in datos_sel and pd.notna(datos_sel['id']):
                     st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
 
     return menu
