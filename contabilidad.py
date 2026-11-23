@@ -13752,7 +13752,8 @@ if opcion_menu == "🏠 Inicio":
 
     def generar_png_etiqueta_post(post: dict, etiquetas_sev: dict | None = None) -> bytes:
         """
-        Genera una imagen PNG tipo tarjeta/etiqueta a partir de un dict de post.
+        Genera una imagen PNG tipo tarjeta/etiqueta a partir de un dict de post,
+        incluyendo su etiqueta de estado/severidad en la imagen.
         """
         if etiquetas_sev is None:
             etiquetas_sev = {
@@ -13764,10 +13765,10 @@ if opcion_menu == "🏠 Inicio":
 
         sev = str(post.get("severidad", "info")).lower()
         colores_sev = {
-            "critico": {"borde": (255, 77, 79), "badge_bg": (66, 24, 28), "badge_fg": (255, 120, 117), "hl": (255, 107, 107)},
-            "atencion": {"borde": (245, 158, 11), "badge_bg": (64, 45, 14), "badge_fg": (251, 191, 36), "hl": (251, 191, 36)},
-            "positivo": {"borde": (34, 197, 94), "badge_bg": (18, 56, 34), "badge_fg": (74, 222, 128), "hl": (74, 222, 128)},
-            "info": {"borde": (88, 166, 255), "badge_bg": (22, 44, 74), "badge_fg": (121, 192, 255), "hl": (88, 166, 255)},
+            "critico": {"borde": (255, 77, 79), "badge_bg": (66, 24, 28), "badge_fg": (255, 120, 117)},
+            "atencion": {"borde": (245, 158, 11), "badge_bg": (64, 45, 14), "badge_fg": (251, 191, 36)},
+            "positivo": {"borde": (34, 197, 94), "badge_bg": (18, 56, 34), "badge_fg": (74, 222, 128)},
+            "info": {"borde": (88, 166, 255), "badge_bg": (22, 44, 74), "badge_fg": (121, 192, 255)},
         }
         paleta = colores_sev.get(sev, colores_sev["info"])
 
@@ -13788,7 +13789,8 @@ if opcion_menu == "🏠 Inicio":
         font_foot = ImageFont.load_default()
 
         categoria = str(post.get("categoria", "General"))
-        badge = str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO")).upper()
+        etiqueta_txt = str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO")).upper()
+        badge = f"{categoria} • {etiqueta_txt}"
         contexto = str(post.get("contexto", ""))
         fecha = str(post.get("fecha", ""))
 
@@ -13801,9 +13803,9 @@ if opcion_menu == "🏠 Inicio":
             .strip()
         )
 
-        # Encabezado: categoría y badge
+        # Encabezado: categoría y etiqueta en la imagen
         draw.text((32, 26), categoria, fill=fg_muted, font=font_cat)
-        badge_w = max(90, len(badge) * 9 + 24)
+        badge_w = max(110, len(badge) * 8 + 28)
         draw.rounded_rectangle(
             [ancho - 32 - badge_w, 20, ancho - 32, 48],
             radius=12,
@@ -13811,7 +13813,7 @@ if opcion_menu == "🏠 Inicio":
             outline=paleta["borde"],
             width=1,
         )
-        draw.text((ancho - 32 - badge_w + 12, 28), badge, fill=paleta["badge_fg"], font=font_body)
+        draw.text((ancho - 32 - badge_w + 14, 28), badge, fill=paleta["badge_fg"], font=font_body)
 
         # Cuerpo envuelto en líneas
         lineas = textwrap.wrap(cuerpo_limpio, width=78)
@@ -14196,18 +14198,17 @@ if opcion_menu == "🏠 Inicio":
     }
 
     if posts_periodo:
-        with st.expander("🖼️ Descargar etiquetas en PNG"):
+        with st.expander("🖼️ Descargar etiquetas en PNG (una por imagen)"):
             for idx, post in enumerate(posts_periodo):
+                etiqueta_actual = post.get("etiqueta") or etiquetas_sev_feed.get(post.get("severidad", "info"), "DATO")
+                categoria_actual = post.get("categoria", "General")
                 png_bytes = generar_png_etiqueta_post(post, etiquetas_sev_feed)
                 nombre_archivo = (
                     f"etiqueta_{idx + 1}_{anio_actual}_{mes_num_actual:02d}_"
-                    f"{str(post.get('categoria', 'post')).lower().replace(' ', '_')}.png"
+                    f"{str(categoria_actual).lower().replace(' ', '_')}_{str(etiqueta_actual).lower()}.png"
                 )
                 st.download_button(
-                    label=(
-                        f"Descargar PNG: {post.get('categoria', 'General')} • "
-                        f"{post.get('etiqueta') or etiquetas_sev_feed.get(post.get('severidad', 'info'), 'DATO')}"
-                    ),
+                    label=f"⬇️ Descargar PNG: {categoria_actual} • {etiqueta_actual}",
                     data=png_bytes,
                     file_name=nombre_archivo,
                     mime="image/png",
