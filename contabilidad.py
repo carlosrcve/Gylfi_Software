@@ -13677,6 +13677,56 @@ if opcion_menu == "🏠 Inicio":
 
     # --- renderizar_feed_financiero---
     st.divider()
+    import calendar
+    import datetime as dt
+    import pandas as pd
+
+
+    def obtener_deuda_proveedores_cierre_mes(conn, db_actual, anio_actual, mes_num_actual, cuenta_codigo="2.1.1.01.001"):
+        """
+        Calcula la deuda acumulada con proveedores nacionales al cierre del mes seleccionado:
+          Saldo Inicial + SUM(Haber) - SUM(Debe) hasta el último día de (anio_actual, mes_num_actual).
+        """
+        ultimo_dia = calendar.monthrange(int(anio_actual), int(mes_num_actual))[1]
+        fecha_corte = dt.date(int(anio_actual), int(mes_num_actual), ultimo_dia).strftime("%Y-%m-%d")
+
+        # 1. Saldo inicial (ajusta nombre de tabla y columnas si difieren: ej. saldos_iniciales, cuenta_codigo, saldo_inicial)
+        saldo_inicial = 0.0
+        df_si = ejecutar_consulta(
+            """
+            SELECT COALESCE(SUM(saldo_inicial), 0) AS saldo_ini
+            FROM saldos_iniciales
+            WHERE cuenta_codigo = %s
+            """,
+            conn,
+            params=(str(cuenta_codigo),)
+        )
+        if df_si is not None and not df_si.empty:
+            saldo_inicial = float(pd.to_numeric(df_si.iloc[0]["saldo_ini"], errors="coerce") or 0.0)
+
+        # 2. Movimientos acumulados en asientos_contables hasta el cierre del mes seleccionado
+        df_mov = ejecutar_consulta(
+            """
+            SELECT COALESCE(SUM(haber), 0) AS total_haber,
+                   COALESCE(SUM(debe), 0) AS total_debe
+            FROM asientos_contables
+            WHERE cuenta_codigo = %s
+              AND fecha <= %s
+            """,
+            conn,
+            params=(str(cuenta_codigo), fecha_corte)
+        )
+
+        total_haber = 0.0
+        total_debe = 0.0
+        if df_mov is not None and not df_mov.empty:
+            total_haber = float(pd.to_numeric(df_mov.iloc[0]["total_haber"], errors="coerce") or 0.0)
+            total_debe = float(pd.to_numeric(df_mov.iloc[0]["total_debe"], errors="coerce") or 0.0)
+
+        deuda_final = round(saldo_inicial + total_haber - total_debe, 2)
+        return deuda_final, fecha_corte
+
+
     import html
     import datetime as dt
     import pandas as pd
@@ -13827,6 +13877,23 @@ if opcion_menu == "🏠 Inicio":
     conn_feed = conectar_db(db_actual)
     if conn_feed:
         try:
+            # 0. Deuda acumulada con Proveedores Nacionales (2.1.1.01.001) al cierre del mes
+            deuda_prov_cierre, fecha_corte = obtener_deuda_proveedores_cierre_mes(
+                conn_feed, db_actual, anio_actual, mes_num_actual, cuenta_codigo="2.1.1.01.001"
+            )
+            if deuda_prov_cierre > 0:
+                posts_periodo.append({
+                    "categoria": "Proveedores",
+                    "severidad": "critico",
+                    "titular_html": (
+                        f"La empresa tiene una deuda de <span class='hl'>{deuda_prov_cierre:,.2f}</span> "
+                        f"con Proveedores Nacionales al cierre de <span class='hl'>{mes_nombre_actual} {anio_actual}</span>, "
+                        f"poniendo en riesgo la operatividad del negocio."
+                    ),
+                    "contexto": f"Cta. 2.1.1.01.001 • Corte {fecha_corte}",
+                    "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                })
+
             # 1. Órdenes de pago pendientes del período
             df_op_per = ejecutar_consulta(
                 """
