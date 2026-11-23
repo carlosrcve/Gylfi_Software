@@ -13848,20 +13848,29 @@ if opcion_menu == "🏠 Inicio":
                     display: flex;
                     flex-direction: row;
                     align-items: center;
-                    gap: 8px;
-                    overflow-x: auto;
-                    overflow-y: hidden;
-                    white-space: nowrap;
-                    padding: 8px 4px 12px 4px;
-                    margin-bottom: 8px;
+                    gap: 10px;
+                    width: 100%;
+                    max-width: 100%;
+                    overflow-x: scroll !important;
+                    overflow-y: hidden !important;
+                    white-space: nowrap !important;
+                    padding: 10px 6px 14px 6px;
+                    margin-bottom: 10px;
+                    background: #161b22;
+                    border: 1px solid #21262d;
+                    border-radius: 10px;
                     scrollbar-width: thin;
-                    scrollbar-color: #30363d #161b22;
+                    scrollbar-color: #58a6ff #0d1117;
                 }
                 .fin-tags-scroll::-webkit-scrollbar {
-                    height: 6px;
+                    height: 8px;
+                }
+                .fin-tags-scroll::-webkit-scrollbar-track {
+                    background: #0d1117;
+                    border-radius: 999px;
                 }
                 .fin-tags-scroll::-webkit-scrollbar-thumb {
-                    background: #30363d;
+                    background: #58a6ff;
                     border-radius: 999px;
                 }
                 .fin-feed-card {
@@ -13888,7 +13897,7 @@ if opcion_menu == "🏠 Inicio":
                     display: inline-flex;
                     align-items: center;
                     gap: 5px;
-                    padding: 4px 12px;
+                    padding: 5px 14px;
                     border-radius: 999px;
                     font-weight: 800;
                     font-size: 0.75rem;
@@ -13897,7 +13906,7 @@ if opcion_menu == "🏠 Inicio":
                     border: 1px solid currentColor;
                     background: rgba(88, 166, 255, 0.16);
                     color: #79c0ff;
-                    flex-shrink: 0;
+                    flex: 0 0 auto;
                 }
                 .sev-critico .fin-badge {
                     background: rgba(255, 77, 79, 0.22);
@@ -13971,7 +13980,6 @@ if opcion_menu == "🏠 Inicio":
             "info": "DATO",
         }
 
-        # Barra deslizadora horizontal con todas las etiquetas de los posts
         chips_html = []
         etiquetas_unicas = []
         for post in posts:
@@ -13983,8 +13991,11 @@ if opcion_menu == "🏠 Inicio":
             if etiqueta_completa not in etiquetas_unicas:
                 etiquetas_unicas.append(etiqueta_completa)
             chips_html.append(
-                f'<div class="{sev_clase}"><span class="fin-badge">{cat_txt} • {badge_lbl}</span></div>'
+                f'<div class="{sev_clase}" style="flex:0 0 auto;"><span class="fin-badge">{cat_txt} • {badge_lbl}</span></div>'
             )
+
+        # Espaciador invisible para garantizar scroll horizontal incluso con pocas etiquetas
+        chips_html.append('<div style="flex:0 0 auto; min-width: 420px; height: 1px;"></div>')
 
         st.markdown(
             f'<div class="fin-tags-scroll">{"".join(chips_html)}</div>',
@@ -14000,8 +14011,7 @@ if opcion_menu == "🏠 Inicio":
                 key="feed_filtro_etiquetas",
             )
 
-        # Contenedor con scroll vertical para las tarjetas y su botón de descarga
-        contenedor_scroll_vertical = st.container(height=380)
+        contenedor_scroll_vertical = st.container(height=240)
         with contenedor_scroll_vertical:
             for idx, post in enumerate(posts):
                 sev = post.get("severidad", "info")
