@@ -14074,6 +14074,22 @@ if opcion_menu == "🏠 Inicio":
                         })
 
             # 3. Efectivo / Bancos / Liquidez (naturaleza deudora: Debe - Haber)
+            df_si_bco = ejecutar_consulta(
+                """
+                SELECT COALESCE(SUM(debe - haber), 0) AS saldo_ini
+                FROM saldos_iniciales
+                WHERE plan_cuentas LIKE %s
+                  AND YEAR(fecha) <= %s
+                """,
+                conn_feed,
+                params=(prefijo_efectivo_bancos, anio_actual)
+            )
+            saldo_ini_bco = (
+                float(pd.to_numeric(df_si_bco.iloc[0]["saldo_ini"], errors="coerce") or 0.0)
+                if (df_si_bco is not None and not df_si_bco.empty)
+                else 0.0
+            )
+
             df_bancos = ejecutar_consulta(
                 """
                 SELECT COUNT(*) AS cant_movs,
@@ -14087,55 +14103,6 @@ if opcion_menu == "🏠 Inicio":
                 conn_feed,
                 params=(prefijo_efectivo_bancos, anio_actual, mes_num_actual)
             )
-            # --- AJUSTA ESTOS NOMBRES A TU TABLA DE SALDOS INICIALES ---
-            tabla_saldos_ini = "saldos_iniciales"   # Ej: saldos_iniciales / saldos_apertura
-            col_cta_saldo_ini = "plan_cuentas"      # Ej: plan_cuentas / cuenta_codigo / codigo_cuenta
-            col_monto_saldo_ini = "saldo_inicial"   # Ej: saldo_inicial / saldo / monto
-            col_anio_saldo_ini = "anio"             # Ej: anio / ejercicio / anio_fiscal (o None si no filtra por año)
-
-            # 3. Efectivo / Bancos / Liquidez: Saldo Inicial + Movimientos del mes (Debe - Haber)
-            df_bancos = ejecutar_consulta(
-                """
-                SELECT COUNT(*) AS cant_movs,
-                       COALESCE(SUM(debe), 0) AS total_debe,
-                       COALESCE(SUM(haber), 0) AS total_haber
-                FROM asientos_contables
-                WHERE plan_cuentas LIKE %s
-                  AND YEAR(fecha) = %s
-                  AND MONTH(fecha) = %s
-                """,
-                conn_feed,
-                params=(prefijo_efectivo_bancos, anio_actual, mes_num_actual)
-            )
-
-            saldo_ini_bco = 0.0
-            try:
-                if col_anio_saldo_ini:
-                    df_si_bco = ejecutar_consulta(
-                        f"""
-                        SELECT COALESCE(SUM({col_monto_saldo_ini}), 0) AS saldo_ini
-                        FROM {tabla_saldos_ini}
-                        WHERE {col_cta_saldo_ini} LIKE %s
-                          AND {col_anio_saldo_ini} = %s
-                        """,
-                        conn_feed,
-                        params=(prefijo_efectivo_bancos, anio_actual)
-                    )
-                else:
-                    df_si_bco = ejecutar_consulta(
-                        f"""
-                        SELECT COALESCE(SUM({col_monto_saldo_ini}), 0) AS saldo_ini
-                        FROM {tabla_saldos_ini}
-                        WHERE {col_cta_saldo_ini} LIKE %s
-                        """,
-                        conn_feed,
-                        params=(prefijo_efectivo_bancos,)
-                    )
-                if df_si_bco is not None and not df_si_bco.empty:
-                    saldo_ini_bco = float(pd.to_numeric(df_si_bco.iloc[0]["saldo_ini"], errors="coerce") or 0.0)
-            except Exception:
-                # Si la tabla o columnas aún difieren, no tumba el feed; avisa en contexto
-                saldo_ini_bco = 0.0
 
             if df_bancos is not None and not df_bancos.empty:
                 cant_bco = int(pd.to_numeric(df_bancos.iloc[0]["cant_movs"], errors="coerce") or 0)
@@ -14175,7 +14142,7 @@ if opcion_menu == "🏠 Inicio":
                         "severidad": sev_bco,
                         "etiqueta": etiq_bco,
                         "titular_html": txt_bco,
-                        "contexto": f"Ctas. {prefijo_efectivo_bancos} • {cant_bco} mov(s) + saldo inicial",
+                        "contexto": f"Ctas. {prefijo_efectivo_bancos} • {cant_bco} mov(s) + saldos_iniciales",
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
 
