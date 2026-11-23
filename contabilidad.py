@@ -14067,38 +14067,18 @@ if opcion_menu == "🏠 Inicio":
                     )
 
 
-    # --- PERÍODO DE CONSULTA (CON SOPORTE PARA 2027) ---
-    st.divider()
-    st.subheader("📅 Período de Consulta")
+    # --- FEED FINANCIERO VINCULADO AL PERÍODO DEL SIDEBAR ---
     dic_meses = {
         "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4,
         "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8,
         "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
     }
     meses_lista = list(dic_meses.keys())
-    anios_lista = [2026, 2027]
 
-    anio_default = st.session_state.get("feed_anio_seleccionado", 2027)
-    idx_anio = anios_lista.index(anio_default) if anio_default in anios_lista else 1
-
-    anio_actual = int(
-        st.selectbox(
-            "Año",
-            anios_lista,
-            index=idx_anio,
-            key="feed_anio_seleccionado"
-        )
-    )
-
-    mes_default = st.session_state.get("mes_seleccionado")
-    idx_mes = meses_lista.index(mes_default) if mes_default in meses_lista else 0
-
-    mes_nombre_actual = st.selectbox(
-        "Mes",
-        meses_lista,
-        index=idx_mes,
-        key="feed_mes_seleccionado"
-    )
+    anio_actual = int(st.session_state.get("año_seleccionado") or datetime.today().year)
+    mes_nombre_actual = st.session_state.get("mes_seleccionado") or meses_lista[0]
+    if mes_nombre_actual not in dic_meses:
+        mes_nombre_actual = meses_lista[0]
     mes_num_actual = dic_meses.get(mes_nombre_actual, 1)
 
     posts_periodo = []
@@ -14228,23 +14208,7 @@ if opcion_menu == "🏠 Inicio":
         "info": "DATO",
     }
 
-    if posts_periodo:
-        with st.expander("🖼️ Descargar etiquetas en PNG (una por imagen)"):
-            for idx, post in enumerate(posts_periodo):
-                etiqueta_actual = post.get("etiqueta") or etiquetas_sev_feed.get(post.get("severidad", "info"), "DATO")
-                categoria_actual = post.get("categoria", "General")
-                png_bytes = generar_png_etiqueta_post(post, etiquetas_sev_feed)
-                nombre_archivo = (
-                    f"etiqueta_{idx + 1}_{anio_actual}_{mes_num_actual:02d}_"
-                    f"{str(categoria_actual).lower().replace(' ', '_')}_{str(etiqueta_actual).lower()}.png"
-                )
-                st.download_button(
-                    label=f"⬇️ Descargar PNG: {categoria_actual} • {etiqueta_actual}",
-                    data=png_bytes,
-                    file_name=nombre_archivo,
-                    mime="image/png",
-                    key=f"dl_png_{idx}_{anio_actual}_{mes_num_actual:02d}",
-                )
+    
 
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
