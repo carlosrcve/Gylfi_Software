@@ -13864,21 +13864,6 @@ if opcion_menu == "🏠 Inicio":
                     background: #30363d;
                     border-radius: 999px;
                 }
-                .fin-feed-list-scroll {
-                    max-height: 540px;
-                    overflow-y: auto;
-                    overflow-x: hidden;
-                    padding-right: 6px;
-                    scrollbar-width: thin;
-                    scrollbar-color: #30363d #161b22;
-                }
-                .fin-feed-list-scroll::-webkit-scrollbar {
-                    width: 6px;
-                }
-                .fin-feed-list-scroll::-webkit-scrollbar-thumb {
-                    background: #30363d;
-                    border-radius: 999px;
-                }
                 .fin-feed-card {
                     background: #0d1117;
                     border: 1px solid #21262d;
@@ -14007,59 +13992,61 @@ if opcion_menu == "🏠 Inicio":
                 key="feed_filtro_etiquetas",
             )
 
-        # Tarjetas + botón de descarga PNG de cada tarjeta en orden, sin encimarse
-        for idx, post in enumerate(posts):
-            sev = post.get("severidad", "info")
-            sev_clase = f"sev-{sev}" if sev in etiquetas_sev else "sev-info"
-            cat_txt = html.escape(str(post.get("categoria", "General")))
-            ctx_txt = html.escape(str(post.get("contexto", "")))
-            fec_txt = html.escape(str(post.get("fecha", "")))
-            badge_lbl = html.escape(str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO")))
-            etiqueta_completa = f"{cat_txt} • {badge_lbl}"
+        # Contenedor con scroll vertical para las tarjetas y su botón de descarga
+        contenedor_scroll_vertical = st.container(height=360)
+        with contenedor_scroll_vertical:
+            for idx, post in enumerate(posts):
+                sev = post.get("severidad", "info")
+                sev_clase = f"sev-{sev}" if sev in etiquetas_sev else "sev-info"
+                cat_txt = html.escape(str(post.get("categoria", "General")))
+                ctx_txt = html.escape(str(post.get("contexto", "")))
+                fec_txt = html.escape(str(post.get("fecha", "")))
+                badge_lbl = html.escape(str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO")))
+                etiqueta_completa = f"{cat_txt} • {badge_lbl}"
 
-            if filtro_etiqueta and filtro_etiqueta != "Todas" and etiqueta_completa != filtro_etiqueta:
-                continue
+                if filtro_etiqueta and filtro_etiqueta != "Todas" and etiqueta_completa != filtro_etiqueta:
+                    continue
 
-            cuerpo_raw = str(post.get("titular_html", ""))
-            cuerpo_seguro = html.escape(cuerpo_raw)
-            cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&#x27;hl&#x27;&gt;", "<span class='hl'>")
-            cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&quot;hl&quot;&gt;", "<span class='hl'>")
-            cuerpo_seguro = cuerpo_seguro.replace("&lt;/span&gt;", "</span>")
+                cuerpo_raw = str(post.get("titular_html", ""))
+                cuerpo_seguro = html.escape(cuerpo_raw)
+                cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&#x27;hl&#x27;&gt;", "<span class='hl'>")
+                cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&quot;hl&quot;&gt;", "<span class='hl'>")
+                cuerpo_seguro = cuerpo_seguro.replace("&lt;/span&gt;", "</span>")
 
-            st.markdown(
-                _limpiar_html(
-                    f"""
-                    <div class="fin-feed-card {sev_clase}">
-                        <div class="fin-feed-top">
-                            <span><strong>{cat_txt}</strong></span>
-                            <span class="fin-badge">{badge_lbl}</span>
+                st.markdown(
+                    _limpiar_html(
+                        f"""
+                        <div class="fin-feed-card {sev_clase}">
+                            <div class="fin-feed-top">
+                                <span><strong>{cat_txt}</strong></span>
+                                <span class="fin-badge">{badge_lbl}</span>
+                            </div>
+                            <div class="fin-feed-body">{cuerpo_seguro}</div>
+                            <div class="fin-feed-footer">
+                                <span>{ctx_txt}</span>
+                                <span>{fec_txt}</span>
+                            </div>
                         </div>
-                        <div class="fin-feed-body">{cuerpo_seguro}</div>
-                        <div class="fin-feed-footer">
-                            <span>{ctx_txt}</span>
-                            <span>{fec_txt}</span>
-                        </div>
-                    </div>
-                    """
-                ),
-                unsafe_allow_html=True,
-            )
-
-            png_bytes = generar_png_etiqueta_post(post, etiquetas_sev)
-            nombre_archivo = (
-                f"etiqueta_{idx + 1}_{cat_txt.lower().replace(' ', '_')}_"
-                f"{str(post.get('fecha', '')).replace('/', '_')}.png"
-            )
-            _, col_btn = st.columns([0.78, 0.22])
-            with col_btn:
-                st.download_button(
-                    label=f"⬇️ PNG • {badge_lbl}",
-                    data=png_bytes,
-                    file_name=nombre_archivo,
-                    mime="image/png",
-                    key=f"dl_card_png_{idx}_{cat_txt}_{post.get('fecha', '')}",
-                    use_container_width=True,
+                        """
+                    ),
+                    unsafe_allow_html=True,
                 )
+
+                png_bytes = generar_png_etiqueta_post(post, etiquetas_sev)
+                nombre_archivo = (
+                    f"etiqueta_{idx + 1}_{str(post.get('categoria', 'post')).lower().replace(' ', '_')}_"
+                    f"{str(post.get('fecha', '')).replace('/', '_')}.png"
+                )
+                _, col_btn = st.columns([0.78, 0.22])
+                with col_btn:
+                    st.download_button(
+                        label=f"⬇️ PNG • {badge_lbl}",
+                        data=png_bytes,
+                        file_name=nombre_archivo,
+                        mime="image/png",
+                        key=f"dl_card_png_{idx}_{post.get('categoria', '')}_{post.get('fecha', '')}",
+                        use_container_width=True,
+                    )
 
 
     # --- PERÍODO DE CONSULTA (CON SOPORTE PARA 2027) ---
