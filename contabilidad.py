@@ -14158,12 +14158,12 @@ if opcion_menu == "🏠 Inicio":
                        COALESCE(SUM(debe), 0) AS total_debe,
                        COALESCE(SUM(haber), 0) AS total_haber
                 FROM asientos_contables
-                WHERE cuenta_codigo LIKE '1.1.2.01%'
+                WHERE cuenta_codigo LIKE %s
                   AND YEAR(fecha) = %s
                   AND MONTH(fecha) = %s
                 """,
                 conn_feed,
-                params=(anio_actual, mes_num_actual)
+                params=("1.1.2.01%", anio_actual, mes_num_actual)
             )
             if df_cxc is not None and not df_cxc.empty:
                 cant_cxc = int(pd.to_numeric(df_cxc.iloc[0]["cant_movs"], errors="coerce") or 0)
