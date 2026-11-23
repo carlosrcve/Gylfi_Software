@@ -14194,19 +14194,65 @@ if opcion_menu == "🏠 Inicio":
                 })
 
             # 5. Impuestos / Retenciones (IVA / ISLR / Tributos) en asientos_contables
+            cuentas_impuestos = (
+                "2.1.2.01.001",  # I.V.A. Debito Fiscal
+                "2.1.2.01.002",  # I.V.A. por Pagar
+                "2.1.2.01.003",  # Retencioes IVA en Compras
+                "2.1.2.01.004",  # Retencioes Anticipado ISLR
+                "2.1.2.01.005",  # Retencion ISLR Proveedores
+                "2.1.2.01.006",  # ISLR por Pagar
+            )
+            fecha_inicio_imp = f"{anio_actual:04d}-{mes_num_actual:02d}-01"
+
+            # Saldo inicial en saldos_iniciales (pasivos fiscales: Haber - Debe)
+            df_si_imp = ejecutar_consulta(
+                """
+                SELECT COALESCE(SUM(haber - debe), 0) AS saldo_ini_imp
+                FROM saldos_iniciales
+                WHERE (
+                        plan_cuentas IN (%s, %s, %s, %s, %s, %s)
+                        OR plan_cuentas LIKE %s
+                        OR plan_cuentas LIKE %s
+                        OR UPPER(cuenta_contable) LIKE %s
+                        OR UPPER(cuenta_contable) LIKE %s
+                    )
+                  AND fecha < %s
+                """,
+                conn_feed,
+                params=(
+                    *cuentas_impuestos,
+                    prefijos_impuestos[0],
+                    prefijos_impuestos[1],
+                    "%IVA%",
+                    "%ISLR%",
+                    fecha_inicio_imp,
+                )
+            )
+            saldo_ini_imp = (
+                round(float(pd.to_numeric(df_si_imp.iloc[0]["saldo_ini_imp"], errors="coerce") or 0.0), 2)
+                if (df_si_imp is not None and not df_si_imp.empty)
+                else 0.0
+            )
+
             df_imp = ejecutar_consulta(
                 """
                 SELECT COUNT(*) AS cant_movs,
                        COALESCE(SUM(debe), 0) AS total_debe,
                        COALESCE(SUM(haber), 0) AS total_haber
                 FROM asientos_contables
-                WHERE (plan_cuentas LIKE %s OR plan_cuentas LIKE %s
-                       OR UPPER(cuenta_contable) LIKE %s OR UPPER(cuenta_contable) LIKE %s)
+                WHERE (
+                        plan_cuentas IN (%s, %s, %s, %s, %s, %s)
+                        OR plan_cuentas LIKE %s
+                        OR plan_cuentas LIKE %s
+                        OR UPPER(cuenta_contable) LIKE %s
+                        OR UPPER(cuenta_contable) LIKE %s
+                    )
                   AND YEAR(fecha) = %s
                   AND MONTH(fecha) = %s
                 """,
                 conn_feed,
                 params=(
+                    *cuentas_impuestos,
                     prefijos_impuestos[0],
                     prefijos_impuestos[1],
                     "%IVA%",
@@ -14219,19 +14265,21 @@ if opcion_menu == "🏠 Inicio":
                 cant_imp = int(pd.to_numeric(df_imp.iloc[0]["cant_movs"], errors="coerce") or 0)
                 debe_imp = float(pd.to_numeric(df_imp.iloc[0]["total_debe"], errors="coerce") or 0.0)
                 haber_imp = float(pd.to_numeric(df_imp.iloc[0]["total_haber"], errors="coerce") or 0.0)
-                neto_imp = round(haber_imp - debe_imp, 2)
+                neto_mes_imp = round(haber_imp - debe_imp, 2)
+                saldo_acum_imp = round(saldo_ini_imp + neto_mes_imp, 2)
 
-                if cant_imp > 0:
+                if cant_imp > 0 or abs(saldo_ini_imp) >= 0.01 or abs(saldo_acum_imp) >= 0.01:
                     posts_periodo.append({
                         "categoria": "Impuestos y Retenciones",
-                        "severidad": "atencion" if neto_imp > 0 else "info",
+                        "severidad": "atencion" if saldo_acum_imp > 0 else "info",
                         "etiqueta": "TRIBUTOS",
                         "titular_html": (
                             f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> se registraron "
                             f"<span class='hl'>{cant_imp} movimiento(s)</span> fiscales/retenciones "
-                            f"(Haber: {haber_imp:,.2f} / Debe: {debe_imp:,.2f} • Neto: <span class='hl'>{neto_imp:,.2f}</span>)."
+                            f"(Saldo inicial: {saldo_ini_imp:,.2f} • Haber: {haber_imp:,.2f} / Debe: {debe_imp:,.2f} "
+                            f"• Saldo acumulado: <span class='hl'>{saldo_acum_imp:,.2f}</span>)."
                         ),
-                        "contexto": f"IVA / ISLR • {cant_imp} mov(s) en asientos_contables",
+                        "contexto": f"2.1.2.01.001–006 / IVA / ISLR • {cant_imp} mov(s) + saldos_iniciales",
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
 
