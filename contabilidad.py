@@ -13714,257 +13714,257 @@ if opcion_menu == "🏠 Inicio":
 
 
     @st.cache_data(show_spinner=False)
-def _png_post_cacheado(post_key: tuple, etiquetas_items: tuple) -> bytes:
-    post_dict = {
-        "categoria": post_key[0],
-        "severidad": post_key[1],
-        "etiqueta": post_key[2],
-        "titular_html": post_key[3],
-        "contexto": post_key[4],
-        "fecha": post_key[5],
-    }
-    return generar_png_etiqueta_post(post_dict, dict(etiquetas_items))
+    def _png_post_cacheado(post_key: tuple, etiquetas_items: tuple) -> bytes:
+        post_dict = {
+            "categoria": post_key[0],
+            "severidad": post_key[1],
+            "etiqueta": post_key[2],
+            "titular_html": post_key[3],
+            "contexto": post_key[4],
+            "fecha": post_key[5],
+        }
+        return generar_png_etiqueta_post(post_dict, dict(etiquetas_items))
 
 
-def renderizar_feed_financiero(posts, titulo="📡 Feed Financiero en Vivo"):
-    st.markdown(f"#### {titulo}")
+    def renderizar_feed_financiero(posts, titulo="📡 Feed Financiero en Vivo"):
+        st.markdown(f"#### {titulo}")
 
-    if not posts:
-        st.info("Todo en orden por ahora: no hay alertas financieras relevantes para mostrar.")
-        return
+        if not posts:
+            st.info("Todo en orden por ahora: no hay alertas financieras relevantes para mostrar.")
+            return
 
-    st.markdown(
-        _limpiar_html(
-            """
-            <style>
-            .fin-tags-scroll {
-                display: flex;
-                flex-direction: row;
-                align-items: center;
-                gap: 10px;
-                width: 100%;
-                max-width: 100%;
-                overflow-x: scroll !important;
-                overflow-y: hidden !important;
-                white-space: nowrap !important;
-                padding: 10px 6px 14px 6px;
-                margin-bottom: 10px;
-                background: #161b22;
-                border: 1px solid #21262d;
-                border-radius: 10px;
-                scrollbar-width: thin;
-                scrollbar-color: #58a6ff #0d1117;
-            }
-            .fin-tags-scroll::-webkit-scrollbar {
-                height: 8px;
-            }
-            .fin-tags-scroll::-webkit-scrollbar-track {
-                background: #0d1117;
-                border-radius: 999px;
-            }
-            .fin-tags-scroll::-webkit-scrollbar-thumb {
-                background: #58a6ff;
-                border-radius: 999px;
-            }
-            .fin-feed-card {
-                background: #0d1117;
-                border: 1px solid #21262d;
-                border-left: 4px solid #58a6ff;
-                border-radius: 12px;
-                padding: 16px 18px 44px 18px;
-                margin-bottom: 0px;
-                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-            }
-            .fin-feed-card.sev-critico { border-left-color: #ff4d4f; }
-            .fin-feed-card.sev-atencion { border-left-color: #f59e0b; }
-            .fin-feed-card.sev-positivo { border-left-color: #22c55e; }
-            .fin-feed-top {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 8px;
-                font-size: 0.78rem;
-                color: #8b949e;
-            }
-            .fin-badge {
-                display: inline-flex;
-                align-items: center;
-                gap: 5px;
-                padding: 5px 14px;
-                border-radius: 999px;
-                font-weight: 800;
-                font-size: 0.75rem;
-                letter-spacing: 0.05em;
-                text-transform: uppercase;
-                border: 1px solid currentColor;
-                background: rgba(88, 166, 255, 0.16);
-                color: #79c0ff;
-                flex: 0 0 auto;
-            }
-            .sev-critico .fin-badge {
-                background: rgba(255, 77, 79, 0.22);
-                color: #ff7875;
-                border-color: rgba(255, 77, 79, 0.55);
-            }
-            .sev-atencion .fin-badge {
-                background: rgba(245, 158, 11, 0.22);
-                color: #fbbf24;
-                border-color: rgba(245, 158, 11, 0.55);
-            }
-            .sev-positivo .fin-badge {
-                background: rgba(34, 197, 94, 0.22);
-                color: #4ade80;
-                border-color: rgba(34, 197, 94, 0.55);
-            }
-            .fin-feed-body {
-                color: #f0f6fc;
-                font-size: 1.02rem;
-                line-height: 1.45;
-                margin: 6px 0 10px 0;
-                font-weight: 500;
-            }
-            .sev-critico .hl { color: #ff6b6b; font-weight: 700; }
-            .sev-atencion .hl { color: #fbbf24; font-weight: 700; }
-            .sev-positivo .hl { color: #4ade80; font-weight: 700; }
-            .sev-info .hl { color: #58a6ff; font-weight: 700; }
-            .fin-feed-footer {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                font-size: 0.78rem;
-                color: #8b949e;
-                border-top: 1px solid #161b22;
-                padding-top: 8px;
-            }
-            div[data-testid="stDownloadButton"] {
-                display: flex;
-                justify-content: flex-end;
-                margin-top: -32px;
-                margin-bottom: 12px;
-                padding-right: 14px;
-            }
-            div[data-testid="stDownloadButton"] > button {
-                width: fit-content !important;
-                background-color: #161b22 !important;
-                color: #e6edf3 !important;
-                border: 1px solid #30363d !important;
-                border-radius: 7px !important;
-                padding: 2px 10px !important;
-                min-height: 26px !important;
-                height: 26px !important;
-                font-size: 0.72rem !important;
-                font-weight: 600 !important;
-                white-space: nowrap !important;
-            }
-            div[data-testid="stDownloadButton"] > button:hover {
-                background-color: #21262d !important;
-                border-color: #58a6ff !important;
-            }
-            </style>
-            """
-        ),
-        unsafe_allow_html=True,
-    )
-
-    etiquetas_sev = {
-        "critico": "CRÍTICO",
-        "atencion": "ATENCIÓN",
-        "positivo": "AVANCE",
-        "info": "DATO",
-    }
-    etiquetas_items = tuple(etiquetas_sev.items())
-
-    chips_html = []
-    etiquetas_unicas = []
-    for post in posts:
-        sev = post.get("severidad", "info")
-        sev_clase = f"sev-{sev}" if sev in etiquetas_sev else "sev-info"
-        cat_txt = html.escape(str(post.get("categoria", "General")))
-        badge_lbl = html.escape(str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO")))
-        etiqueta_completa = f"{cat_txt} • {badge_lbl}"
-        if etiqueta_completa not in etiquetas_unicas:
-            etiquetas_unicas.append(etiqueta_completa)
-        chips_html.append(
-            f'<div class="{sev_clase}" style="flex:0 0 auto;"><span class="fin-badge">{cat_txt} • {badge_lbl}</span></div>'
+        st.markdown(
+            _limpiar_html(
+                """
+                <style>
+                .fin-tags-scroll {
+                    display: flex;
+                    flex-direction: row;
+                    align-items: center;
+                    gap: 10px;
+                    width: 100%;
+                    max-width: 100%;
+                    overflow-x: scroll !important;
+                    overflow-y: hidden !important;
+                    white-space: nowrap !important;
+                    padding: 10px 6px 14px 6px;
+                    margin-bottom: 10px;
+                    background: #161b22;
+                    border: 1px solid #21262d;
+                    border-radius: 10px;
+                    scrollbar-width: thin;
+                    scrollbar-color: #58a6ff #0d1117;
+                }
+                .fin-tags-scroll::-webkit-scrollbar {
+                    height: 8px;
+                }
+                .fin-tags-scroll::-webkit-scrollbar-track {
+                    background: #0d1117;
+                    border-radius: 999px;
+                }
+                .fin-tags-scroll::-webkit-scrollbar-thumb {
+                    background: #58a6ff;
+                    border-radius: 999px;
+                }
+                .fin-feed-card {
+                    background: #0d1117;
+                    border: 1px solid #21262d;
+                    border-left: 4px solid #58a6ff;
+                    border-radius: 12px;
+                    padding: 16px 18px 44px 18px;
+                    margin-bottom: 0px;
+                    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+                }
+                .fin-feed-card.sev-critico { border-left-color: #ff4d4f; }
+                .fin-feed-card.sev-atencion { border-left-color: #f59e0b; }
+                .fin-feed-card.sev-positivo { border-left-color: #22c55e; }
+                .fin-feed-top {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 8px;
+                    font-size: 0.78rem;
+                    color: #8b949e;
+                }
+                .fin-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 5px;
+                    padding: 5px 14px;
+                    border-radius: 999px;
+                    font-weight: 800;
+                    font-size: 0.75rem;
+                    letter-spacing: 0.05em;
+                    text-transform: uppercase;
+                    border: 1px solid currentColor;
+                    background: rgba(88, 166, 255, 0.16);
+                    color: #79c0ff;
+                    flex: 0 0 auto;
+                }
+                .sev-critico .fin-badge {
+                    background: rgba(255, 77, 79, 0.22);
+                    color: #ff7875;
+                    border-color: rgba(255, 77, 79, 0.55);
+                }
+                .sev-atencion .fin-badge {
+                    background: rgba(245, 158, 11, 0.22);
+                    color: #fbbf24;
+                    border-color: rgba(245, 158, 11, 0.55);
+                }
+                .sev-positivo .fin-badge {
+                    background: rgba(34, 197, 94, 0.22);
+                    color: #4ade80;
+                    border-color: rgba(34, 197, 94, 0.55);
+                }
+                .fin-feed-body {
+                    color: #f0f6fc;
+                    font-size: 1.02rem;
+                    line-height: 1.45;
+                    margin: 6px 0 10px 0;
+                    font-weight: 500;
+                }
+                .sev-critico .hl { color: #ff6b6b; font-weight: 700; }
+                .sev-atencion .hl { color: #fbbf24; font-weight: 700; }
+                .sev-positivo .hl { color: #4ade80; font-weight: 700; }
+                .sev-info .hl { color: #58a6ff; font-weight: 700; }
+                .fin-feed-footer {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    font-size: 0.78rem;
+                    color: #8b949e;
+                    border-top: 1px solid #161b22;
+                    padding-top: 8px;
+                }
+                div[data-testid="stDownloadButton"] {
+                    display: flex;
+                    justify-content: flex-end;
+                    margin-top: -32px;
+                    margin-bottom: 12px;
+                    padding-right: 14px;
+                }
+                div[data-testid="stDownloadButton"] > button {
+                    width: fit-content !important;
+                    background-color: #161b22 !important;
+                    color: #e6edf3 !important;
+                    border: 1px solid #30363d !important;
+                    border-radius: 7px !important;
+                    padding: 2px 10px !important;
+                    min-height: 26px !important;
+                    height: 26px !important;
+                    font-size: 0.72rem !important;
+                    font-weight: 600 !important;
+                    white-space: nowrap !important;
+                }
+                div[data-testid="stDownloadButton"] > button:hover {
+                    background-color: #21262d !important;
+                    border-color: #58a6ff !important;
+                }
+                </style>
+                """
+            ),
+            unsafe_allow_html=True,
         )
 
-    # Espaciador invisible para garantizar scroll horizontal incluso con pocas etiquetas
-    chips_html.append('<div style="flex:0 0 auto; min-width: 420px; height: 1px;"></div>')
+        etiquetas_sev = {
+            "critico": "CRÍTICO",
+            "atencion": "ATENCIÓN",
+            "positivo": "AVANCE",
+            "info": "DATO",
+        }
+        etiquetas_items = tuple(etiquetas_sev.items())
 
-    st.markdown(
-        f'<div class="fin-tags-scroll">{"".join(chips_html)}</div>',
-        unsafe_allow_html=True,
-    )
-
-    filtro_etiqueta = None
-    if hasattr(st, "pills") and len(etiquetas_unicas) > 1:
-        filtro_etiqueta = st.pills(
-            "Filtrar por etiqueta",
-            options=["Todas"] + etiquetas_unicas,
-            default="Todas",
-            key="feed_filtro_etiquetas",
-        )
-
-    contenedor_scroll_vertical = st.container(height=240)
-    with contenedor_scroll_vertical:
-        for idx, post in enumerate(posts):
+        chips_html = []
+        etiquetas_unicas = []
+        for post in posts:
             sev = post.get("severidad", "info")
             sev_clase = f"sev-{sev}" if sev in etiquetas_sev else "sev-info"
-            cat_raw = str(post.get("categoria", "General"))
-            ctx_raw = str(post.get("contexto", ""))
-            fec_raw = str(post.get("fecha", ""))
-            badge_raw = str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO"))
-            cuerpo_raw = str(post.get("titular_html", ""))
-
-            etiqueta_completa = f"{cat_raw} • {badge_raw}"
-            if filtro_etiqueta and filtro_etiqueta != "Todas" and etiqueta_completa != filtro_etiqueta:
-                continue
-
-            cat_txt = html.escape(cat_raw)
-            ctx_txt = html.escape(ctx_raw)
-            fec_txt = html.escape(fec_raw)
-            badge_lbl = html.escape(badge_raw)
-
-            cuerpo_seguro = html.escape(cuerpo_raw)
-            cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&#x27;hl&#x27;&gt;", "<span class='hl'>")
-            cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&quot;hl&quot;&gt;", "<span class='hl'>")
-            cuerpo_seguro = cuerpo_seguro.replace("&lt;/span&gt;", "</span>")
-
-            st.markdown(
-                _limpiar_html(
-                    f"""
-                    <div class="fin-feed-card {sev_clase}">
-                        <div class="fin-feed-top">
-                            <span><strong>{cat_txt}</strong></span>
-                            <span class="fin-badge">{badge_lbl}</span>
-                        </div>
-                        <div class="fin-feed-body">{cuerpo_seguro}</div>
-                        <div class="fin-feed-footer">
-                            <span>{ctx_txt}</span>
-                            <span>{fec_txt}</span>
-                        </div>
-                    </div>
-                    """
-                ),
-                unsafe_allow_html=True,
+            cat_txt = html.escape(str(post.get("categoria", "General")))
+            badge_lbl = html.escape(str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO")))
+            etiqueta_completa = f"{cat_txt} • {badge_lbl}"
+            if etiqueta_completa not in etiquetas_unicas:
+                etiquetas_unicas.append(etiqueta_completa)
+            chips_html.append(
+                f'<div class="{sev_clase}" style="flex:0 0 auto;"><span class="fin-badge">{cat_txt} • {badge_lbl}</span></div>'
             )
 
-            post_key = (cat_raw, sev, badge_raw, cuerpo_raw, ctx_raw, fec_raw)
-            png_bytes = _png_post_cacheado(post_key, etiquetas_items)
-            nombre_archivo = (
-                f"etiqueta_{idx + 1}_{cat_raw.lower().replace(' ', '_')}_"
-                f"{fec_raw.replace('/', '_')}.png"
+        # Espaciador invisible para garantizar scroll horizontal incluso con pocas etiquetas
+        chips_html.append('<div style="flex:0 0 auto; min-width: 420px; height: 1px;"></div>')
+
+        st.markdown(
+            f'<div class="fin-tags-scroll">{"".join(chips_html)}</div>',
+            unsafe_allow_html=True,
+        )
+
+        filtro_etiqueta = None
+        if hasattr(st, "pills") and len(etiquetas_unicas) > 1:
+            filtro_etiqueta = st.pills(
+                "Filtrar por etiqueta",
+                options=["Todas"] + etiquetas_unicas,
+                default="Todas",
+                key="feed_filtro_etiquetas",
             )
 
-            _, col_der = st.columns([0.75, 0.25])
-            with col_der:
-                st.download_button(
-                    label="descargar imagen en PNG",
-                    data=png_bytes,
-                    file_name=nombre_archivo,
-                    mime="image/png",
-                    key=f"dl_card_png_{idx}_{cat_raw}_{fec_raw}",
+        contenedor_scroll_vertical = st.container(height=240)
+        with contenedor_scroll_vertical:
+            for idx, post in enumerate(posts):
+                sev = post.get("severidad", "info")
+                sev_clase = f"sev-{sev}" if sev in etiquetas_sev else "sev-info"
+                cat_raw = str(post.get("categoria", "General"))
+                ctx_raw = str(post.get("contexto", ""))
+                fec_raw = str(post.get("fecha", ""))
+                badge_raw = str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO"))
+                cuerpo_raw = str(post.get("titular_html", ""))
+
+                etiqueta_completa = f"{cat_raw} • {badge_raw}"
+                if filtro_etiqueta and filtro_etiqueta != "Todas" and etiqueta_completa != filtro_etiqueta:
+                    continue
+
+                cat_txt = html.escape(cat_raw)
+                ctx_txt = html.escape(ctx_raw)
+                fec_txt = html.escape(fec_raw)
+                badge_lbl = html.escape(badge_raw)
+
+                cuerpo_seguro = html.escape(cuerpo_raw)
+                cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&#x27;hl&#x27;&gt;", "<span class='hl'>")
+                cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&quot;hl&quot;&gt;", "<span class='hl'>")
+                cuerpo_seguro = cuerpo_seguro.replace("&lt;/span&gt;", "</span>")
+
+                st.markdown(
+                    _limpiar_html(
+                        f"""
+                        <div class="fin-feed-card {sev_clase}">
+                            <div class="fin-feed-top">
+                                <span><strong>{cat_txt}</strong></span>
+                                <span class="fin-badge">{badge_lbl}</span>
+                            </div>
+                            <div class="fin-feed-body">{cuerpo_seguro}</div>
+                            <div class="fin-feed-footer">
+                                <span>{ctx_txt}</span>
+                                <span>{fec_txt}</span>
+                            </div>
+                        </div>
+                        """
+                    ),
+                    unsafe_allow_html=True,
                 )
+
+                post_key = (cat_raw, sev, badge_raw, cuerpo_raw, ctx_raw, fec_raw)
+                png_bytes = _png_post_cacheado(post_key, etiquetas_items)
+                nombre_archivo = (
+                    f"etiqueta_{idx + 1}_{cat_raw.lower().replace(' ', '_')}_"
+                    f"{fec_raw.replace('/', '_')}.png"
+                )
+
+                _, col_der = st.columns([0.75, 0.25])
+                with col_der:
+                    st.download_button(
+                        label="descargar imagen en PNG",
+                        data=png_bytes,
+                        file_name=nombre_archivo,
+                        mime="image/png",
+                        key=f"dl_card_png_{idx}_{cat_raw}_{fec_raw}",
+                    )
 
     def _a_int(val) -> int:
         num = pd.to_numeric(val, errors="coerce")
