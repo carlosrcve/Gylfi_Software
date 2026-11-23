@@ -14075,17 +14075,23 @@ if opcion_menu == "🏠 Inicio":
 
 
             # Saldo final = saldo_inicial + debe - haber
+            # 3. Efectivo / Bancos / Liquidez: criterio de Banco/Caja + Saldo Inicial + Debe - Haber
             fecha_inicio_mes = f"{anio_actual:04d}-{mes_num_actual:02d}-01"
 
+            # Saldo inicial base (si existe registro en saldos_iniciales antes del mes)
             df_si_base_bco = ejecutar_consulta(
                 """
                 SELECT COALESCE(SUM(debe - haber), 0) AS saldo_base
                 FROM saldos_iniciales
-                WHERE plan_cuentas LIKE %s
+                WHERE (
+                        plan_cuentas LIKE %s
+                        OR LOWER(cuenta_contable) LIKE %s
+                        OR LOWER(cuenta_contable) LIKE %s
+                    )
                   AND fecha < %s
                 """,
                 conn_feed,
-                params=(prefijo_efectivo_bancos, fecha_inicio_mes)
+                params=(prefijo_efectivo_bancos, "%banco%", "%caja%", fecha_inicio_mes)
             )
             saldo_base_bco = (
                 float(pd.to_numeric(df_si_base_bco.iloc[0]["saldo_base"], errors="coerce") or 0.0)
@@ -14093,15 +14099,20 @@ if opcion_menu == "🏠 Inicio":
                 else 0.0
             )
 
+            # Arrastre acumulado de meses anteriores en asientos_contables (para que sep/ago/jul/jun/may encadenen)
             df_prev_bco = ejecutar_consulta(
                 """
                 SELECT COALESCE(SUM(debe - haber), 0) AS arrastre_previo
                 FROM asientos_contables
-                WHERE plan_cuentas LIKE %s
+                WHERE (
+                        plan_cuentas LIKE %s
+                        OR LOWER(cuenta_contable) LIKE %s
+                        OR LOWER(cuenta_contable) LIKE %s
+                    )
                   AND fecha < %s
                 """,
                 conn_feed,
-                params=(prefijo_efectivo_bancos, fecha_inicio_mes)
+                params=(prefijo_efectivo_bancos, "%banco%", "%caja%", fecha_inicio_mes)
             )
             arrastre_prev_bco = (
                 float(pd.to_numeric(df_prev_bco.iloc[0]["arrastre_previo"], errors="coerce") or 0.0)
@@ -14111,18 +14122,23 @@ if opcion_menu == "🏠 Inicio":
 
             saldo_inicial_bco = round(saldo_base_bco + arrastre_prev_bco, 2)
 
+            # Movimientos del mes en Banco/Caja (Debe = entradas, Haber = salidas)
             df_bancos = ejecutar_consulta(
                 """
                 SELECT COUNT(*) AS cant_movs,
                        COALESCE(SUM(debe), 0) AS total_debe,
                        COALESCE(SUM(haber), 0) AS total_haber
                 FROM asientos_contables
-                WHERE plan_cuentas LIKE %s
+                WHERE (
+                        plan_cuentas LIKE %s
+                        OR LOWER(cuenta_contable) LIKE %s
+                        OR LOWER(cuenta_contable) LIKE %s
+                    )
                   AND YEAR(fecha) = %s
                   AND MONTH(fecha) = %s
                 """,
                 conn_feed,
-                params=(prefijo_efectivo_bancos, anio_actual, mes_num_actual)
+                params=(prefijo_efectivo_bancos, "%banco%", "%caja%", anio_actual, mes_num_actual)
             )
 
             if df_bancos is not None and not df_bancos.empty:
@@ -14163,7 +14179,7 @@ if opcion_menu == "🏠 Inicio":
                         "severidad": sev_bco,
                         "etiqueta": etiq_bco,
                         "titular_html": txt_bco,
-                        "contexto": f"Ctas. {prefijo_efectivo_bancos} • Saldo inicial + Debe - Haber ({cant_bco} mov)",
+                        "contexto": f"Banco/Caja ({prefijo_efectivo_bancos}) • Saldo inicial + Debe - Haber ({cant_bco} mov)",
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
 
