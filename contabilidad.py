@@ -14050,30 +14050,23 @@ if opcion_menu == "🏠 Inicio":
                     unsafe_allow_html=True,
                 )
 
+                # En el bloque <style> principal (fuera del bucle):
+                # div[data-testid="stDownloadButton"] {
+                #     display: flex;
+                #     justify-content: flex-end;
+                #     margin-top: -40px;
+                #     margin-bottom: 10px;
+                #     padding-right: 12px;
+                # }
+
                 png_bytes = generar_png_etiqueta_post(post, etiquetas_sev)
                 nombre_archivo = (
                     f"etiqueta_{idx + 1}_{str(post.get('categoria', 'post')).lower().replace(' ', '_')}_"
                     f"{str(post.get('fecha', '')).replace('/', '_')}.png"
                 )
 
-                _, col_der = st.columns([0.72, 0.28])
+                _, col_der = st.columns([0.75, 0.25])
                 with col_der:
-                    st.markdown(
-                        """
-                        <style>
-                        div[data-testid="stColumn"]:last-child div[data-testid="stDownloadButton"] {
-                            display: flex;
-                            justify-content: flex-end;
-                        }
-                        div[data-testid="stColumn"]:last-child div[data-testid="stDownloadButton"] > button {
-                            margin-left: auto !important;
-                            width: fit-content !important;
-                            white-space: nowrap !important;
-                        }
-                        </style>
-                        """,
-                        unsafe_allow_html=True,
-                    )
                     st.download_button(
                         label="descargar imagen en PNG",
                         data=png_bytes,
@@ -14083,28 +14076,28 @@ if opcion_menu == "🏠 Inicio":
                     )
 
 
-    # --- PERÍODO DE CONSULTA (CON SOPORTE PARA 2027) ---
-    st.divider()
-    st.subheader("📅 Período de Consulta")
-    dic_meses = {
-        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4,
-        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8,
-        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-    }
-    meses_lista = list(dic_meses.keys())
-    anios_lista = [2026, 2027]
+                    # --- PERÍODO DE CONSULTA (CON SOPORTE PARA 2027) ---
+                    st.divider()
+                    st.subheader("📅 Período de Consulta")
+                    dic_meses = {
+                        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4,
+                        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8,
+                        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+                    }
+                    meses_lista = list(dic_meses.keys())
+                    anios_lista = [2026, 2027]
 
-    anio_default = st.session_state.get("feed_anio_seleccionado", 2027)
-    idx_anio = anios_lista.index(anio_default) if anio_default in anios_lista else 1
+                    anio_default = st.session_state.get("feed_anio_seleccionado", 2027)
+                    idx_anio = anios_lista.index(anio_default) if anio_default in anios_lista else 1
 
-    anio_actual = int(
-        st.selectbox(
-            "Año",
-            anios_lista,
-            index=idx_anio,
-            key="feed_anio_seleccionado"
-        )
-    )
+                    anio_actual = int(
+                        st.selectbox(
+                            "Año",
+                            anios_lista,
+                            index=idx_anio,
+                            key="feed_anio_seleccionado"
+                        )
+                    )
 
     mes_default = st.session_state.get("mes_seleccionado")
     idx_mes = meses_lista.index(mes_default) if mes_default in meses_lista else 0
