@@ -14151,14 +14151,13 @@ if opcion_menu == "🏠 Inicio":
                     })
 
             # 1b. Cuentas por Cobrar Comerciales (grupo 1.1.2.01 y cuentas de detalle) en asientos_contables
-            # Naturaleza deudora: aumenta por el DEBE y disminuye por el HABER -> neto = DEBE - HABER
             df_cxc = ejecutar_consulta(
                 """
                 SELECT COUNT(*) AS cant_movs,
                        COALESCE(SUM(debe), 0) AS total_debe,
                        COALESCE(SUM(haber), 0) AS total_haber
                 FROM asientos_contables
-                WHERE cuenta_codigo LIKE %s
+                WHERE plan_cuentas LIKE %s
                   AND YEAR(fecha) = %s
                   AND MONTH(fecha) = %s
                 """,
