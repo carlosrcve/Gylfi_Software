@@ -14086,6 +14086,13 @@ if opcion_menu == "🏠 Inicio":
         mes_nombre_actual = meses_lista[0]
     mes_num_actual = dic_meses.get(mes_nombre_actual, 1)
 
+    etiquetas_sev_feed = {
+        "critico": "CRÍTICO",
+        "atencion": "ATENCIÓN",
+        "positivo": "AVANCE",
+        "info": "DATO",
+    }
+
     posts_periodo = []
     conn_feed = conectar_db(db_actual)
     if conn_feed:
@@ -14141,7 +14148,7 @@ if opcion_menu == "🏠 Inicio":
                     posts_periodo.append({
                         "categoria": "Proveedores",
                         "severidad": "critico",
-                        "etiqueta": "CRÍTICO",
+                        "etiqueta": "ÓRDENES PEND.",
                         "titular_html": (
                             f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> hay una deuda pendiente "
                             f"de <span class='hl'>{deuda_per:,.2f}</span> en <span class='hl'>{cant_per} orden(es)</span> con proveedores."
@@ -14181,7 +14188,7 @@ if opcion_menu == "🏠 Inicio":
                         )
                     elif neto_cxc < 0:
                         sev_cxc = "critico"
-                        etiq_cxc = "CRÍTICO"
+                        etiq_cxc = "SALDO ACREEDOR"
                         texto_cxc = (
                             f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> las Cuentas por Cobrar Comerciales "
                             f"(grupo <span class='hl'>1.1.2.01</span>) presentan un saldo neto acreedor/anticipo de "
@@ -14189,7 +14196,7 @@ if opcion_menu == "🏠 Inicio":
                         )
                     else:
                         sev_cxc = "positivo"
-                        etiq_cxc = "COBRANZAS"
+                        etiq_cxc = "COMPENSADO"
                         texto_cxc = (
                             f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> las Cuentas por Cobrar Comerciales "
                             f"(grupo <span class='hl'>1.1.2.01</span>) están compensadas con un neto de "
@@ -14229,7 +14236,7 @@ if opcion_menu == "🏠 Inicio":
                         posts_periodo.append({
                             "categoria": "Contabilidad",
                             "severidad": "critico",
-                            "etiqueta": "CRÍTICO",
+                            "etiqueta": "DESCUADRE",
                             "titular_html": (
                                 f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> los asientos presentan "
                                 f"una diferencia entre Debe y Haber de <span class='hl'>{diff_cuadre:,.2f}</span>."
@@ -14260,13 +14267,6 @@ if opcion_menu == "🏠 Inicio":
         posts_periodo,
         titulo=f"📡 Feed Financiero • {mes_nombre_actual} {anio_actual}"
     )
-
-    etiquetas_sev_feed = {
-        "critico": "CRÍTICO",
-        "atencion": "ATENCIÓN",
-        "positivo": "AVANCE",
-        "info": "DATO",
-    }
     
 
 elif opcion_menu == "📂 Plan de Cuentas":
