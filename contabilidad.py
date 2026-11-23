@@ -13869,8 +13869,8 @@ if opcion_menu == "🏠 Inicio":
                     border: 1px solid #21262d;
                     border-left: 4px solid #58a6ff;
                     border-radius: 12px;
-                    padding: 16px 18px;
-                    margin-bottom: 6px;
+                    padding: 16px 18px 52px 18px;
+                    margin-bottom: 0px;
                     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
                 }
                 .fin-feed-card.sev-critico { border-left-color: #ff4d4f; }
@@ -13934,6 +13934,27 @@ if opcion_menu == "🏠 Inicio":
                     border-top: 1px solid #161b22;
                     padding-top: 8px;
                 }
+                /* Integrar el botón de descarga dentro de la zona inferior derecha de cada tarjeta */
+                div[data-testid="stVerticalBlock"] div:has(> div[data-testid="stDownloadButton"]) {
+                    margin-top: -44px;
+                    margin-bottom: 14px;
+                    padding-right: 14px;
+                }
+                div[data-testid="stDownloadButton"] > button {
+                    background-color: #161b22 !important;
+                    color: #e6edf3 !important;
+                    border: 1px solid #30363d !important;
+                    border-radius: 8px !important;
+                    padding: 2px 10px !important;
+                    min-height: 28px !important;
+                    height: 28px !important;
+                    font-size: 0.74rem !important;
+                    font-weight: 600 !important;
+                }
+                div[data-testid="stDownloadButton"] > button:hover {
+                    background-color: #21262d !important;
+                    border-color: #58a6ff !important;
+                }
                 </style>
                 """
             ),
@@ -13977,7 +13998,7 @@ if opcion_menu == "🏠 Inicio":
                 key="feed_filtro_etiquetas",
             )
 
-        contenedor_feed = st.container(height=420)
+        contenedor_feed = st.container(height=460)
         with contenedor_feed:
             for idx, post in enumerate(posts):
                 sev = post.get("severidad", "info")
@@ -14021,7 +14042,7 @@ if opcion_menu == "🏠 Inicio":
                     f"etiqueta_{idx + 1}_{str(post.get('categoria', 'post')).lower().replace(' ', '_')}_"
                     f"{str(post.get('fecha', '')).replace('/', '_')}.png"
                 )
-                _, col_btn = st.columns([0.72, 0.28])
+                _, col_btn = st.columns([0.78, 0.22])
                 with col_btn:
                     st.download_button(
                         label=f"⬇️ PNG • {badge_lbl}",
