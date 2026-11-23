@@ -13955,6 +13955,20 @@ if opcion_menu == "🏠 Inicio":
                     key=f"dl_card_png_{idx}_{cat_raw}_{fec_raw}",
                 )
 
+    def _a_int(val) -> int:
+    num = pd.to_numeric(val, errors="coerce")
+    if pd.isna(num):
+        return 0
+    return int(float(num))
+
+
+    def _a_float(val) -> float:
+        num = pd.to_numeric(val, errors="coerce")
+        if pd.isna(num):
+            return 0.0
+        return float(num)
+
+
     @st.cache_data(ttl=120, show_spinner=False)
     def _construir_posts_feed_periodo(
         db_actual: str,
@@ -13993,6 +14007,8 @@ if opcion_menu == "🏠 Inicio":
             deuda_prov_cierre, fecha_corte = obtener_deuda_proveedores_cierre_mes(
                 conn_feed, anio_actual, mes_num_actual, cuenta_codigo="2.1.1.01.001"
             )
+            deuda_prov_cierre = _a_float(deuda_prov_cierre)
+
             if deuda_prov_cierre > 0:
                 posts_periodo.append({
                     "categoria": "Proveedores",
@@ -14023,7 +14039,8 @@ if opcion_menu == "🏠 Inicio":
             # 1. Órdenes de pago pendientes del período
             df_op_per = ejecutar_consulta(
                 """
-                SELECT COALESCE(SUM(monto_bruto), 0) AS deuda_bruta, COUNT(*) AS cant_ops
+                SELECT COALESCE(SUM(monto_bruto), 0) AS deuda_bruta,
+                       COALESCE(CAST(COUNT(*) AS SIGNED), 0) AS cant_ops
                 FROM ordenes_pago
                 WHERE empresa_db = %s
                   AND YEAR(fecha_emision) = %s
@@ -14031,11 +14048,11 @@ if opcion_menu == "🏠 Inicio":
                   AND (estado NOT IN ('Conciliado', 'Pagado') OR estado IS NULL)
                 """,
                 conn_feed,
-                params=(str(db_actual), anio_actual, mes_num_actual)
+                params=(str(db_actual), anio_actual, mes_num_actual),
             )
             if df_op_per is not None and not df_op_per.empty:
-                deuda_per = float(pd.to_numeric(df_op_per.iloc[0]["deuda_bruta"], errors="coerce") or 0.0)
-                cant_per = int(pd.to_numeric(df_op_per.iloc[0]["cant_ops"], errors="coerce") or 0)
+                deuda_per = _a_float(df_op_per.iloc[0].get("deuda_bruta"))
+                cant_per = _a_int(df_op_per.iloc[0].get("cant_ops"))
                 if deuda_per > 0:
                     posts_periodo.append({
                         "categoria": "Proveedores",
@@ -14055,20 +14072,20 @@ if opcion_menu == "🏠 Inicio":
             df_res_mes = ejecutar_consulta(
                 """
                 SELECT
-                    COUNT(*) AS cant_ast,
+                    COALESCE(CAST(COUNT(*) AS SIGNED), 0) AS cant_ast,
                     COALESCE(SUM(debe), 0) AS tot_debe,
                     COALESCE(SUM(haber), 0) AS tot_haber,
-                    COALESCE(SUM(CASE WHEN bloqueado = 1 THEN 1 ELSE 0 END), 0) AS regs_bloqueados,
+                    COALESCE(CAST(SUM(CASE WHEN bloqueado = 1 THEN 1 ELSE 0 END) AS SIGNED), 0) AS regs_bloqueados,
 
-                    SUM(CASE WHEN plan_cuentas LIKE %s THEN 1 ELSE 0 END) AS cant_cxc,
+                    COALESCE(CAST(SUM(CASE WHEN plan_cuentas LIKE %s THEN 1 ELSE 0 END) AS SIGNED), 0) AS cant_cxc,
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE %s THEN debe ELSE 0 END), 0) AS debe_cxc,
                     COALESCE(SUM(CASE WHEN plan_cuentas LIKE %s THEN haber ELSE 0 END), 0) AS haber_cxc,
 
-                    SUM(CASE WHEN (LOWER(plan_cuentas) LIKE %s OR LOWER(cuenta_contable) LIKE %s OR LOWER(cuenta_contable) LIKE %s) THEN 1 ELSE 0 END) AS cant_bco,
+                    COALESCE(CAST(SUM(CASE WHEN (LOWER(plan_cuentas) LIKE %s OR LOWER(cuenta_contable) LIKE %s OR LOWER(cuenta_contable) LIKE %s) THEN 1 ELSE 0 END) AS SIGNED), 0) AS cant_bco,
                     COALESCE(SUM(CASE WHEN (LOWER(plan_cuentas) LIKE %s OR LOWER(cuenta_contable) LIKE %s OR LOWER(cuenta_contable) LIKE %s) THEN debe ELSE 0 END), 0) AS debe_bco_sql,
                     COALESCE(SUM(CASE WHEN (LOWER(plan_cuentas) LIKE %s OR LOWER(cuenta_contable) LIKE %s OR LOWER(cuenta_contable) LIKE %s) THEN haber ELSE 0 END), 0) AS haber_bco_sql,
 
-                    SUM(CASE WHEN plan_cuentas IN (%s, %s, %s, %s, %s, %s) THEN 1 ELSE 0 END) AS cant_imp,
+                    COALESCE(CAST(SUM(CASE WHEN plan_cuentas IN (%s, %s, %s, %s, %s, %s) THEN 1 ELSE 0 END) AS SIGNED), 0) AS cant_imp,
                     COALESCE(SUM(CASE WHEN plan_cuentas IN (%s, %s, %s, %s) THEN haber ELSE 0 END), 0) AS haber_pas,
                     COALESCE(SUM(CASE WHEN plan_cuentas IN (%s, %s, %s, %s) THEN debe ELSE 0 END), 0) AS debe_pas,
                     COALESCE(SUM(CASE WHEN plan_cuentas IN (%s, %s) THEN debe - haber ELSE 0 END), 0) AS neto_cred
@@ -14087,15 +14104,15 @@ if opcion_menu == "🏠 Inicio":
                     *ctas_credito_fiscal,
                     fecha_inicio_mes,
                     fecha_fin_mes,
-                )
+                ),
             )
 
             if df_res_mes is not None and not df_res_mes.empty:
                 r0 = df_res_mes.iloc[0]
-                cant_ast = int(pd.to_numeric(r0["cant_ast"], errors="coerce") or 0)
-                tot_debe = float(pd.to_numeric(r0["tot_debe"], errors="coerce") or 0.0)
-                tot_haber = float(pd.to_numeric(r0["tot_haber"], errors="coerce") or 0.0)
-                bloq_cierre = int(pd.to_numeric(r0["regs_bloqueados"], errors="coerce") or 0)
+                cant_ast = _a_int(r0.get("cant_ast"))
+                tot_debe = _a_float(r0.get("tot_debe"))
+                tot_haber = _a_float(r0.get("tot_haber"))
+                bloq_cierre = _a_int(r0.get("regs_bloqueados"))
 
                 if cant_ast > 0:
                     diff_cuadre = round(abs(tot_debe - tot_haber), 2)
@@ -14126,9 +14143,9 @@ if opcion_menu == "🏠 Inicio":
                         })
 
                 # CxC 1.1.2.01%
-                cant_cxc = int(pd.to_numeric(r0["cant_cxc"], errors="coerce") or 0)
-                debe_cxc = float(pd.to_numeric(r0["debe_cxc"], errors="coerce") or 0.0)
-                haber_cxc = float(pd.to_numeric(r0["haber_cxc"], errors="coerce") or 0.0)
+                cant_cxc = _a_int(r0.get("cant_cxc"))
+                debe_cxc = _a_float(r0.get("debe_cxc"))
+                haber_cxc = _a_float(r0.get("haber_cxc"))
                 neto_cxc = round(debe_cxc - haber_cxc, 2)
 
                 if cant_cxc > 0 or abs(neto_cxc) >= 0.01:
@@ -14164,9 +14181,9 @@ if opcion_menu == "🏠 Inicio":
                     })
 
                 # 3. Efectivo / Bancos / Liquidez
-                cant_bco = int(pd.to_numeric(r0["cant_bco"], errors="coerce") or 0)
-                debe_bco = round(float(pd.to_numeric(r0["debe_bco_sql"], errors="coerce") or 0.0), 2)
-                haber_bco = round(float(pd.to_numeric(r0["haber_bco_sql"], errors="coerce") or 0.0), 2)
+                cant_bco = _a_int(r0.get("cant_bco"))
+                debe_bco = round(_a_float(r0.get("debe_bco_sql")), 2)
+                haber_bco = round(_a_float(r0.get("haber_bco_sql")), 2)
                 saldo_inicial_bco = 0.0
 
                 df_si_sb = ejecutar_consulta(
@@ -14176,12 +14193,10 @@ if opcion_menu == "🏠 Inicio":
                     WHERE ano = %s AND LOWER(mes) = LOWER(%s)
                     """,
                     conn_feed,
-                    params=(anio_actual, mes_nombre_actual)
+                    params=(anio_actual, mes_nombre_actual),
                 )
                 if df_si_sb is not None and not df_si_sb.empty:
-                    saldo_inicial_bco = round(
-                        float(pd.to_numeric(df_si_sb.iloc[0]["saldo_ini"], errors="coerce") or 0.0), 2
-                    )
+                    saldo_inicial_bco = round(_a_float(df_si_sb.iloc[0].get("saldo_ini")), 2)
 
                 saldo_final_bco = round(saldo_inicial_bco + debe_bco - haber_bco, 2)
                 if cant_bco > 0 or abs(saldo_inicial_bco) >= 0.01 or abs(saldo_final_bco) >= 0.01:
@@ -14233,20 +14248,20 @@ if opcion_menu == "🏠 Inicio":
                     ) prev_imp
                     """,
                     conn_feed,
-                    params=(*ctas_pasivo_fiscal, fecha_inicio_mes, *ctas_pasivo_fiscal, fecha_inicio_mes)
+                    params=(*ctas_pasivo_fiscal, fecha_inicio_mes, *ctas_pasivo_fiscal, fecha_inicio_mes),
                 )
                 saldo_ini_pas = (
-                    round(float(pd.to_numeric(df_arrastre_imp.iloc[0]["saldo_ini_pas"], errors="coerce") or 0.0), 2)
+                    round(_a_float(df_arrastre_imp.iloc[0].get("saldo_ini_pas")), 2)
                     if (df_arrastre_imp is not None and not df_arrastre_imp.empty)
                     else 0.0
                 )
 
-                cant_imp = int(pd.to_numeric(r0["cant_imp"], errors="coerce") or 0)
-                haber_pas = float(pd.to_numeric(r0["haber_pas"], errors="coerce") or 0.0)
-                debe_pas = float(pd.to_numeric(r0["debe_pas"], errors="coerce") or 0.0)
+                cant_imp = _a_int(r0.get("cant_imp"))
+                haber_pas = _a_float(r0.get("haber_pas"))
+                debe_pas = _a_float(r0.get("debe_pas"))
                 neto_mes_pas = round(haber_pas - debe_pas, 2)
                 saldo_acum_pas = round(saldo_ini_pas + neto_mes_pas, 2)
-                neto_cred_mes = round(float(pd.to_numeric(r0["neto_cred"], errors="coerce") or 0.0), 2)
+                neto_cred_mes = round(_a_float(r0.get("neto_cred")), 2)
 
                 detalle_ctas_texto = ""
                 ctas_activas_codigos = []
@@ -14270,14 +14285,14 @@ if opcion_menu == "🏠 Inicio":
                         GROUP BY plan_cuentas
                         """,
                         conn_feed,
-                        params=(*ctas_pasivo_fiscal, fecha_fin_mes, *ctas_pasivo_fiscal, fecha_fin_mes)
+                        params=(*ctas_pasivo_fiscal, fecha_fin_mes, *ctas_pasivo_fiscal, fecha_fin_mes),
                     )
                     if df_det_ctas is not None and not df_det_ctas.empty:
                         partes_cta = []
                         for _, fila_cta in df_det_ctas.iterrows():
-                            cod_cta = str(fila_cta["plan_cuentas"] or "").strip()
-                            nom_cta = str(fila_cta["cuenta_contable"] or "").strip() or nombres_pasivo_fiscal.get(cod_cta, "")
-                            val_cta = round(float(pd.to_numeric(fila_cta["saldo_cta"], errors="coerce") or 0.0), 2)
+                            cod_cta = str(fila_cta.get("plan_cuentas") or "").strip()
+                            nom_cta = str(fila_cta.get("cuenta_contable") or "").strip() or nombres_pasivo_fiscal.get(cod_cta, "")
+                            val_cta = round(_a_float(fila_cta.get("saldo_cta")), 2)
                             if abs(val_cta) >= 0.01:
                                 ctas_activas_codigos.append(cod_cta)
                                 partes_cta.append(f"{cod_cta} {nom_cta}: {val_cta:,.2f}".strip())
@@ -14358,7 +14373,7 @@ if opcion_menu == "🏠 Inicio":
     }
     meses_lista = list(dic_meses.keys())
 
-    anio_actual = int(st.session_state.get("año_seleccionado") or datetime.today().year)
+    anio_actual = _a_int(st.session_state.get("año_seleccionado")) or datetime.today().year
     mes_nombre_actual = st.session_state.get("mes_seleccionado") or meses_lista[0]
     if mes_nombre_actual not in dic_meses:
         mes_nombre_actual = meses_lista[0]
