@@ -13674,6 +13674,192 @@ if opcion_menu == "🏠 Inicio":
                     st.error("No se pudo establecer conexión con la base de datos seleccionada.")
             except Exception as err:
                 st.error(f"Ocurrió un error al cargar el análisis: {err}")
+
+    # --- renderizar_feed_financiero---
+    st.divider()
+    import html
+    import datetime as dt
+    import pandas as pd
+    import streamlit as st
+
+
+    def renderizar_feed_financiero(posts, titulo="📡 Feed Financiero en Vivo"):
+        st.markdown(f"#### {titulo}")
+
+        if not posts:
+            st.info("Todo en orden por ahora: no hay alertas financieras relevantes para mostrar.")
+            return
+
+        st.markdown(
+            """
+            <style>
+            .fin-feed-card {
+                background: #0d1117;
+                border: 1px solid #21262d;
+                border-left: 4px solid #58a6ff;
+                border-radius: 12px;
+                padding: 16px 18px;
+                margin-bottom: 12px;
+                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+            }
+            .fin-feed-card.sev-critico { border-left-color: #ff4d4f; }
+            .fin-feed-card.sev-atencion { border-left-color: #f59e0b; }
+            .fin-feed-card.sev-positivo { border-left-color: #22c55e; }
+            .fin-feed-top {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 8px;
+                font-size: 0.78rem;
+                color: #8b949e;
+            }
+            .fin-badge {
+                padding: 2px 8px;
+                border-radius: 999px;
+                font-weight: 600;
+                font-size: 0.72rem;
+                letter-spacing: 0.02em;
+                background: rgba(255, 255, 255, 0.08);
+                color: #e6edf3;
+            }
+            .sev-critico .fin-badge { background: rgba(255, 77, 79, 0.16); color: #ff7875; }
+            .sev-atencion .fin-badge { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
+            .sev-positivo .fin-badge { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+            .fin-feed-body {
+                color: #f0f6fc;
+                font-size: 1.02rem;
+                line-height: 1.45;
+                margin: 6px 0 10px 0;
+                font-weight: 500;
+            }
+            .sev-critico .hl { color: #ff6b6b; font-weight: 700; }
+            .sev-atencion .hl { color: #fbbf24; font-weight: 700; }
+            .sev-positivo .hl { color: #4ade80; font-weight: 700; }
+            .sev-info .hl { color: #58a6ff; font-weight: 700; }
+            .fin-feed-footer {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-size: 0.78rem;
+                color: #8b949e;
+                border-top: 1px solid #161b22;
+                padding-top: 8px;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        etiquetas_sev = {
+            "critico": "CRÍTICO",
+            "atencion": "ATENCIÓN",
+            "positivo": "AVANCE",
+            "info": "DATO",
+        }
+
+        for post in posts:
+            sev = post.get("severidad", "info")
+            sev_clase = f"sev-{sev}" if sev in etiquetas_sev else "sev-info"
+            cat_txt = html.escape(str(post.get("categoria", "General")))
+            ctx_txt = html.escape(str(post.get("contexto", "")))
+            fec_txt = html.escape(str(post.get("fecha", "")))
+            badge_lbl = etiquetas_sev.get(sev, "DATO")
+
+            cuerpo_raw = str(post.get("titular_html", ""))
+            cuerpo_seguro = html.escape(cuerpo_raw)
+            cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&#x27;hl&#x27;&gt;", "<span class='hl'>")
+            cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&quot;hl&quot;&gt;", "<span class='hl'>")
+            cuerpo_seguro = cuerpo_seguro.replace("&lt;/span&gt;", "</span>")
+
+            st.markdown(
+                f"""
+                <div class="fin-feed-card {sev_clase}">
+                    <div class="fin-feed-top">
+                        <span><strong>{cat_txt}</strong></span>
+                        <span class="fin-badge">{badge_lbl}</span>
+                    </div>
+                    <div class="fin-feed-body">{cuerpo_seguro}</div>
+                    <div class="fin-feed-footer">
+                        <span>{ctx_txt}</span>
+                        <span>{fec_txt}</span>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+    # --- PERÍODO DE CONSULTA ---
+    st.divider()
+    st.subheader("📅 Período de Consulta")
+    dic_meses = {
+        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4,
+        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8,
+        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
+    }
+    meses_lista = list(dic_meses.keys())
+
+    anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or dt.datetime.today().year)
+
+    if "año_seleccionado" not in st.session_state:
+        st.session_state["año_seleccionado"] = anio_fiscal
+
+    if st.session_state.get("año_seleccionado", anio_fiscal) < anio_fiscal:
+        st.session_state["año_seleccionado"] = anio_fiscal
+
+    st.number_input(
+        "Año",
+        step=1,
+        min_value=anio_fiscal,
+        max_value=max(2030, anio_fiscal + 4),
+        key="año_seleccionado"
+    )
+    st.selectbox("Mes", meses_lista, key="mes_seleccionado")
+
+    # --- POSTS CONECTADOS A db_actual Y PERÍODO ACTUAL ---
+    anio_actual = int(st.session_state["año_seleccionado"])
+    mes_nombre_actual = st.session_state.get("mes_seleccionado", "Enero")
+    mes_num_actual = dic_meses.get(mes_nombre_actual, 1)
+
+    posts_periodo = []
+    conn_feed = conectar_db(db_actual)
+    if conn_feed:
+        try:
+            df_op_per = ejecutar_consulta(
+                """
+                SELECT COALESCE(SUM(monto_bruto), 0) AS deuda_bruta, COUNT(*) AS cant_ops
+                FROM ordenes_pago
+                WHERE empresa_db = %s
+                  AND YEAR(fecha_emision) = %s
+                  AND MONTH(fecha_emision) = %s
+                  AND (estado NOT IN ('Conciliado', 'Pagado') OR estado IS NULL)
+                """,
+                conn_feed,
+                params=(str(db_actual), anio_actual, mes_num_actual)
+            )
+            if df_op_per is not None and not df_op_per.empty:
+                deuda_per = float(pd.to_numeric(df_op_per.iloc[0]["deuda_bruta"], errors="coerce") or 0.0)
+                cant_per = int(pd.to_numeric(df_op_per.iloc[0]["cant_ops"], errors="coerce") or 0)
+                if deuda_per > 0:
+                    posts_periodo.append({
+                        "categoria": "Proveedores",
+                        "severidad": "critico",
+                        "titular_html": (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> hay una deuda pendiente "
+                            f"de <span class='hl'>{deuda_per:,.2f}</span> en <span class='hl'>{cant_per} orden(es)</span> con proveedores."
+                        ),
+                        "contexto": f"BD: {db_actual}",
+                        "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                    })
+        finally:
+            conn_feed.close()
+
+    renderizar_feed_financiero(
+        posts_periodo,
+        titulo=f"📡 Feed Financiero • {mes_nombre_actual} {anio_actual}"
+)
+
+
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
     
