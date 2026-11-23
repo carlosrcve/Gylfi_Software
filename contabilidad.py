@@ -13865,7 +13865,7 @@ if opcion_menu == "🏠 Inicio":
                     border-radius: 999px;
                 }
                 .fin-feed-list-scroll {
-                    max-height: 220px; /* Ajusta a 520px cuando tengas más tarjetas */
+                    max-height: 540px;
                     overflow-y: auto;
                     overflow-x: hidden;
                     padding-right: 6px;
@@ -13884,8 +13884,8 @@ if opcion_menu == "🏠 Inicio":
                     border: 1px solid #21262d;
                     border-left: 4px solid #58a6ff;
                     border-radius: 12px;
-                    padding: 16px 18px 52px 18px;
-                    margin-bottom: 12px;
+                    padding: 16px 18px;
+                    margin-bottom: 6px;
                     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
                 }
                 .fin-feed-card.sev-critico { border-left-color: #ff4d4f; }
@@ -13949,11 +13949,6 @@ if opcion_menu == "🏠 Inicio":
                     border-top: 1px solid #161b22;
                     padding-top: 8px;
                 }
-                div[data-testid="stVerticalBlock"] div:has(> div[data-testid="stDownloadButton"]) {
-                    margin-top: -44px;
-                    margin-bottom: 14px;
-                    padding-right: 14px;
-                }
                 div[data-testid="stDownloadButton"] > button {
                     background-color: #161b22 !important;
                     color: #e6edf3 !important;
@@ -13964,6 +13959,7 @@ if opcion_menu == "🏠 Inicio":
                     height: 28px !important;
                     font-size: 0.74rem !important;
                     font-weight: 600 !important;
+                    margin-bottom: 10px !important;
                 }
                 div[data-testid="stDownloadButton"] > button:hover {
                     background-color: #21262d !important;
@@ -14011,7 +14007,7 @@ if opcion_menu == "🏠 Inicio":
                 key="feed_filtro_etiquetas",
             )
 
-        items_html = []
+        # Tarjetas + botón de descarga PNG de cada tarjeta en orden, sin encimarse
         for idx, post in enumerate(posts):
             sev = post.get("severidad", "info")
             sev_clase = f"sev-{sev}" if sev in etiquetas_sev else "sev-info"
@@ -14030,7 +14026,7 @@ if opcion_menu == "🏠 Inicio":
             cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&quot;hl&quot;&gt;", "<span class='hl'>")
             cuerpo_seguro = cuerpo_seguro.replace("&lt;/span&gt;", "</span>")
 
-            items_html.append(
+            st.markdown(
                 _limpiar_html(
                     f"""
                     <div class="fin-feed-card {sev_clase}">
@@ -14045,24 +14041,9 @@ if opcion_menu == "🏠 Inicio":
                         </div>
                     </div>
                     """
-                )
-            )
-
-        if items_html:
-            st.markdown(
-                f'<div class="fin-feed-list-scroll">{"".join(items_html)}</div>',
+                ),
                 unsafe_allow_html=True,
             )
-
-        # Botones de descarga PNG por cada tarjeta filtrada
-        for idx, post in enumerate(posts):
-            sev = post.get("severidad", "info")
-            cat_txt = str(post.get("categoria", "General"))
-            badge_lbl = str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO"))
-            etiqueta_completa = f"{cat_txt} • {badge_lbl}"
-
-            if filtro_etiqueta and filtro_etiqueta != "Todas" and etiqueta_completa != filtro_etiqueta:
-                continue
 
             png_bytes = generar_png_etiqueta_post(post, etiquetas_sev)
             nombre_archivo = (
