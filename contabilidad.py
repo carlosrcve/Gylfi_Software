@@ -13763,17 +13763,34 @@ if opcion_menu == "🏠 Inicio":
                 color: #8b949e;
             }
             .fin-badge {
-                padding: 2px 8px;
+                display: inline-flex;
+                align-items: center;
+                gap: 5px;
+                padding: 4px 12px;
                 border-radius: 999px;
-                font-weight: 600;
-                font-size: 0.72rem;
-                letter-spacing: 0.02em;
-                background: rgba(255, 255, 255, 0.08);
-                color: #e6edf3;
+                font-weight: 800;
+                font-size: 0.75rem;
+                letter-spacing: 0.05em;
+                text-transform: uppercase;
+                border: 1px solid currentColor;
+                background: rgba(88, 166, 255, 0.16);
+                color: #79c0ff;
             }
-            .sev-critico .fin-badge { background: rgba(255, 77, 79, 0.16); color: #ff7875; }
-            .sev-atencion .fin-badge { background: rgba(245, 158, 11, 0.16); color: #fbbf24; }
-            .sev-positivo .fin-badge { background: rgba(34, 197, 94, 0.16); color: #4ade80; }
+            .sev-critico .fin-badge {
+                background: rgba(255, 77, 79, 0.22);
+                color: #ff7875;
+                border-color: rgba(255, 77, 79, 0.55);
+            }
+            .sev-atencion .fin-badge {
+                background: rgba(245, 158, 11, 0.22);
+                color: #fbbf24;
+                border-color: rgba(245, 158, 11, 0.55);
+            }
+            .sev-positivo .fin-badge {
+                background: rgba(34, 197, 94, 0.22);
+                color: #4ade80;
+                border-color: rgba(34, 197, 94, 0.55);
+            }
             .fin-feed-body {
                 color: #f0f6fc;
                 font-size: 1.02rem;
