@@ -13869,8 +13869,8 @@ if opcion_menu == "🏠 Inicio":
                     border: 1px solid #21262d;
                     border-left: 4px solid #58a6ff;
                     border-radius: 12px;
-                    padding: 16px 18px;
-                    margin-bottom: 6px;
+                    padding: 16px 18px 44px 18px;
+                    margin-bottom: 0px;
                     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
                 }
                 .fin-feed-card.sev-critico { border-left-color: #ff4d4f; }
@@ -13934,17 +13934,25 @@ if opcion_menu == "🏠 Inicio":
                     border-top: 1px solid #161b22;
                     padding-top: 8px;
                 }
+                div[data-testid="stDownloadButton"] {
+                    display: flex;
+                    justify-content: flex-end;
+                    margin-top: -36px;
+                    margin-bottom: 12px;
+                    padding-right: 14px;
+                }
                 div[data-testid="stDownloadButton"] > button {
+                    width: fit-content !important;
                     background-color: #161b22 !important;
                     color: #e6edf3 !important;
                     border: 1px solid #30363d !important;
-                    border-radius: 8px !important;
+                    border-radius: 7px !important;
                     padding: 2px 10px !important;
-                    min-height: 28px !important;
-                    height: 28px !important;
-                    font-size: 0.74rem !important;
+                    min-height: 26px !important;
+                    height: 26px !important;
+                    font-size: 0.72rem !important;
                     font-weight: 600 !important;
-                    margin-bottom: 10px !important;
+                    white-space: nowrap !important;
                 }
                 div[data-testid="stDownloadButton"] > button:hover {
                     background-color: #21262d !important;
@@ -13993,7 +14001,7 @@ if opcion_menu == "🏠 Inicio":
             )
 
         # Contenedor con scroll vertical para las tarjetas y su botón de descarga
-        contenedor_scroll_vertical = st.container(height=360)
+        contenedor_scroll_vertical = st.container(height=380)
         with contenedor_scroll_vertical:
             for idx, post in enumerate(posts):
                 sev = post.get("severidad", "info")
@@ -14037,16 +14045,13 @@ if opcion_menu == "🏠 Inicio":
                     f"etiqueta_{idx + 1}_{str(post.get('categoria', 'post')).lower().replace(' ', '_')}_"
                     f"{str(post.get('fecha', '')).replace('/', '_')}.png"
                 )
-                _, col_btn = st.columns([0.78, 0.22])
-                with col_btn:
-                    st.download_button(
-                        label=f"⬇️ PNG • {badge_lbl}",
-                        data=png_bytes,
-                        file_name=nombre_archivo,
-                        mime="image/png",
-                        key=f"dl_card_png_{idx}_{post.get('categoria', '')}_{post.get('fecha', '')}",
-                        use_container_width=True,
-                    )
+                st.download_button(
+                    label="descargar imagen en PNG",
+                    data=png_bytes,
+                    file_name=nombre_archivo,
+                    mime="image/png",
+                    key=f"dl_card_png_{idx}_{post.get('categoria', '')}_{post.get('fecha', '')}",
+                )
 
 
     # --- PERÍODO DE CONSULTA (CON SOPORTE PARA 2027) ---
