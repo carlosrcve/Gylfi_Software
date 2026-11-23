@@ -13807,18 +13807,23 @@ if opcion_menu == "🏠 Inicio":
     if st.session_state.get("año_seleccionado", anio_fiscal) < anio_fiscal:
         st.session_state["año_seleccionado"] = anio_fiscal
 
-    st.number_input(
+    anio_actual = st.number_input(
         "Año",
         step=1,
         min_value=anio_fiscal,
         max_value=max(2030, anio_fiscal + 4),
-        key="año_seleccionado"
+        value=int(st.session_state["año_seleccionado"]),
+        key="feed_anio_seleccionado"
     )
-    st.selectbox("Mes", meses_lista, key="mes_seleccionado")
+    st.session_state["año_seleccionado"] = int(anio_actual)
 
-    # --- POSTS CONECTADOS A db_actual Y PERÍODO ACTUAL ---
-    anio_actual = int(st.session_state["año_seleccionado"])
-    mes_nombre_actual = st.session_state.get("mes_seleccionado", "Enero")
+    mes_nombre_actual = st.selectbox(
+        "Mes",
+        meses_lista,
+        index=meses_lista.index(st.session_state["mes_seleccionado"]) if st.session_state.get("mes_seleccionado") in meses_lista else 0,
+        key="feed_mes_seleccionado"
+    )
+    st.session_state["mes_seleccionado"] = mes_nombre_actual
     mes_num_actual = dic_meses.get(mes_nombre_actual, 1)
 
     posts_periodo = []
