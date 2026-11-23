@@ -13956,10 +13956,10 @@ if opcion_menu == "🏠 Inicio":
                 )
 
     def _a_int(val) -> int:
-    num = pd.to_numeric(val, errors="coerce")
-    if pd.isna(num):
-        return 0
-    return int(float(num))
+        num = pd.to_numeric(val, errors="coerce")
+        if pd.isna(num):
+            return 0
+        return int(float(num))
 
 
     def _a_float(val) -> float:
