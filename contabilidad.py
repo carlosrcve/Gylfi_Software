@@ -13682,48 +13682,49 @@ if opcion_menu == "🏠 Inicio":
     import pandas as pd
 
 
-    def obtener_deuda_proveedores_cierre_mes(conn, db_actual, anio_actual, mes_num_actual, cuenta_codigo="2.1.1.01.001"):
+    def obtener_deuda_proveedores_cierre_mes(conn, anio_actual, mes_num_actual, cuenta_codigo="2.1.1.01.001"):
         """
-        Calcula la deuda acumulada con proveedores nacionales al cierre del mes seleccionado:
-          Saldo Inicial + SUM(Haber) - SUM(Debe) hasta el último día de (anio_actual, mes_num_actual).
+        Calcula la deuda acumulada con Proveedores Nacionales (cuenta de pasivo, naturaleza haber)
+        al último día del mes seleccionado, sumando saldos_iniciales + asientos_contables.
         """
         ultimo_dia = calendar.monthrange(int(anio_actual), int(mes_num_actual))[1]
         fecha_corte = dt.date(int(anio_actual), int(mes_num_actual), ultimo_dia).strftime("%Y-%m-%d")
+        patron_cuenta = f"{str(cuenta_codigo).strip()}%"
 
-        # 1. Saldo inicial (ajusta nombre de tabla y columnas si difieren: ej. saldos_iniciales, cuenta_codigo, saldo_inicial)
-        saldo_inicial = 0.0
         df_si = ejecutar_consulta(
             """
-            SELECT COALESCE(SUM(saldo_inicial), 0) AS saldo_ini
+            SELECT COALESCE(SUM(haber), 0) AS haber_si,
+                   COALESCE(SUM(debe), 0) AS debe_si
             FROM saldos_iniciales
-            WHERE cuenta_codigo = %s
-            """,
-            conn,
-            params=(str(cuenta_codigo),)
-        )
-        if df_si is not None and not df_si.empty:
-            saldo_inicial = float(pd.to_numeric(df_si.iloc[0]["saldo_ini"], errors="coerce") or 0.0)
-
-        # 2. Movimientos acumulados en asientos_contables hasta el cierre del mes seleccionado
-        df_mov = ejecutar_consulta(
-            """
-            SELECT COALESCE(SUM(haber), 0) AS total_haber,
-                   COALESCE(SUM(debe), 0) AS total_debe
-            FROM asientos_contables
-            WHERE cuenta_codigo = %s
+            WHERE cuenta_contable LIKE %s
               AND fecha <= %s
             """,
             conn,
-            params=(str(cuenta_codigo), fecha_corte)
+            params=(patron_cuenta, fecha_corte)
         )
 
-        total_haber = 0.0
-        total_debe = 0.0
-        if df_mov is not None and not df_mov.empty:
-            total_haber = float(pd.to_numeric(df_mov.iloc[0]["total_haber"], errors="coerce") or 0.0)
-            total_debe = float(pd.to_numeric(df_mov.iloc[0]["total_debe"], errors="coerce") or 0.0)
+        df_mov = ejecutar_consulta(
+            """
+            SELECT COALESCE(SUM(haber), 0) AS haber_mov,
+                   COALESCE(SUM(debe), 0) AS debe_mov
+            FROM asientos_contables
+            WHERE cuenta_contable LIKE %s
+              AND fecha <= %s
+            """,
+            conn,
+            params=(patron_cuenta, fecha_corte)
+        )
 
-        deuda_final = round(saldo_inicial + total_haber - total_debe, 2)
+        haber_si = float(pd.to_numeric(df_si.iloc[0]["haber_si"], errors="coerce") or 0.0) if (df_si is not None and not df_si.empty) else 0.0
+        debe_si = float(pd.to_numeric(df_si.iloc[0]["debe_si"], errors="coerce") or 0.0) if (df_si is not None and not df_si.empty) else 0.0
+
+        haber_mov = float(pd.to_numeric(df_mov.iloc[0]["haber_mov"], errors="coerce") or 0.0) if (df_mov is not None and not df_mov.empty) else 0.0
+        debe_mov = float(pd.to_numeric(df_mov.iloc[0]["debe_mov"], errors="coerce") or 0.0) if (df_mov is not None and not df_mov.empty) else 0.0
+
+        saldo_inicial = haber_si - debe_si
+        movimiento_neto_pasivo = haber_mov - debe_mov
+        deuda_final = round(saldo_inicial + movimiento_neto_pasivo, 2)
+
         return deuda_final, fecha_corte
 
 
@@ -13873,13 +13874,13 @@ if opcion_menu == "🏠 Inicio":
     )
     mes_num_actual = dic_meses.get(mes_nombre_actual, 1)
 
-    posts_periodo = []
+   posts_periodo = []
     conn_feed = conectar_db(db_actual)
     if conn_feed:
         try:
-            # 0. Deuda acumulada con Proveedores Nacionales (2.1.1.01.001) al cierre del mes
+            # 1. Deuda con Proveedores Nacionales (2.1.1.01.001) al cierre del mes
             deuda_prov_cierre, fecha_corte = obtener_deuda_proveedores_cierre_mes(
-                conn_feed, db_actual, anio_actual, mes_num_actual, cuenta_codigo="2.1.1.01.001"
+                conn_feed, anio_actual, mes_num_actual, cuenta_codigo="2.1.1.01.001"
             )
             if deuda_prov_cierre > 0:
                 posts_periodo.append({
@@ -13894,35 +13895,7 @@ if opcion_menu == "🏠 Inicio":
                     "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                 })
 
-            # 1. Órdenes de pago pendientes del período
-            df_op_per = ejecutar_consulta(
-                """
-                SELECT COALESCE(SUM(monto_bruto), 0) AS deuda_bruta, COUNT(*) AS cant_ops
-                FROM ordenes_pago
-                WHERE empresa_db = %s
-                  AND YEAR(fecha_emision) = %s
-                  AND MONTH(fecha_emision) = %s
-                  AND (estado NOT IN ('Conciliado', 'Pagado') OR estado IS NULL)
-                """,
-                conn_feed,
-                params=(str(db_actual), anio_actual, mes_num_actual)
-            )
-            if df_op_per is not None and not df_op_per.empty:
-                deuda_per = float(pd.to_numeric(df_op_per.iloc[0]["deuda_bruta"], errors="coerce") or 0.0)
-                cant_per = int(pd.to_numeric(df_op_per.iloc[0]["cant_ops"], errors="coerce") or 0)
-                if deuda_per > 0:
-                    posts_periodo.append({
-                        "categoria": "Proveedores",
-                        "severidad": "critico",
-                        "titular_html": (
-                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> hay una deuda pendiente "
-                            f"de <span class='hl'>{deuda_per:,.2f}</span> en <span class='hl'>{cant_per} orden(es)</span> con proveedores."
-                        ),
-                        "contexto": f"BD: {db_actual} • Órdenes de pago",
-                        "fecha": f"{mes_num_actual:02d}/{anio_actual}",
-                    })
-
-            # 2. Actividad / saldos desde asientos_contables en el período
+            # 2. Cuadre general de asientos_contables en el período
             df_asientos = ejecutar_consulta(
                 """
                 SELECT COUNT(*) AS cant_registros,
