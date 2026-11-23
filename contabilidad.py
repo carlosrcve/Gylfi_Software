@@ -13729,8 +13729,6 @@ if opcion_menu == "🏠 Inicio":
 
 
     import html
-    import datetime as dt
-    import pandas as pd
     import streamlit as st
 
 
@@ -13814,7 +13812,7 @@ if opcion_menu == "🏠 Inicio":
             cat_txt = html.escape(str(post.get("categoria", "General")))
             ctx_txt = html.escape(str(post.get("contexto", "")))
             fec_txt = html.escape(str(post.get("fecha", "")))
-            badge_lbl = etiquetas_sev.get(sev, "DATO")
+            badge_lbl = html.escape(str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO")))
 
             cuerpo_raw = str(post.get("titular_html", ""))
             cuerpo_seguro = html.escape(cuerpo_raw)
@@ -13886,6 +13884,7 @@ if opcion_menu == "🏠 Inicio":
                 posts_periodo.append({
                     "categoria": "Proveedores",
                     "severidad": "critico",
+                    "etiqueta": "CRÍTICO",
                     "titular_html": (
                         f"La empresa tiene una deuda de <span class='hl'>{deuda_prov_cierre:,.2f}</span> "
                         f"con Proveedores Nacionales al cierre de <span class='hl'>{mes_nombre_actual} {anio_actual}</span>, "
@@ -13915,6 +13914,7 @@ if opcion_menu == "🏠 Inicio":
                     posts_periodo.append({
                         "categoria": "Proveedores",
                         "severidad": "critico",
+                        "etiqueta": "CRÍTICO",
                         "titular_html": (
                             f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> hay una deuda pendiente "
                             f"de <span class='hl'>{deuda_per:,.2f}</span> en <span class='hl'>{cant_per} orden(es)</span> con proveedores."
@@ -13947,6 +13947,7 @@ if opcion_menu == "🏠 Inicio":
                         posts_periodo.append({
                             "categoria": "Contabilidad",
                             "severidad": "critico",
+                            "etiqueta": "CRÍTICO",
                             "titular_html": (
                                 f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> los asientos presentan "
                                 f"una diferencia entre Debe y Haber de <span class='hl'>{diff_cuadre:,.2f}</span>."
@@ -13958,6 +13959,7 @@ if opcion_menu == "🏠 Inicio":
                         posts_periodo.append({
                             "categoria": "Contabilidad",
                             "severidad": "positivo",
+                            "etiqueta": "AVANCE",
                             "titular_html": (
                                 f"Se registraron <span class='hl'>{cant_ast} movimiento(s)</span> en "
                                 f"<span class='hl'>{mes_nombre_actual} {anio_actual}</span> con un volumen de "
