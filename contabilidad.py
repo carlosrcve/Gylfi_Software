@@ -13874,11 +13874,11 @@ if opcion_menu == "🏠 Inicio":
     )
     mes_num_actual = dic_meses.get(mes_nombre_actual, 1)
 
-   posts_periodo = []
+    posts_periodo = []
     conn_feed = conectar_db(db_actual)
     if conn_feed:
         try:
-            # 1. Deuda con Proveedores Nacionales (2.1.1.01.001) al cierre del mes
+            # 0. Deuda acumulada con Proveedores Nacionales (2.1.1.01.001) al cierre del mes
             deuda_prov_cierre, fecha_corte = obtener_deuda_proveedores_cierre_mes(
                 conn_feed, anio_actual, mes_num_actual, cuenta_codigo="2.1.1.01.001"
             )
@@ -13895,7 +13895,35 @@ if opcion_menu == "🏠 Inicio":
                     "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                 })
 
-            # 2. Cuadre general de asientos_contables en el período
+            # 1. Órdenes de pago pendientes del período
+            df_op_per = ejecutar_consulta(
+                """
+                SELECT COALESCE(SUM(monto_bruto), 0) AS deuda_bruta, COUNT(*) AS cant_ops
+                FROM ordenes_pago
+                WHERE empresa_db = %s
+                  AND YEAR(fecha_emision) = %s
+                  AND MONTH(fecha_emision) = %s
+                  AND (estado NOT IN ('Conciliado', 'Pagado') OR estado IS NULL)
+                """,
+                conn_feed,
+                params=(str(db_actual), anio_actual, mes_num_actual)
+            )
+            if df_op_per is not None and not df_op_per.empty:
+                deuda_per = float(pd.to_numeric(df_op_per.iloc[0]["deuda_bruta"], errors="coerce") or 0.0)
+                cant_per = int(pd.to_numeric(df_op_per.iloc[0]["cant_ops"], errors="coerce") or 0)
+                if deuda_per > 0:
+                    posts_periodo.append({
+                        "categoria": "Proveedores",
+                        "severidad": "critico",
+                        "titular_html": (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> hay una deuda pendiente "
+                            f"de <span class='hl'>{deuda_per:,.2f}</span> en <span class='hl'>{cant_per} orden(es)</span> con proveedores."
+                        ),
+                        "contexto": f"BD: {db_actual} • Órdenes de pago",
+                        "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                    })
+
+            # 2. Actividad / saldos desde asientos_contables en el período
             df_asientos = ejecutar_consulta(
                 """
                 SELECT COUNT(*) AS cant_registros,
@@ -13940,6 +13968,9 @@ if opcion_menu == "🏠 Inicio":
                         })
         finally:
             conn_feed.close()
+
+    prioridad_sev = {"critico": 0, "atencion": 1, "info": 2, "positivo": 3}
+    posts_periodo.sort(key=lambda p: prioridad_sev.get(p.get("severidad", "info"), 2))
 
     renderizar_feed_financiero(
         posts_periodo,
