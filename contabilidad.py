@@ -13815,7 +13815,7 @@ if opcion_menu == "🏠 Inicio":
         value=int(st.session_state["año_seleccionado"]),
         key="feed_anio_seleccionado"
     )
-    st.session_state["año_seleccionado"] = int(anio_actual)
+    # NO pongas st.session_state["año_seleccionado"] = int(anio_actual) aquí abajo
 
     mes_nombre_actual = st.selectbox(
         "Mes",
@@ -13823,7 +13823,6 @@ if opcion_menu == "🏠 Inicio":
         index=meses_lista.index(st.session_state["mes_seleccionado"]) if st.session_state.get("mes_seleccionado") in meses_lista else 0,
         key="feed_mes_seleccionado"
     )
-    st.session_state["mes_seleccionado"] = mes_nombre_actual
     mes_num_actual = dic_meses.get(mes_nombre_actual, 1)
 
     posts_periodo = []
