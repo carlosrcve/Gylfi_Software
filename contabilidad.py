@@ -12679,34 +12679,46 @@ if menu_lateral == "📊 Auditoría Contable":
         else:
             sub_opcion = None
 
-        st.divider()
-        st.subheader("📅 Período de Consulta")
-        dic_meses = {
-            "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-            "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
-            "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-        }
-        meses_lista = list(dic_meses.keys())
+        from datetime import datetime
 
         from datetime import datetime
 
+        st.divider()
+        st.subheader("📅 Período de Consulta")
+
+        dic_meses = {
+            "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4,
+            "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8,
+            "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12,
+        }
+        meses_lista = list(dic_meses.keys())
+
         anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or datetime.today().year)
 
-        if "año_seleccionado" not in st.session_state:
-            st.session_state["año_seleccionado"] = anio_fiscal
+        if "cierre_mes_anio" not in st.session_state:
+            st.session_state["cierre_mes_anio"] = anio_fiscal
 
-        # <-- AQUÍ VA: antes de renderizar el st.number_input con key="año_seleccionado"
-        if st.session_state.get("año_seleccionado", anio_fiscal) < anio_fiscal:
-            st.session_state["año_seleccionado"] = anio_fiscal
+        if "cierre_anual_anio" not in st.session_state:
+            st.session_state["cierre_anual_anio"] = anio_fiscal
 
-        st.number_input(
+        if "cierre_mes_sel" not in st.session_state or st.session_state["cierre_mes_sel"] not in dic_meses:
+            st.session_state["cierre_mes_sel"] = meses_lista[0]
+
+        anio_mes = st.number_input(
             "Año",
+            min_value=2000,
+            max_value=2100,
             step=1,
-            min_value=anio_fiscal,
-            max_value=max(2030, anio_fiscal + 4),
-            key="año_seleccionado"
+            key="cierre_mes_anio",
         )
-        st.selectbox("Mes", meses_lista, key="mes_seleccionado")
+        anio_cierre = anio_mes
+        st.session_state["cierre_anual_anio"] = int(anio_cierre)
+
+        mes_nombre = st.selectbox(
+            "Mes",
+            meses_lista,
+            key="cierre_mes_sel",
+        )
 
 
 # Verifica si el df_acc o el df_gastos tienen filas antes de graficar
