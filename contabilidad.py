@@ -13767,7 +13767,7 @@ if opcion_menu == "🏠 Inicio":
                     padding: 8px 4px 12px 4px;
                     margin-bottom: 8px;
                     scrollbar-width: thin;
-                    scrollbar-color: #30363d transparent;
+                    scrollbar-color: #30363d #161b22;
                 }
                 .fin-tags-scroll::-webkit-scrollbar {
                     height: 6px;
@@ -13777,12 +13777,12 @@ if opcion_menu == "🏠 Inicio":
                     border-radius: 999px;
                 }
                 .fin-feed-list-scroll {
-                    max-height: 520px;
+                    max-height: 220px; /* Ajusta a 520px cuando tengas más tarjetas */
                     overflow-y: auto;
                     overflow-x: hidden;
                     padding-right: 6px;
                     scrollbar-width: thin;
-                    scrollbar-color: #30363d transparent;
+                    scrollbar-color: #30363d #161b22;
                 }
                 .fin-feed-list-scroll::-webkit-scrollbar {
                     width: 6px;
