@@ -14150,6 +14150,62 @@ if opcion_menu == "🏠 Inicio":
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
 
+            # 1b. Cuentas por Cobrar Comerciales (grupo 1.1.2.01 y cuentas de detalle) en asientos_contables
+            # Naturaleza deudora: aumenta por el DEBE y disminuye por el HABER -> neto = DEBE - HABER
+            df_cxc = ejecutar_consulta(
+                """
+                SELECT COUNT(*) AS cant_movs,
+                       COALESCE(SUM(debe), 0) AS total_debe,
+                       COALESCE(SUM(haber), 0) AS total_haber
+                FROM asientos_contables
+                WHERE cuenta_codigo LIKE '1.1.2.01%'
+                  AND YEAR(fecha) = %s
+                  AND MONTH(fecha) = %s
+                """,
+                conn_feed,
+                params=(anio_actual, mes_num_actual)
+            )
+            if df_cxc is not None and not df_cxc.empty:
+                cant_cxc = int(pd.to_numeric(df_cxc.iloc[0]["cant_movs"], errors="coerce") or 0)
+                debe_cxc = float(pd.to_numeric(df_cxc.iloc[0]["total_debe"], errors="coerce") or 0.0)
+                haber_cxc = float(pd.to_numeric(df_cxc.iloc[0]["total_haber"], errors="coerce") or 0.0)
+                neto_cxc = round(debe_cxc - haber_cxc, 2)
+
+                if cant_cxc > 0 or abs(neto_cxc) >= 0.01:
+                    if neto_cxc > 0:
+                        sev_cxc = "atencion"
+                        etiq_cxc = "COBRANZAS"
+                        texto_cxc = (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> las Cuentas por Cobrar Comerciales "
+                            f"(grupo <span class='hl'>1.1.2.01</span>) tienen un saldo neto por cobrar de "
+                            f"<span class='hl'>{neto_cxc:,.2f}</span> (Debe: {debe_cxc:,.2f} / Haber: {haber_cxc:,.2f})."
+                        )
+                    elif neto_cxc < 0:
+                        sev_cxc = "critico"
+                        etiq_cxc = "CRÍTICO"
+                        texto_cxc = (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> las Cuentas por Cobrar Comerciales "
+                            f"(grupo <span class='hl'>1.1.2.01</span>) presentan un saldo neto acreedor/anticipo de "
+                            f"<span class='hl'>{abs(neto_cxc):,.2f}</span> (Debe: {debe_cxc:,.2f} / Haber: {haber_cxc:,.2f})."
+                        )
+                    else:
+                        sev_cxc = "positivo"
+                        etiq_cxc = "COBRANZAS"
+                        texto_cxc = (
+                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> las Cuentas por Cobrar Comerciales "
+                            f"(grupo <span class='hl'>1.1.2.01</span>) están compensadas con un neto de "
+                            f"<span class='hl'>{neto_cxc:,.2f}</span> (Debe: {debe_cxc:,.2f} / Haber: {haber_cxc:,.2f})."
+                        )
+
+                    posts_periodo.append({
+                        "categoria": "Cuentas por Cobrar",
+                        "severidad": sev_cxc,
+                        "etiqueta": etiq_cxc,
+                        "titular_html": texto_cxc,
+                        "contexto": f"Ctas. 1.1.2.01% • {cant_cxc} mov(s) en asientos_contables",
+                        "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                    })
+
             # 2. Actividad / saldos desde asientos_contables en el período
             df_asientos = ejecutar_consulta(
                 """
@@ -14212,7 +14268,6 @@ if opcion_menu == "🏠 Inicio":
         "positivo": "AVANCE",
         "info": "DATO",
     }
-
     
 
 elif opcion_menu == "📂 Plan de Cuentas":
