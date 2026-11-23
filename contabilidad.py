@@ -14194,6 +14194,7 @@ if opcion_menu == "🏠 Inicio":
                 })
 
             # 5. Impuestos / Retenciones (IVA / ISLR / Tributos) en asientos_contables
+            # 5. Impuestos / Retenciones (IVA / ISLR / Tributos) con arrastre mes a mes
             fecha_inicio_imp = f"{anio_actual:04d}-{mes_num_actual:02d}-01"
 
             # Pasivos fiscales / retenciones por enterar (aumentan por Haber, disminuyen por Debe -> Haber - Debe)
@@ -14210,9 +14211,10 @@ if opcion_menu == "🏠 Inicio":
                 "2.1.2.01.004",  # Retencioes Anticipado ISLR
             )
 
-            df_si_pas_imp = ejecutar_consulta(
+            # 5a. Saldo inicial base en saldos_iniciales (antes del mes actual)
+            df_si_base_pas = ejecutar_consulta(
                 """
-                SELECT COALESCE(SUM(haber - debe), 0) AS saldo_ini_pas
+                SELECT COALESCE(SUM(haber - debe), 0) AS saldo_base_pas
                 FROM saldos_iniciales
                 WHERE plan_cuentas IN (%s, %s, %s, %s)
                   AND fecha < %s
@@ -14220,12 +14222,32 @@ if opcion_menu == "🏠 Inicio":
                 conn_feed,
                 params=(*ctas_pasivo_fiscal, fecha_inicio_imp)
             )
-            saldo_ini_pas = (
-                round(float(pd.to_numeric(df_si_pas_imp.iloc[0]["saldo_ini_pas"], errors="coerce") or 0.0), 2)
-                if (df_si_pas_imp is not None and not df_si_pas_imp.empty)
+            saldo_base_pas = (
+                float(pd.to_numeric(df_si_base_pas.iloc[0]["saldo_base_pas"], errors="coerce") or 0.0)
+                if (df_si_base_pas is not None and not df_si_base_pas.empty)
                 else 0.0
             )
 
+            # 5b. Arrastre acumulado en asientos_contables de meses anteriores al mes actual
+            df_prev_pas = ejecutar_consulta(
+                """
+                SELECT COALESCE(SUM(haber - debe), 0) AS arrastre_prev_pas
+                FROM asientos_contables
+                WHERE plan_cuentas IN (%s, %s, %s, %s)
+                  AND fecha < %s
+                """,
+                conn_feed,
+                params=(*ctas_pasivo_fiscal, fecha_inicio_imp)
+            )
+            arrastre_prev_pas = (
+                float(pd.to_numeric(df_prev_pas.iloc[0]["arrastre_prev_pas"], errors="coerce") or 0.0)
+                if (df_prev_pas is not None and not df_prev_pas.empty)
+                else 0.0
+            )
+
+            saldo_ini_pas = round(saldo_base_pas + arrastre_prev_pas, 2)
+
+            # 5c. Movimientos del mes en asientos_contables
             df_imp = ejecutar_consulta(
                 """
                 SELECT COUNT(*) AS cant_movs,
@@ -14270,7 +14292,7 @@ if opcion_menu == "🏠 Inicio":
                             f"<span class='hl'>{saldo_acum_pas:,.2f}</span>"
                             f"{f' • Créditos/Ret. desc. mes: {neto_cred_mes:,.2f}' if abs(neto_cred_mes) >= 0.01 else ''})."
                         ),
-                        "contexto": f"2.1.2.01.001–006 • Pasivo [Haber - Debe] vs. Créditos/Ret.",
+                        "contexto": f"2.1.2.01.001–006 • Arrastre mes a mes [Haber - Debe]",
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
 
