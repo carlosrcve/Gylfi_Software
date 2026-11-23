@@ -14075,113 +14075,77 @@ if opcion_menu == "🏠 Inicio":
 
 
             # Saldo final = saldo_inicial + debe - haber
-            # 3. Efectivo / Bancos / Liquidez: criterio de Banco/Caja + Saldo Inicial + Debe - Haber
-            fecha_inicio_mes = f"{anio_actual:04d}-{mes_num_actual:02d}-01"
+            # 3. Efectivo / Bancos / Liquidez: sincronizado con calcular_flujo_caja_detallado
+            ultimo_dia_mes = calendar.monthrange(anio_actual, mes_num_actual)[1]
+            fecha_inicio_feed = f"{anio_actual:04d}-{mes_num_actual:02d}-01"
+            fecha_fin_feed = f"{anio_actual:04d}-{mes_num_actual:02d}-{ultimo_dia_mes:02d}"
 
-            # Saldo inicial base (si existe registro en saldos_iniciales antes del mes)
-            df_si_base_bco = ejecutar_consulta(
-                """
-                SELECT COALESCE(SUM(debe - haber), 0) AS saldo_base
-                FROM saldos_iniciales
-                WHERE (
-                        plan_cuentas LIKE %s
-                        OR LOWER(cuenta_contable) LIKE %s
-                        OR LOWER(cuenta_contable) LIKE %s
-                    )
-                  AND fecha < %s
-                """,
+            flujo_bco = calcular_flujo_caja_detallado(
                 conn_feed,
-                params=(prefijo_efectivo_bancos, "%banco%", "%caja%", fecha_inicio_mes)
-            )
-            saldo_base_bco = (
-                float(pd.to_numeric(df_si_base_bco.iloc[0]["saldo_base"], errors="coerce") or 0.0)
-                if (df_si_base_bco is not None and not df_si_base_bco.empty)
-                else 0.0
+                db_name=db_actual,
+                fecha_inicio=fecha_inicio_feed,
+                fecha_fin=fecha_fin_feed
             )
 
-            # Arrastre acumulado de meses anteriores en asientos_contables (para que sep/ago/jul/jun/may encadenen)
-            df_prev_bco = ejecutar_consulta(
+            saldo_inicial_bco = round(float(flujo_bco.get("saldo_inicial") or 0.0), 2)
+            debe_bco = round(float(flujo_bco.get("total_entradas") or 0.0), 2)
+            haber_bco = round(float(flujo_bco.get("total_salidas") or 0.0), 2)
+            saldo_final_bco = round(saldo_inicial_bco + debe_bco - haber_bco, 2)
+
+            df_cnt_bco = ejecutar_consulta(
                 """
-                SELECT COALESCE(SUM(debe - haber), 0) AS arrastre_previo
+                SELECT COUNT(*) AS cant_movs
                 FROM asientos_contables
-                WHERE (
-                        plan_cuentas LIKE %s
+                WHERE fecha BETWEEN %s AND %s
+                  AND (
+                        LOWER(plan_cuentas) LIKE %s
                         OR LOWER(cuenta_contable) LIKE %s
                         OR LOWER(cuenta_contable) LIKE %s
                     )
-                  AND fecha < %s
                 """,
                 conn_feed,
-                params=(prefijo_efectivo_bancos, "%banco%", "%caja%", fecha_inicio_mes)
+                params=(fecha_inicio_feed, fecha_fin_feed, "1.1.01%", "%banco%", "%caja%")
             )
-            arrastre_prev_bco = (
-                float(pd.to_numeric(df_prev_bco.iloc[0]["arrastre_previo"], errors="coerce") or 0.0)
-                if (df_prev_bco is not None and not df_prev_bco.empty)
-                else 0.0
+            cant_bco = (
+                int(pd.to_numeric(df_cnt_bco.iloc[0]["cant_movs"], errors="coerce") or 0)
+                if (df_cnt_bco is not None and not df_cnt_bco.empty)
+                else 0
             )
 
-            saldo_inicial_bco = round(saldo_base_bco + arrastre_prev_bco, 2)
-
-            # Movimientos del mes en Banco/Caja (Debe = entradas, Haber = salidas)
-            df_bancos = ejecutar_consulta(
-                """
-                SELECT COUNT(*) AS cant_movs,
-                       COALESCE(SUM(debe), 0) AS total_debe,
-                       COALESCE(SUM(haber), 0) AS total_haber
-                FROM asientos_contables
-                WHERE (
-                        plan_cuentas LIKE %s
-                        OR LOWER(cuenta_contable) LIKE %s
-                        OR LOWER(cuenta_contable) LIKE %s
+            if cant_bco > 0 or abs(saldo_inicial_bco) >= 0.01 or abs(saldo_final_bco) >= 0.01:
+                if saldo_final_bco < 0:
+                    sev_bco = "critico"
+                    etiq_bco = "LIQUIDEZ"
+                    txt_bco = (
+                        f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos cierran con "
+                        f"un saldo negativo de <span class='hl'>{abs(saldo_final_bco):,.2f}</span> "
+                        f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
                     )
-                  AND YEAR(fecha) = %s
-                  AND MONTH(fecha) = %s
-                """,
-                conn_feed,
-                params=(prefijo_efectivo_bancos, "%banco%", "%caja%", anio_actual, mes_num_actual)
-            )
+                elif saldo_final_bco == 0:
+                    sev_bco = "atencion"
+                    etiq_bco = "LIQUIDEZ"
+                    txt_bco = (
+                        f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos cierran en "
+                        f"<span class='hl'>0.00</span> "
+                        f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
+                    )
+                else:
+                    sev_bco = "positivo"
+                    etiq_bco = "LIQUIDEZ"
+                    txt_bco = (
+                        f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos presentan un "
+                        f"saldo final de <span class='hl'>{saldo_final_bco:,.2f}</span> "
+                        f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
+                    )
 
-            if df_bancos is not None and not df_bancos.empty:
-                cant_bco = int(pd.to_numeric(df_bancos.iloc[0]["cant_movs"], errors="coerce") or 0)
-                debe_bco = float(pd.to_numeric(df_bancos.iloc[0]["total_debe"], errors="coerce") or 0.0)
-                haber_bco = float(pd.to_numeric(df_bancos.iloc[0]["total_haber"], errors="coerce") or 0.0)
-
-                saldo_final_bco = round(saldo_inicial_bco + debe_bco - haber_bco, 2)
-
-                if cant_bco > 0 or abs(saldo_inicial_bco) >= 0.01 or abs(saldo_final_bco) >= 0.01:
-                    if saldo_final_bco < 0:
-                        sev_bco = "critico"
-                        etiq_bco = "LIQUIDEZ"
-                        txt_bco = (
-                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos cierran con "
-                            f"un saldo negativo de <span class='hl'>{abs(saldo_final_bco):,.2f}</span> "
-                            f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
-                        )
-                    elif saldo_final_bco == 0:
-                        sev_bco = "atencion"
-                        etiq_bco = "LIQUIDEZ"
-                        txt_bco = (
-                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos cierran en "
-                            f"<span class='hl'>0.00</span> "
-                            f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
-                        )
-                    else:
-                        sev_bco = "positivo"
-                        etiq_bco = "LIQUIDEZ"
-                        txt_bco = (
-                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos presentan un "
-                            f"saldo final de <span class='hl'>{saldo_final_bco:,.2f}</span> "
-                            f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
-                        )
-
-                    posts_periodo.append({
-                        "categoria": "Efectivo y Bancos",
-                        "severidad": sev_bco,
-                        "etiqueta": etiq_bco,
-                        "titular_html": txt_bco,
-                        "contexto": f"Banco/Caja ({prefijo_efectivo_bancos}) • Saldo inicial + Debe - Haber ({cant_bco} mov)",
-                        "fecha": f"{mes_num_actual:02d}/{anio_actual}",
-                    })
+                posts_periodo.append({
+                    "categoria": "Efectivo y Bancos",
+                    "severidad": sev_bco,
+                    "etiqueta": etiq_bco,
+                    "titular_html": txt_bco,
+                    "contexto": f"Flujo de Caja • Saldo inicial + Debe - Haber ({cant_bco} mov)",
+                    "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                })
 
             # 4. Ingresos / Ventas vs. Costos o Gastos del período
             df_ing = ejecutar_consulta(
