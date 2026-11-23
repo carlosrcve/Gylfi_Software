@@ -14194,6 +14194,8 @@ if opcion_menu == "🏠 Inicio":
                 })
 
             # 5. Impuestos / Retenciones (IVA / ISLR / Tributos) en asientos_contables
+            # 5. Impuestos / Retenciones (IVA / ISLR / Tributos) en asientos_contables
+            # Naturaleza acreedora / pasivo: aumentan por el Haber y disminuyen por el Debe (Haber - Debe)
             cuentas_impuestos = (
                 "2.1.2.01.001",  # I.V.A. Debito Fiscal
                 "2.1.2.01.002",  # I.V.A. por Pagar
@@ -14204,7 +14206,7 @@ if opcion_menu == "🏠 Inicio":
             )
             fecha_inicio_imp = f"{anio_actual:04d}-{mes_num_actual:02d}-01"
 
-            # Saldo inicial en saldos_iniciales (pasivos fiscales: Haber - Debe)
+            # Saldo inicial en saldos_iniciales (Haber - Debe)
             df_si_imp = ejecutar_consulta(
                 """
                 SELECT COALESCE(SUM(haber - debe), 0) AS saldo_ini_imp
@@ -14276,10 +14278,11 @@ if opcion_menu == "🏠 Inicio":
                         "titular_html": (
                             f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> se registraron "
                             f"<span class='hl'>{cant_imp} movimiento(s)</span> fiscales/retenciones "
-                            f"(Saldo inicial: {saldo_ini_imp:,.2f} • Haber: {haber_imp:,.2f} / Debe: {debe_imp:,.2f} "
-                            f"• Saldo acumulado: <span class='hl'>{saldo_acum_imp:,.2f}</span>)."
+                            f"(Saldo inicial: {saldo_ini_imp:,.2f} • Neto mes [Haber - Debe]: "
+                            f"<span class='hl'>{neto_mes_imp:,.2f}</span> • Saldo acumulado: "
+                            f"<span class='hl'>{saldo_acum_imp:,.2f}</span>)."
                         ),
-                        "contexto": f"2.1.2.01.001–006 / IVA / ISLR • {cant_imp} mov(s) + saldos_iniciales",
+                        "contexto": f"2.1.2.01.001–006 / IVA / ISLR • Haber - Debe ({cant_imp} mov)",
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
 
