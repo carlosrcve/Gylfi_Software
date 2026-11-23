@@ -13864,28 +13864,13 @@ if opcion_menu == "🏠 Inicio":
                     background: #30363d;
                     border-radius: 999px;
                 }
-                .fin-feed-list-scroll {
-                    max-height: 220px; /* Ajusta a 520px cuando tengas más tarjetas */
-                    overflow-y: auto;
-                    overflow-x: hidden;
-                    padding-right: 6px;
-                    scrollbar-width: thin;
-                    scrollbar-color: #30363d #161b22;
-                }
-                .fin-feed-list-scroll::-webkit-scrollbar {
-                    width: 6px;
-                }
-                .fin-feed-list-scroll::-webkit-scrollbar-thumb {
-                    background: #30363d;
-                    border-radius: 999px;
-                }
                 .fin-feed-card {
                     background: #0d1117;
                     border: 1px solid #21262d;
                     border-left: 4px solid #58a6ff;
                     border-radius: 12px;
                     padding: 16px 18px;
-                    margin-bottom: 12px;
+                    margin-bottom: 6px;
                     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
                 }
                 .fin-feed-card.sev-critico { border-left-color: #ff4d4f; }
@@ -13992,48 +13977,60 @@ if opcion_menu == "🏠 Inicio":
                 key="feed_filtro_etiquetas",
             )
 
-        cards_html = []
-        for post in posts:
-            sev = post.get("severidad", "info")
-            sev_clase = f"sev-{sev}" if sev in etiquetas_sev else "sev-info"
-            cat_txt = html.escape(str(post.get("categoria", "General")))
-            ctx_txt = html.escape(str(post.get("contexto", "")))
-            fec_txt = html.escape(str(post.get("fecha", "")))
-            badge_lbl = html.escape(str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO")))
-            etiqueta_completa = f"{cat_txt} • {badge_lbl}"
+        contenedor_feed = st.container(height=420)
+        with contenedor_feed:
+            for idx, post in enumerate(posts):
+                sev = post.get("severidad", "info")
+                sev_clase = f"sev-{sev}" if sev in etiquetas_sev else "sev-info"
+                cat_txt = html.escape(str(post.get("categoria", "General")))
+                ctx_txt = html.escape(str(post.get("contexto", "")))
+                fec_txt = html.escape(str(post.get("fecha", "")))
+                badge_lbl = html.escape(str(post.get("etiqueta") or etiquetas_sev.get(sev, "DATO")))
+                etiqueta_completa = f"{cat_txt} • {badge_lbl}"
 
-            if filtro_etiqueta and filtro_etiqueta != "Todas" and etiqueta_completa != filtro_etiqueta:
-                continue
+                if filtro_etiqueta and filtro_etiqueta != "Todas" and etiqueta_completa != filtro_etiqueta:
+                    continue
 
-            cuerpo_raw = str(post.get("titular_html", ""))
-            cuerpo_seguro = html.escape(cuerpo_raw)
-            cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&#x27;hl&#x27;&gt;", "<span class='hl'>")
-            cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&quot;hl&quot;&gt;", "<span class='hl'>")
-            cuerpo_seguro = cuerpo_seguro.replace("&lt;/span&gt;", "</span>")
+                cuerpo_raw = str(post.get("titular_html", ""))
+                cuerpo_seguro = html.escape(cuerpo_raw)
+                cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&#x27;hl&#x27;&gt;", "<span class='hl'>")
+                cuerpo_seguro = cuerpo_seguro.replace("&lt;span class=&quot;hl&quot;&gt;", "<span class='hl'>")
+                cuerpo_seguro = cuerpo_seguro.replace("&lt;/span&gt;", "</span>")
 
-            cards_html.append(
-                _limpiar_html(
-                    f"""
-                    <div class="fin-feed-card {sev_clase}">
-                        <div class="fin-feed-top">
-                            <span><strong>{cat_txt}</strong></span>
-                            <span class="fin-badge">{badge_lbl}</span>
+                st.markdown(
+                    _limpiar_html(
+                        f"""
+                        <div class="fin-feed-card {sev_clase}">
+                            <div class="fin-feed-top">
+                                <span><strong>{cat_txt}</strong></span>
+                                <span class="fin-badge">{badge_lbl}</span>
+                            </div>
+                            <div class="fin-feed-body">{cuerpo_seguro}</div>
+                            <div class="fin-feed-footer">
+                                <span>{ctx_txt}</span>
+                                <span>{fec_txt}</span>
+                            </div>
                         </div>
-                        <div class="fin-feed-body">{cuerpo_seguro}</div>
-                        <div class="fin-feed-footer">
-                            <span>{ctx_txt}</span>
-                            <span>{fec_txt}</span>
-                        </div>
-                    </div>
-                    """
+                        """
+                    ),
+                    unsafe_allow_html=True,
                 )
-            )
 
-        if cards_html:
-            st.markdown(
-                f'<div class="fin-feed-list-scroll">{"".join(cards_html)}</div>',
-                unsafe_allow_html=True,
-            )
+                png_bytes = generar_png_etiqueta_post(post, etiquetas_sev)
+                nombre_archivo = (
+                    f"etiqueta_{idx + 1}_{str(post.get('categoria', 'post')).lower().replace(' ', '_')}_"
+                    f"{str(post.get('fecha', '')).replace('/', '_')}.png"
+                )
+                _, col_btn = st.columns([0.72, 0.28])
+                with col_btn:
+                    st.download_button(
+                        label=f"⬇️ PNG • {badge_lbl}",
+                        data=png_bytes,
+                        file_name=nombre_archivo,
+                        mime="image/png",
+                        key=f"dl_card_png_{idx}_{post.get('categoria', '')}_{post.get('fecha', '')}",
+                        use_container_width=True,
+                    )
 
 
     # --- PERÍODO DE CONSULTA (CON SOPORTE PARA 2027) ---
