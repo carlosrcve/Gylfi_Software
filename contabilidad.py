@@ -14056,8 +14056,24 @@ if opcion_menu == "🏠 Inicio":
                     f"{str(post.get('fecha', '')).replace('/', '_')}.png"
                 )
 
-                _, col_der = st.columns([0.78, 0.22])
+                _, col_der = st.columns([0.72, 0.28])
                 with col_der:
+                    st.markdown(
+                        """
+                        <style>
+                        div[data-testid="stColumn"]:last-child div[data-testid="stDownloadButton"] {
+                            display: flex;
+                            justify-content: flex-end;
+                        }
+                        div[data-testid="stColumn"]:last-child div[data-testid="stDownloadButton"] > button {
+                            margin-left: auto !important;
+                            width: fit-content !important;
+                            white-space: nowrap !important;
+                        }
+                        </style>
+                        """,
+                        unsafe_allow_html=True,
+                    )
                     st.download_button(
                         label="descargar imagen en PNG",
                         data=png_bytes,
