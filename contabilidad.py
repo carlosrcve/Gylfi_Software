@@ -13789,7 +13789,7 @@ if opcion_menu == "🏠 Inicio":
             )
 
 
-    # --- PERÍODO DE CONSULTA ---
+    # --- PERÍODO DE CONSULTA (CON SOPORTE PARA 2027) ---
     st.divider()
     st.subheader("📅 Período de Consulta")
     dic_meses = {
@@ -13800,27 +13800,33 @@ if opcion_menu == "🏠 Inicio":
     meses_lista = list(dic_meses.keys())
 
     anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or dt.datetime.today().year)
+    anio_min = min(anio_fiscal, 2027)
+    anio_max = max(2030, anio_fiscal + 4, 2027)
 
-    if "año_seleccionado" not in st.session_state:
-        st.session_state["año_seleccionado"] = anio_fiscal
+    if "feed_anio_seleccionado" not in st.session_state:
+        st.session_state["feed_anio_seleccionado"] = 2027
 
-    if st.session_state.get("año_seleccionado", anio_fiscal) < anio_fiscal:
-        st.session_state["año_seleccionado"] = anio_fiscal
+    if st.button("Ir a período 2027", key="btn_ir_2027"):
+        st.session_state["feed_anio_seleccionado"] = 2027
+        st.rerun()
 
-    anio_actual = st.number_input(
-        "Año",
-        step=1,
-        min_value=anio_fiscal,
-        max_value=max(2030, anio_fiscal + 4),
-        value=int(st.session_state["año_seleccionado"]),
-        key="feed_anio_seleccionado"
+    anio_actual = int(
+        st.number_input(
+            "Año",
+            step=1,
+            min_value=anio_min,
+            max_value=anio_max,
+            key="feed_anio_seleccionado"
+        )
     )
-    # NO pongas st.session_state["año_seleccionado"] = int(anio_actual) aquí abajo
+
+    mes_default = st.session_state.get("mes_seleccionado")
+    idx_mes = meses_lista.index(mes_default) if mes_default in meses_lista else 0
 
     mes_nombre_actual = st.selectbox(
         "Mes",
         meses_lista,
-        index=meses_lista.index(st.session_state["mes_seleccionado"]) if st.session_state.get("mes_seleccionado") in meses_lista else 0,
+        index=idx_mes,
         key="feed_mes_seleccionado"
     )
     mes_num_actual = dic_meses.get(mes_nombre_actual, 1)
