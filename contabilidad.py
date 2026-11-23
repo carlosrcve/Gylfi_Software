@@ -12420,6 +12420,7 @@ def gestionar_sidebar():
         st.divider()
 
         # --- Selección de Empresa (Optimizada con caché y session_state) ---
+        # --- Selección de Empresa (Optimizada con caché y session_state) ---
         if menu == "📊 Auditoría Contable":
             es_admin_general = str(user_rol or "").strip().lower() in (
                 "admin",
@@ -12431,20 +12432,25 @@ def gestionar_sidebar():
             registros_cache = _obtener_empresas_sidebar_cache(user_rol, user_limpio)
             df_sidebar = pd.DataFrame(registros_cache)
 
-            # Si es administrador general, intentamos traer todos los clientes de contabilidad
+            # Si es administrador general, cargamos todos los clientes desde control_central.clientes
             if es_admin_general:
                 df_all_clientes = pd.DataFrame()
                 try:
                     conn_admin = conectar_db() if "conectar_db" in globals() else None
                     if conn_admin is not None:
-                        for tbl_clientes in ("empresas_clientes", "clientes_contabilidad", "clientes", "empresas"):
-                            try:
-                                df_tmp = ejecutar_consulta(f"SELECT * FROM {tbl_clientes}", conn_admin)
-                                if df_tmp is not None and not df_tmp.empty:
-                                    df_all_clientes = df_tmp
-                                    break
-                            except Exception:
-                                continue
+                        df_tmp = ejecutar_consulta(
+                            """
+                            SELECT id, nombre_empresa, rif, db_nombre, logo_path,
+                                   estado, fecha_vencimiento, tipo_contribuyente,
+                                   ultimo_digito, direccion_fiscal
+                            FROM control_central.clientes
+                            ORDER BY CASE WHEN estado = 'Activo' THEN 0 ELSE 1 END,
+                                     nombre_empresa ASC
+                            """,
+                            conn_admin,
+                        )
+                        if df_tmp is not None and not df_tmp.empty:
+                            df_all_clientes = df_tmp
                         try:
                             conn_admin.close()
                         except Exception:
@@ -12520,6 +12526,10 @@ def gestionar_sidebar():
                 st.session_state['CLIENTE_NOMBRE'] = nombre_seleccionado
                 if 'id' in datos_sel and pd.notna(datos_sel['id']):
                     st.session_state['cliente_id_seleccionado'] = int(datos_sel['id'])
+                if 'rif' in datos_sel and pd.notna(datos_sel['rif']):
+                    st.session_state['CLIENTE_RIF'] = str(datos_sel['rif']).strip()
+                if 'tipo_contribuyente' in datos_sel and pd.notna(datos_sel['tipo_contribuyente']):
+                    st.session_state['CLIENTE_TIPO_CONTRIBUYENTE'] = str(datos_sel['tipo_contribuyente']).strip()
 
     return menu
 
