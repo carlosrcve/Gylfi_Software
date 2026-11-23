@@ -14074,21 +14074,41 @@ if opcion_menu == "🏠 Inicio":
                         })
 
             # 3. Efectivo / Bancos / Liquidez (naturaleza deudora: Debe - Haber)
-            df_si_bco = ejecutar_consulta(
+            fecha_inicio_mes = f"{anio_actual:04d}-{mes_num_actual:02d}-01"
+
+            df_si_base_bco = ejecutar_consulta(
                 """
-                SELECT COALESCE(SUM(debe - haber), 0) AS saldo_ini
+                SELECT COALESCE(SUM(debe - haber), 0) AS saldo_base
                 FROM saldos_iniciales
                 WHERE plan_cuentas LIKE %s
-                  AND YEAR(fecha) <= %s
+                  AND fecha < %s
                 """,
                 conn_feed,
-                params=(prefijo_efectivo_bancos, anio_actual)
+                params=(prefijo_efectivo_bancos, fecha_inicio_mes)
             )
-            saldo_ini_bco = (
-                float(pd.to_numeric(df_si_bco.iloc[0]["saldo_ini"], errors="coerce") or 0.0)
-                if (df_si_bco is not None and not df_si_bco.empty)
+            saldo_base_bco = (
+                float(pd.to_numeric(df_si_base_bco.iloc[0]["saldo_base"], errors="coerce") or 0.0)
+                if (df_si_base_bco is not None and not df_si_base_bco.empty)
                 else 0.0
             )
+
+            df_prev_bco = ejecutar_consulta(
+                """
+                SELECT COALESCE(SUM(debe - haber), 0) AS arrastre_previo
+                FROM asientos_contables
+                WHERE plan_cuentas LIKE %s
+                  AND fecha < %s
+                """,
+                conn_feed,
+                params=(prefijo_efectivo_bancos, fecha_inicio_mes)
+            )
+            arrastre_prev_bco = (
+                float(pd.to_numeric(df_prev_bco.iloc[0]["arrastre_previo"], errors="coerce") or 0.0)
+                if (df_prev_bco is not None and not df_prev_bco.empty)
+                else 0.0
+            )
+
+            saldo_ini_bco = round(saldo_base_bco + arrastre_prev_bco, 2)
 
             df_bancos = ejecutar_consulta(
                 """
@@ -14112,7 +14132,7 @@ if opcion_menu == "🏠 Inicio":
                 flujo_neto_bco = round(debe_bco - haber_bco, 2)
                 saldo_final_bco = round(saldo_ini_bco + flujo_neto_bco, 2)
 
-                if cant_bco > 0 or abs(saldo_ini_bco) >= 0.01:
+                if cant_bco > 0 or abs(saldo_ini_bco) >= 0.01 or abs(saldo_final_bco) >= 0.01:
                     if saldo_final_bco < 0:
                         sev_bco = "critico"
                         etiq_bco = "LIQUIDEZ"
@@ -14142,7 +14162,7 @@ if opcion_menu == "🏠 Inicio":
                         "severidad": sev_bco,
                         "etiqueta": etiq_bco,
                         "titular_html": txt_bco,
-                        "contexto": f"Ctas. {prefijo_efectivo_bancos} • {cant_bco} mov(s) + saldos_iniciales",
+                        "contexto": f"Ctas. {prefijo_efectivo_bancos} • Saldo inicial arrastre + {cant_bco} mov(s)",
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
 
