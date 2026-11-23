@@ -13741,6 +13741,10 @@ if opcion_menu == "🏠 Inicio":
     import streamlit as st
 
 
+    def _limpiar_html(texto_html: str) -> str:
+        return "\n".join(linea.lstrip() for linea in texto_html.splitlines()).strip()
+
+
     def renderizar_feed_financiero(posts, titulo="📡 Feed Financiero en Vivo"):
         st.markdown(f"#### {titulo}")
 
@@ -13749,115 +13753,117 @@ if opcion_menu == "🏠 Inicio":
             return
 
         st.markdown(
-            """
-            <style>
-            .fin-tags-scroll {
-                display: flex;
-                flex-direction: row;
-                align-items: center;
-                gap: 8px;
-                overflow-x: auto;
-                overflow-y: hidden;
-                white-space: nowrap;
-                padding: 8px 4px 12px 4px;
-                margin-bottom: 8px;
-                scrollbar-width: thin;
-                scrollbar-color: #30363d transparent;
-            }
-            .fin-tags-scroll::-webkit-scrollbar {
-                height: 6px;
-            }
-            .fin-tags-scroll::-webkit-scrollbar-thumb {
-                background: #30363d;
-                border-radius: 999px;
-            }
-            .fin-feed-list-scroll {
-                max-height: 520px;
-                overflow-y: auto;
-                overflow-x: hidden;
-                padding-right: 6px;
-                scrollbar-width: thin;
-                scrollbar-color: #30363d transparent;
-            }
-            .fin-feed-list-scroll::-webkit-scrollbar {
-                width: 6px;
-            }
-            .fin-feed-list-scroll::-webkit-scrollbar-thumb {
-                background: #30363d;
-                border-radius: 999px;
-            }
-            .fin-feed-card {
-                background: #0d1117;
-                border: 1px solid #21262d;
-                border-left: 4px solid #58a6ff;
-                border-radius: 12px;
-                padding: 16px 18px;
-                margin-bottom: 12px;
-                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
-            }
-            .fin-feed-card.sev-critico { border-left-color: #ff4d4f; }
-            .fin-feed-card.sev-atencion { border-left-color: #f59e0b; }
-            .fin-feed-card.sev-positivo { border-left-color: #22c55e; }
-            .fin-feed-top {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 8px;
-                font-size: 0.78rem;
-                color: #8b949e;
-            }
-            .fin-badge {
-                display: inline-flex;
-                align-items: center;
-                gap: 5px;
-                padding: 4px 12px;
-                border-radius: 999px;
-                font-weight: 800;
-                font-size: 0.75rem;
-                letter-spacing: 0.05em;
-                text-transform: uppercase;
-                border: 1px solid currentColor;
-                background: rgba(88, 166, 255, 0.16);
-                color: #79c0ff;
-                flex-shrink: 0;
-            }
-            .sev-critico .fin-badge {
-                background: rgba(255, 77, 79, 0.22);
-                color: #ff7875;
-                border-color: rgba(255, 77, 79, 0.55);
-            }
-            .sev-atencion .fin-badge {
-                background: rgba(245, 158, 11, 0.22);
-                color: #fbbf24;
-                border-color: rgba(245, 158, 11, 0.55);
-            }
-            .sev-positivo .fin-badge {
-                background: rgba(34, 197, 94, 0.22);
-                color: #4ade80;
-                border-color: rgba(34, 197, 94, 0.55);
-            }
-            .fin-feed-body {
-                color: #f0f6fc;
-                font-size: 1.02rem;
-                line-height: 1.45;
-                margin: 6px 0 10px 0;
-                font-weight: 500;
-            }
-            .sev-critico .hl { color: #ff6b6b; font-weight: 700; }
-            .sev-atencion .hl { color: #fbbf24; font-weight: 700; }
-            .sev-positivo .hl { color: #4ade80; font-weight: 700; }
-            .sev-info .hl { color: #58a6ff; font-weight: 700; }
-            .fin-feed-footer {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                font-size: 0.78rem;
-                color: #8b949e;
-                border-top: 1px solid #161b22;
-                padding-top: 8px;
-            }
-            </style>
-            """,
+            _limpiar_html(
+                """
+                <style>
+                .fin-tags-scroll {
+                    display: flex;
+                    flex-direction: row;
+                    align-items: center;
+                    gap: 8px;
+                    overflow-x: auto;
+                    overflow-y: hidden;
+                    white-space: nowrap;
+                    padding: 8px 4px 12px 4px;
+                    margin-bottom: 8px;
+                    scrollbar-width: thin;
+                    scrollbar-color: #30363d transparent;
+                }
+                .fin-tags-scroll::-webkit-scrollbar {
+                    height: 6px;
+                }
+                .fin-tags-scroll::-webkit-scrollbar-thumb {
+                    background: #30363d;
+                    border-radius: 999px;
+                }
+                .fin-feed-list-scroll {
+                    max-height: 520px;
+                    overflow-y: auto;
+                    overflow-x: hidden;
+                    padding-right: 6px;
+                    scrollbar-width: thin;
+                    scrollbar-color: #30363d transparent;
+                }
+                .fin-feed-list-scroll::-webkit-scrollbar {
+                    width: 6px;
+                }
+                .fin-feed-list-scroll::-webkit-scrollbar-thumb {
+                    background: #30363d;
+                    border-radius: 999px;
+                }
+                .fin-feed-card {
+                    background: #0d1117;
+                    border: 1px solid #21262d;
+                    border-left: 4px solid #58a6ff;
+                    border-radius: 12px;
+                    padding: 16px 18px;
+                    margin-bottom: 12px;
+                    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+                }
+                .fin-feed-card.sev-critico { border-left-color: #ff4d4f; }
+                .fin-feed-card.sev-atencion { border-left-color: #f59e0b; }
+                .fin-feed-card.sev-positivo { border-left-color: #22c55e; }
+                .fin-feed-top {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 8px;
+                    font-size: 0.78rem;
+                    color: #8b949e;
+                }
+                .fin-badge {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 5px;
+                    padding: 4px 12px;
+                    border-radius: 999px;
+                    font-weight: 800;
+                    font-size: 0.75rem;
+                    letter-spacing: 0.05em;
+                    text-transform: uppercase;
+                    border: 1px solid currentColor;
+                    background: rgba(88, 166, 255, 0.16);
+                    color: #79c0ff;
+                    flex-shrink: 0;
+                }
+                .sev-critico .fin-badge {
+                    background: rgba(255, 77, 79, 0.22);
+                    color: #ff7875;
+                    border-color: rgba(255, 77, 79, 0.55);
+                }
+                .sev-atencion .fin-badge {
+                    background: rgba(245, 158, 11, 0.22);
+                    color: #fbbf24;
+                    border-color: rgba(245, 158, 11, 0.55);
+                }
+                .sev-positivo .fin-badge {
+                    background: rgba(34, 197, 94, 0.22);
+                    color: #4ade80;
+                    border-color: rgba(34, 197, 94, 0.55);
+                }
+                .fin-feed-body {
+                    color: #f0f6fc;
+                    font-size: 1.02rem;
+                    line-height: 1.45;
+                    margin: 6px 0 10px 0;
+                    font-weight: 500;
+                }
+                .sev-critico .hl { color: #ff6b6b; font-weight: 700; }
+                .sev-atencion .hl { color: #fbbf24; font-weight: 700; }
+                .sev-positivo .hl { color: #4ade80; font-weight: 700; }
+                .sev-info .hl { color: #58a6ff; font-weight: 700; }
+                .fin-feed-footer {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    font-size: 0.78rem;
+                    color: #8b949e;
+                    border-top: 1px solid #161b22;
+                    padding-top: 8px;
+                }
+                </style>
+                """
+            ),
             unsafe_allow_html=True,
         )
 
@@ -13918,19 +13924,21 @@ if opcion_menu == "🏠 Inicio":
             cuerpo_seguro = cuerpo_seguro.replace("&lt;/span&gt;", "</span>")
 
             cards_html.append(
-                f"""
-                <div class="fin-feed-card {sev_clase}">
-                    <div class="fin-feed-top">
-                        <span><strong>{cat_txt}</strong></span>
-                        <span class="fin-badge">{badge_lbl}</span>
+                _limpiar_html(
+                    f"""
+                    <div class="fin-feed-card {sev_clase}">
+                        <div class="fin-feed-top">
+                            <span><strong>{cat_txt}</strong></span>
+                            <span class="fin-badge">{badge_lbl}</span>
+                        </div>
+                        <div class="fin-feed-body">{cuerpo_seguro}</div>
+                        <div class="fin-feed-footer">
+                            <span>{ctx_txt}</span>
+                            <span>{fec_txt}</span>
+                        </div>
                     </div>
-                    <div class="fin-feed-body">{cuerpo_seguro}</div>
-                    <div class="fin-feed-footer">
-                        <span>{ctx_txt}</span>
-                        <span>{fec_txt}</span>
-                    </div>
-                </div>
-                """
+                    """
+                )
             )
 
         if cards_html:
@@ -13938,7 +13946,6 @@ if opcion_menu == "🏠 Inicio":
                 f'<div class="fin-feed-list-scroll">{"".join(cards_html)}</div>',
                 unsafe_allow_html=True,
             )
-
 
     # --- PERÍODO DE CONSULTA (CON SOPORTE PARA 2027) ---
     st.divider()
