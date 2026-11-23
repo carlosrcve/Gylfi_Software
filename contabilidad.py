@@ -14195,9 +14195,10 @@ if opcion_menu == "🏠 Inicio":
                     "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                 })
 
-            # 5. Impuestos / Retenciones (IVA / ISLR / Tributos) en asientos_contables
             # 5. Impuestos / Retenciones (IVA / ISLR / Tributos) con arrastre mes a mes
             fecha_inicio_imp = f"{anio_actual:04d}-{mes_num_actual:02d}-01"
+            ultimo_dia_imp = calendar.monthrange(anio_actual, mes_num_actual)[1]
+            fecha_fin_imp = f"{anio_actual:04d}-{mes_num_actual:02d}-{ultimo_dia_imp:02d}"
 
             # Pasivos fiscales / retenciones por enterar (aumentan por Haber, disminuyen por Debe -> Haber - Debe)
             ctas_pasivo_fiscal = (
@@ -14206,6 +14207,13 @@ if opcion_menu == "🏠 Inicio":
                 "2.1.2.01.005",  # Retencion ISLR Proveedores
                 "2.1.2.01.006",  # ISLR por Pagar
             )
+
+            nombres_pasivo_fiscal = {
+                "2.1.2.01.001": "I.V.A. Débito Fiscal",
+                "2.1.2.01.002": "I.V.A. por Pagar",
+                "2.1.2.01.005": "Retención ISLR Proveedores",
+                "2.1.2.01.006": "ISLR por Pagar",
+            }
 
             # Retenciones descontables / anticipos / créditos fiscales (aumentan por Debe -> Debe - Haber)
             ctas_credito_fiscal = (
@@ -14273,6 +14281,48 @@ if opcion_menu == "🏠 Inicio":
                 )
             )
 
+            # 5d. Desglose por cuenta contable del saldo acumulado al cierre del mes
+            df_det_ctas = ejecutar_consulta(
+                """
+                SELECT plan_cuentas,
+                       MAX(cuenta_contable) AS cuenta_contable,
+                       COALESCE(SUM(saldo_cta), 0) AS saldo_cta
+                FROM (
+                    SELECT plan_cuentas, cuenta_contable, (haber - debe) AS saldo_cta
+                    FROM saldos_iniciales
+                    WHERE plan_cuentas IN (%s, %s, %s, %s)
+                      AND fecha <= %s
+                    UNION ALL
+                    SELECT plan_cuentas, cuenta_contable, (haber - debe) AS saldo_cta
+                    FROM asientos_contables
+                    WHERE plan_cuentas IN (%s, %s, %s, %s)
+                      AND fecha <= %s
+                ) sub
+                GROUP BY plan_cuentas
+                """,
+                conn_feed,
+                params=(
+                    *ctas_pasivo_fiscal,
+                    fecha_fin_imp,
+                    *ctas_pasivo_fiscal,
+                    fecha_fin_imp,
+                )
+            )
+
+            detalle_ctas_texto = ""
+            ctas_activas_codigos = []
+            if df_det_ctas is not None and not df_det_ctas.empty:
+                partes_cta = []
+                for _, fila_cta in df_det_ctas.iterrows():
+                    cod_cta = str(fila_cta["plan_cuentas"] or "").strip()
+                    nom_cta = str(fila_cta["cuenta_contable"] or "").strip() or nombres_pasivo_fiscal.get(cod_cta, "")
+                    val_cta = round(float(pd.to_numeric(fila_cta["saldo_cta"], errors="coerce") or 0.0), 2)
+                    if abs(val_cta) >= 0.01:
+                        ctas_activas_codigos.append(cod_cta)
+                        partes_cta.append(f"{cod_cta} {nom_cta}: {val_cta:,.2f}".strip())
+                if partes_cta:
+                    detalle_ctas_texto = " • Cuentas: " + " | ".join(partes_cta)
+
             if df_imp is not None and not df_imp.empty:
                 cant_imp = int(pd.to_numeric(df_imp.iloc[0]["cant_movs"], errors="coerce") or 0)
                 haber_pas = float(pd.to_numeric(df_imp.iloc[0]["haber_pas"], errors="coerce") or 0.0)
@@ -14282,6 +14332,7 @@ if opcion_menu == "🏠 Inicio":
                 neto_cred_mes = round(float(pd.to_numeric(df_imp.iloc[0]["neto_cred"], errors="coerce") or 0.0), 2)
 
                 if cant_imp > 0 or abs(saldo_ini_pas) >= 0.01 or abs(saldo_acum_pas) >= 0.01:
+                    ref_ctas = ", ".join(ctas_activas_codigos) if ctas_activas_codigos else "2.1.2.01.001–006"
                     posts_periodo.append({
                         "categoria": "Impuestos y Retenciones",
                         "severidad": "atencion" if saldo_acum_pas > 0 else "info",
@@ -14292,12 +14343,12 @@ if opcion_menu == "🏠 Inicio":
                             f"(Saldo inicial por pagar: {saldo_ini_pas:,.2f} • Neto mes [Haber - Debe]: "
                             f"<span class='hl'>{neto_mes_pas:,.2f}</span> • Saldo por pagar: "
                             f"<span class='hl'>{saldo_acum_pas:,.2f}</span>"
+                            f"{detalle_ctas_texto}"
                             f"{f' • Créditos/Ret. desc. mes: {neto_cred_mes:,.2f}' if abs(neto_cred_mes) >= 0.01 else ''})."
                         ),
-                        "contexto": f"2.1.2.01.001–006 • Arrastre mes a mes [Haber - Debe]",
+                        "contexto": f"Ctas. {ref_ctas} • Arrastre mes a mes [Haber - Debe]",
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
-
             # 6. Cierre / Bloqueo del Período (columna bloqueado en asientos_contables)
             df_cierre = ejecutar_consulta(
                 """
