@@ -14075,21 +14075,59 @@ if opcion_menu == "🏠 Inicio":
 
 
             # Saldo final = saldo_inicial + debe - haber
-            # 3. Efectivo / Bancos / Liquidez: sincronizado con calcular_flujo_caja_detallado
+            # 3. Efectivo / Bancos / Liquidez: sincronizado con calcular_flujo_caja_detallado + fallback
             ultimo_dia_mes = calendar.monthrange(anio_actual, mes_num_actual)[1]
             fecha_inicio_feed = f"{anio_actual:04d}-{mes_num_actual:02d}-01"
             fecha_fin_feed = f"{anio_actual:04d}-{mes_num_actual:02d}-{ultimo_dia_mes:02d}"
 
-            flujo_bco = calcular_flujo_caja_detallado(
-                conn_feed,
-                db_name=db_actual,
-                fecha_inicio=fecha_inicio_feed,
-                fecha_fin=fecha_fin_feed
-            )
+            flujo_bco = {}
+            try:
+                flujo_bco = calcular_flujo_caja_detallado(
+                    conn_feed,
+                    db_name=db_actual,
+                    fecha_inicio=fecha_inicio_feed,
+                    fecha_fin=fecha_fin_feed
+                ) or {}
+            except Exception:
+                flujo_bco = {}
 
             saldo_inicial_bco = round(float(flujo_bco.get("saldo_inicial") or 0.0), 2)
             debe_bco = round(float(flujo_bco.get("total_entradas") or 0.0), 2)
             haber_bco = round(float(flujo_bco.get("total_salidas") or 0.0), 2)
+
+            # Fallback directo si calcular_flujo_caja_detallado devolvió todo en 0
+            if saldo_inicial_bco == 0.0 and debe_bco == 0.0 and haber_bco == 0.0:
+                df_si_sb = ejecutar_consulta(
+                    """
+                    SELECT COALESCE(SUM(saldo_inicial), 0) AS saldo_ini
+                    FROM saldos_bancarios
+                    WHERE ano = %s AND LOWER(mes) = LOWER(%s)
+                    """,
+                    conn_feed,
+                    params=(anio_actual, mes_nombre_actual)
+                )
+                if df_si_sb is not None and not df_si_sb.empty:
+                    saldo_inicial_bco = round(float(pd.to_numeric(df_si_sb.iloc[0]["saldo_ini"], errors="coerce") or 0.0), 2)
+
+                df_mov_sb = ejecutar_consulta(
+                    """
+                    SELECT COALESCE(SUM(debe), 0) AS total_debe,
+                           COALESCE(SUM(haber), 0) AS total_haber
+                    FROM asientos_contables
+                    WHERE fecha BETWEEN %s AND %s
+                      AND (
+                            LOWER(plan_cuentas) LIKE %s
+                            OR LOWER(cuenta_contable) LIKE %s
+                            OR LOWER(cuenta_contable) LIKE %s
+                        )
+                    """,
+                    conn_feed,
+                    params=(fecha_inicio_feed, fecha_fin_feed, "1.1.01%", "%banco%", "%caja%")
+                )
+                if df_mov_sb is not None and not df_mov_sb.empty:
+                    debe_bco = round(float(pd.to_numeric(df_mov_sb.iloc[0]["total_debe"], errors="coerce") or 0.0), 2)
+                    haber_bco = round(float(pd.to_numeric(df_mov_sb.iloc[0]["total_haber"], errors="coerce") or 0.0), 2)
+
             saldo_final_bco = round(saldo_inicial_bco + debe_bco - haber_bco, 2)
 
             df_cnt_bco = ejecutar_consulta(
@@ -14144,61 +14182,6 @@ if opcion_menu == "🏠 Inicio":
                     "etiqueta": etiq_bco,
                     "titular_html": txt_bco,
                     "contexto": f"Flujo de Caja • Saldo inicial + Debe - Haber ({cant_bco} mov)",
-                    "fecha": f"{mes_num_actual:02d}/{anio_actual}",
-                })
-
-            # 4. Ingresos / Ventas vs. Costos o Gastos del período
-            df_ing = ejecutar_consulta(
-                """
-                SELECT COUNT(*) AS cant_movs,
-                       COALESCE(SUM(haber - debe), 0) AS neto_ingresos
-                FROM asientos_contables
-                WHERE plan_cuentas LIKE %s
-                  AND YEAR(fecha) = %s
-                  AND MONTH(fecha) = %s
-                """,
-                conn_feed,
-                params=(prefijo_ingresos, anio_actual, mes_num_actual)
-            )
-            df_cg = ejecutar_consulta(
-                """
-                SELECT COUNT(*) AS cant_movs,
-                       COALESCE(SUM(debe - haber), 0) AS neto_costos_gastos
-                FROM asientos_contables
-                WHERE (plan_cuentas LIKE %s OR plan_cuentas LIKE %s)
-                  AND YEAR(fecha) = %s
-                  AND MONTH(fecha) = %s
-                """,
-                conn_feed,
-                params=(prefijo_costos_gastos[0], prefijo_costos_gastos[1], anio_actual, mes_num_actual)
-            )
-            ing_neto = float(pd.to_numeric(df_ing.iloc[0]["neto_ingresos"], errors="coerce") or 0.0) if (df_ing is not None and not df_ing.empty) else 0.0
-            cant_ing = int(pd.to_numeric(df_ing.iloc[0]["cant_movs"], errors="coerce") or 0) if (df_ing is not None and not df_ing.empty) else 0
-            cg_neto = float(pd.to_numeric(df_cg.iloc[0]["neto_costos_gastos"], errors="coerce") or 0.0) if (df_cg is not None and not df_cg.empty) else 0.0
-            cant_cg = int(pd.to_numeric(df_cg.iloc[0]["cant_movs"], errors="coerce") or 0) if (df_cg is not None and not df_cg.empty) else 0
-
-            if (cant_ing + cant_cg) > 0:
-                margen_operativo = round(ing_neto - cg_neto, 2)
-                if margen_operativo < 0:
-                    sev_res = "critico"
-                    etiq_res = "MARGEN"
-                elif margen_operativo == 0:
-                    sev_res = "atencion"
-                    etiq_res = "MARGEN"
-                else:
-                    sev_res = "positivo"
-                    etiq_res = "MARGEN"
-
-                posts_periodo.append({
-                    "categoria": "Resultados del Período",
-                    "severidad": sev_res,
-                    "etiqueta": etiq_res,
-                    "titular_html": (
-                        f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> los Ingresos netos son de "
-                        f"<span class='hl'>{ing_neto:,.2f}</span> frente a Costos/Gastos por "
-                        f"<span class='hl'>{cg_neto:,.2f}</span> (diferencia neta: <span class='hl'>{margen_operativo:,.2f}</span>)."
-                    ),
-                    "contexto": f"Ing. {prefijo_ingresos} ({cant_ing}) vs. C/G ({cant_cg})",
                     "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                 })
 
