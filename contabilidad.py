@@ -10422,10 +10422,12 @@ def calcular_flujo_caja_detallado(conn, db_name=None, fecha_inicio=None, fecha_f
     Toma el saldo inicial exacto de saldos_bancarios y asegura que la suma del desglose
     coincida perfectamente con el total de movimientos de las cuentas de Banco/Caja.
     """
+    import datetime as dt_mod
+
     # Sincronización robusta con DB_ACTUAL de st.session_state si no se pasa o es inválida
     if not db_name or str(db_name).strip() in ["", "{db}", "None"]:
         db_name = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual') or "Empresa_Matriz"
-    
+
     # Aseguramos que la sesión mantenga el valor actualizado
     st.session_state['DB_ACTUAL'] = db_name
 
@@ -10436,13 +10438,19 @@ def calcular_flujo_caja_detallado(conn, db_name=None, fecha_inicio=None, fecha_f
     total_salidas = 0.0
 
     try:
-        dt_ini = datetime.strptime(fecha_inicio, '%Y-%m-%d')
+        if isinstance(fecha_inicio, dt_mod.datetime):
+            dt_ini = fecha_inicio
+        elif isinstance(fecha_inicio, dt_mod.date):
+            dt_ini = dt_mod.datetime.combine(fecha_inicio, dt_mod.time.min)
+        else:
+            dt_ini = dt_mod.datetime.strptime(str(fecha_inicio)[:10], '%Y-%m-%d')
+
         ano = dt_ini.year
         mes_num = dt_ini.month
 
         meses_es = {
-            1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 
-            5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto', 
+            1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
+            5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
             9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
         }
         nombre_mes = meses_es.get(mes_num, '')
@@ -10500,7 +10508,7 @@ def calcular_flujo_caja_detallado(conn, db_name=None, fecha_inicio=None, fecha_f
         """
         cursor.execute(query_entradas, (fecha_inicio, fecha_fin, fecha_inicio, fecha_fin))
         rows_ent = cursor.fetchall()
-        
+
         suma_desglose_ent = 0.0
         for r in rows_ent:
             cta = r[0] or "Otros Ingresos"
@@ -10540,7 +10548,7 @@ def calcular_flujo_caja_detallado(conn, db_name=None, fecha_inicio=None, fecha_f
         """
         cursor.execute(query_salidas, (fecha_inicio, fecha_fin, fecha_inicio, fecha_fin))
         rows_sal = cursor.fetchall()
-        
+
         suma_desglose_sal = 0.0
         for r in rows_sal:
             cta = r[0] or "Otros Egresos"
