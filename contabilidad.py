@@ -13980,7 +13980,7 @@ if opcion_menu == "🏠 Inicio":
         return float(num)
 
 
-    @st.cache_data(ttl=120, show_spinner=False)
+    @st.cache_data(ttl=300, show_spinner=False)
     def _construir_posts_feed_periodo(
         db_actual: str,
         anio_actual: int,
@@ -14047,19 +14047,19 @@ if opcion_menu == "🏠 Inicio":
                     "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                 })
 
-            # 1. Órdenes de pago pendientes del período
+            # 1. Órdenes de pago pendientes del período (rango de fechas para usar índice)
             df_op_per = ejecutar_consulta(
                 """
                 SELECT COALESCE(SUM(monto_bruto), 0) AS deuda_bruta,
                        COALESCE(CAST(COUNT(*) AS SIGNED), 0) AS cant_ops
                 FROM ordenes_pago
                 WHERE empresa_db = %s
-                  AND YEAR(fecha_emision) = %s
-                  AND MONTH(fecha_emision) = %s
+                  AND fecha_emision >= %s
+                  AND fecha_emision <= %s
                   AND (estado NOT IN ('Conciliado', 'Pagado') OR estado IS NULL)
                 """,
                 conn_feed,
-                params=(str(db_actual), anio_actual, mes_num_actual),
+                params=(str(db_actual), fecha_inicio_mes, fecha_fin_mes),
             )
             if df_op_per is not None and not df_op_per.empty:
                 deuda_per = _a_float(df_op_per.iloc[0].get("deuda_bruta"))
@@ -14101,7 +14101,7 @@ if opcion_menu == "🏠 Inicio":
                     COALESCE(SUM(CASE WHEN plan_cuentas IN (%s, %s, %s, %s) THEN debe ELSE 0 END), 0) AS debe_pas,
                     COALESCE(SUM(CASE WHEN plan_cuentas IN (%s, %s) THEN debe - haber ELSE 0 END), 0) AS neto_cred
                 FROM asientos_contables
-                WHERE fecha BETWEEN %s AND %s
+                WHERE fecha >= %s AND fecha <= %s
                 """,
                 conn_feed,
                 params=(
@@ -14242,74 +14242,66 @@ if opcion_menu == "🏠 Inicio":
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                     })
 
-                # 4. Impuestos / Retenciones con arrastre mes a mes
-                df_arrastre_imp = ejecutar_consulta(
-                    """
-                    SELECT COALESCE(SUM(saldo_cta), 0) AS saldo_ini_pas
-                    FROM (
-                        SELECT (haber - debe) AS saldo_cta
-                        FROM saldos_iniciales
-                        WHERE plan_cuentas IN (%s, %s, %s, %s)
-                          AND fecha < %s
-                        UNION ALL
-                        SELECT (haber - debe) AS saldo_cta
-                        FROM asientos_contables
-                        WHERE plan_cuentas IN (%s, %s, %s, %s)
-                          AND fecha < %s
-                    ) prev_imp
-                    """,
-                    conn_feed,
-                    params=(*ctas_pasivo_fiscal, fecha_inicio_mes, *ctas_pasivo_fiscal, fecha_inicio_mes),
-                )
-                saldo_ini_pas = (
-                    round(_a_float(df_arrastre_imp.iloc[0].get("saldo_ini_pas")), 2)
-                    if (df_arrastre_imp is not None and not df_arrastre_imp.empty)
-                    else 0.0
-                )
-
+                # 4. Impuestos / Retenciones con arrastre mes a mes + desglose en una sola consulta
                 cant_imp = _a_int(r0.get("cant_imp"))
                 haber_pas = _a_float(r0.get("haber_pas"))
                 debe_pas = _a_float(r0.get("debe_pas"))
                 neto_mes_pas = round(haber_pas - debe_pas, 2)
-                saldo_acum_pas = round(saldo_ini_pas + neto_mes_pas, 2)
                 neto_cred_mes = round(_a_float(r0.get("neto_cred")), 2)
 
+                df_imp_ctas = ejecutar_consulta(
+                    """
+                    SELECT plan_cuentas,
+                           MAX(cuenta_contable) AS cuenta_contable,
+                           COALESCE(SUM(CASE WHEN fecha < %s THEN (haber - debe) ELSE 0 END), 0) AS saldo_ini_cta,
+                           COALESCE(SUM(CASE WHEN fecha <= %s THEN (haber - debe) ELSE 0 END), 0) AS saldo_fin_cta
+                    FROM (
+                        SELECT plan_cuentas, cuenta_contable, fecha, haber, debe
+                        FROM saldos_iniciales
+                        WHERE plan_cuentas IN (%s, %s, %s, %s)
+                          AND fecha <= %s
+                        UNION ALL
+                        SELECT plan_cuentas, cuenta_contable, fecha, haber, debe
+                        FROM asientos_contables
+                        WHERE plan_cuentas IN (%s, %s, %s, %s)
+                          AND fecha <= %s
+                    ) imp_union
+                    GROUP BY plan_cuentas
+                    """,
+                    conn_feed,
+                    params=(
+                        fecha_inicio_mes,
+                        fecha_fin_mes,
+                        *ctas_pasivo_fiscal,
+                        fecha_fin_mes,
+                        *ctas_pasivo_fiscal,
+                        fecha_fin_mes,
+                    ),
+                )
+
+                saldo_ini_pas = 0.0
+                saldo_acum_pas = 0.0
                 detalle_ctas_texto = ""
                 ctas_activas_codigos = []
-                if cant_imp > 0 or abs(saldo_ini_pas) >= 0.01 or abs(saldo_acum_pas) >= 0.01:
-                    df_det_ctas = ejecutar_consulta(
-                        """
-                        SELECT plan_cuentas,
-                               MAX(cuenta_contable) AS cuenta_contable,
-                               COALESCE(SUM(saldo_cta), 0) AS saldo_cta
-                        FROM (
-                            SELECT plan_cuentas, cuenta_contable, (haber - debe) AS saldo_cta
-                            FROM saldos_iniciales
-                            WHERE plan_cuentas IN (%s, %s, %s, %s)
-                              AND fecha <= %s
-                            UNION ALL
-                            SELECT plan_cuentas, cuenta_contable, (haber - debe) AS saldo_cta
-                            FROM asientos_contables
-                            WHERE plan_cuentas IN (%s, %s, %s, %s)
-                              AND fecha <= %s
-                        ) sub
-                        GROUP BY plan_cuentas
-                        """,
-                        conn_feed,
-                        params=(*ctas_pasivo_fiscal, fecha_fin_mes, *ctas_pasivo_fiscal, fecha_fin_mes),
-                    )
-                    if df_det_ctas is not None and not df_det_ctas.empty:
-                        partes_cta = []
-                        for _, fila_cta in df_det_ctas.iterrows():
-                            cod_cta = str(fila_cta.get("plan_cuentas") or "").strip()
-                            nom_cta = str(fila_cta.get("cuenta_contable") or "").strip() or nombres_pasivo_fiscal.get(cod_cta, "")
-                            val_cta = round(_a_float(fila_cta.get("saldo_cta")), 2)
-                            if abs(val_cta) >= 0.01:
-                                ctas_activas_codigos.append(cod_cta)
-                                partes_cta.append(f"{cod_cta} {nom_cta}: {val_cta:,.2f}".strip())
-                        if partes_cta:
-                            detalle_ctas_texto = " • Cuentas: " + " | ".join(partes_cta)
 
+                if df_imp_ctas is not None and not df_imp_ctas.empty:
+                    partes_cta = []
+                    for _, fila_cta in df_imp_ctas.iterrows():
+                        cod_cta = str(fila_cta.get("plan_cuentas") or "").strip()
+                        nom_cta = str(fila_cta.get("cuenta_contable") or "").strip() or nombres_pasivo_fiscal.get(cod_cta, "")
+                        ini_cta = _a_float(fila_cta.get("saldo_ini_cta"))
+                        fin_cta = round(_a_float(fila_cta.get("saldo_fin_cta")), 2)
+                        saldo_ini_pas += ini_cta
+                        saldo_acum_pas += fin_cta
+                        if abs(fin_cta) >= 0.01:
+                            ctas_activas_codigos.append(cod_cta)
+                            partes_cta.append(f"{cod_cta} {nom_cta}: {fin_cta:,.2f}".strip())
+                    saldo_ini_pas = round(saldo_ini_pas, 2)
+                    saldo_acum_pas = round(saldo_acum_pas, 2)
+                    if partes_cta:
+                        detalle_ctas_texto = " • Cuentas: " + " | ".join(partes_cta)
+
+                if cant_imp > 0 or abs(saldo_ini_pas) >= 0.01 or abs(saldo_acum_pas) >= 0.01:
                     ref_ctas = ", ".join(ctas_activas_codigos) if ctas_activas_codigos else "2.1.2.01.001–006"
                     posts_periodo.append({
                         "categoria": "Impuestos y Retenciones",
