@@ -13910,6 +13910,19 @@ if opcion_menu == "🏠 Inicio":
                     "contexto": f"Cta. 2.1.1.01.001 • Corte {fecha_corte}",
                     "fecha": f"{mes_num_actual:02d}/{anio_actual}",
                 })
+            else:
+                posts_periodo.append({
+                    "categoria": "Proveedores",
+                    "severidad": "positivo",
+                    "etiqueta": "PROVEEDORES",
+                    "titular_html": (
+                        f"El saldo con Proveedores Nacionales al cierre de "
+                        f"<span class='hl'>{mes_nombre_actual} {anio_actual}</span> es de "
+                        f"<span class='hl'>{deuda_prov_cierre:,.2f}</span>."
+                    ),
+                    "contexto": f"Cta. 2.1.1.01.001 • Corte {fecha_corte}",
+                    "fecha": f"{mes_num_actual:02d}/{anio_actual}",
+                })
 
             # 1. Órdenes de pago pendientes del período
             df_op_per = ejecutar_consulta(
