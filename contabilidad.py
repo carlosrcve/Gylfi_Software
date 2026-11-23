@@ -13930,9 +13930,9 @@ if opcion_menu == "🏠 Inicio":
                     "severidad": "critico",
                     "etiqueta": "CRÍTICO",
                     "titular_html": (
-                        f"La empresa tiene una deuda de <span class='hl'>{deuda_prov_cierre:,.2f}</span> "
-                        f"con Proveedores Nacionales al cierre de <span class='hl'>{mes_nombre_actual} {anio_actual}</span>, "
-                        f"poniendo en riesgo la operatividad del negocio."
+                        f"Alerta de caja al cierre de <span class='hl'>{mes_nombre_actual} {anio_actual}</span>: "
+                        f"se acumulan <span class='hl'>{deuda_prov_cierre:,.2f}</span> por pagar a Proveedores Nacionales, "
+                        f"comprometiendo el suministro y la continuidad operativa."
                     ),
                     "contexto": f"Cta. 2.1.1.01.001 • Corte {fecha_corte}",
                     "fecha": f"{mes_num_actual:02d}/{anio_actual}",
