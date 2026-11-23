@@ -13798,24 +13798,16 @@ if opcion_menu == "🏠 Inicio":
         "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
     }
     meses_lista = list(dic_meses.keys())
+    anios_lista = [2026, 2027]
 
-    anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or dt.datetime.today().year)
-    anio_min = min(anio_fiscal, 2027)
-    anio_max = max(2030, anio_fiscal + 4, 2027)
-
-    if "feed_anio_seleccionado" not in st.session_state:
-        st.session_state["feed_anio_seleccionado"] = 2027
-
-    if st.button("Ir a período 2027", key="btn_ir_2027"):
-        st.session_state["feed_anio_seleccionado"] = 2027
-        st.rerun()
+    anio_default = st.session_state.get("feed_anio_seleccionado", 2027)
+    idx_anio = anios_lista.index(anio_default) if anio_default in anios_lista else 1
 
     anio_actual = int(
-        st.number_input(
+        st.selectbox(
             "Año",
-            step=1,
-            min_value=anio_min,
-            max_value=anio_max,
+            anios_lista,
+            index=idx_anio,
             key="feed_anio_seleccionado"
         )
     )
@@ -13864,7 +13856,6 @@ if opcion_menu == "🏠 Inicio":
                     })
 
             # 2. Actividad / saldos desde asientos_contables en el período
-            # Ajusta 'fecha' y 'debe'/'haber' si en tu tabla tienen otro nombre
             df_asientos = ejecutar_consulta(
                 """
                 SELECT COUNT(*) AS cant_registros,
@@ -13914,7 +13905,6 @@ if opcion_menu == "🏠 Inicio":
         posts_periodo,
         titulo=f"📡 Feed Financiero • {mes_nombre_actual} {anio_actual}"
     )
-
 
 elif opcion_menu == "📂 Plan de Cuentas":
     st.subheader("Gestión de Plan de Cuentas")
