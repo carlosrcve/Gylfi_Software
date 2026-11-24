@@ -13491,6 +13491,37 @@ if opcion_menu == "🏠 Inicio":
 
     st.divider()
 
+    @st.cache_data(ttl=300, show_spinner=False)
+    def _generar_pdf_flujo_efectivo_cacheado(
+        nombre_empresa: str,
+        db_nombre: str,
+        f_ini_str: str,
+        f_fin_str: str,
+        utilidad_neta: float,
+        flujo_operacion: float,
+        flujo_inversion: float,
+        flujo_financiamiento: float,
+        cambio_neto_efectivo: float,
+        saldo_inicial_bancos: float,
+        variacion_efectivo: float,
+        saldo_final_calculado: float,
+    ) -> bytes:
+        payload = {
+            "utilidad_neta": utilidad_neta,
+            "flujo_operacion": flujo_operacion,
+            "flujo_inversion": flujo_inversion,
+            "flujo_financiamiento": flujo_financiamiento,
+            "cambio_neto_efectivo": cambio_neto_efectivo,
+            "saldo_inicial_bancos": saldo_inicial_bancos,
+            "variacion_efectivo": variacion_efectivo,
+            "saldo_final_calculado": saldo_final_calculado,
+        }
+        if "generar_pdf_flujo_efectivo" in globals() and callable(generar_pdf_flujo_efectivo):
+            res = generar_pdf_flujo_efectivo(nombre_empresa, payload)
+            return res if isinstance(res, (bytes, bytearray)) else b""
+        return b""
+
+
     # --- 2. ESTADO DE FLUJO DE EFECTIVO (IFRS / VEN-NIF) ---
     db = st.session_state.get("DB_ACTUAL")
 
