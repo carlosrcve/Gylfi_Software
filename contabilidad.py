@@ -14528,27 +14528,33 @@ if opcion_menu == "🏠 Inicio":
                     saldo_inicial_bco = round(_a_float(df_si_sb.iloc[0].get("saldo_ini")), 2)
 
                 saldo_final_bco = round(saldo_inicial_bco + debe_bco - haber_bco, 2)
+                flujo_neto_bco = round(debe_bco - haber_bco, 2)
+
                 if cant_bco > 0 or abs(saldo_inicial_bco) >= 0.01 or abs(saldo_final_bco) >= 0.01:
                     if saldo_final_bco < 0:
                         sev_bco, etiq_bco = "critico", "LIQUIDEZ"
                         txt_bco = (
-                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos cierran con "
-                            f"un saldo negativo de <span class='hl'>{abs(saldo_final_bco):,.2f}</span> "
-                            f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
+                            f"Al cierre de <span class='hl'>{mes_nombre_actual} {anio_actual}</span>, Efectivo y Bancos "
+                            f"registró un saldo negativo de <span class='hl'>{abs(saldo_final_bco):,.2f}</span> "
+                            f"(inicial: {saldo_inicial_bco:,.2f}; Debe: {debe_bco:,.2f}; Haber: {haber_bco:,.2f}); "
+                            f"señal crítica de sobregiro o desfase de caja que exige conciliación inmediata y priorización de pagos."
                         )
                     elif saldo_final_bco == 0:
                         sev_bco, etiq_bco = "atencion", "LIQUIDEZ"
                         txt_bco = (
-                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos cierran en "
-                            f"<span class='hl'>0.00</span> "
-                            f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
+                            f"Al cierre de <span class='hl'>{mes_nombre_actual} {anio_actual}</span>, Efectivo y Bancos "
+                            f"cerró en <span class='hl'>0.00</span> "
+                            f"(inicial: {saldo_inicial_bco:,.2f}; Debe: {debe_bco:,.2f}; Haber: {haber_bco:,.2f}); "
+                            f"sin margen de liquidez disponible al corte, por lo que conviene validar conciliaciones y entradas próximas."
                         )
                     else:
                         sev_bco, etiq_bco = "positivo", "LIQUIDEZ"
                         txt_bco = (
-                            f"En <span class='hl'>{mes_nombre_actual} {anio_actual}</span> Efectivo y Bancos presentan un "
-                            f"saldo final de <span class='hl'>{saldo_final_bco:,.2f}</span> "
-                            f"(Saldo inicial: {saldo_inicial_bco:,.2f} + Debe: {debe_bco:,.2f} - Haber: {haber_bco:,.2f})."
+                            f"Al cierre de <span class='hl'>{mes_nombre_actual} {anio_actual}</span>, Efectivo y Bancos "
+                            f"alcanzó un saldo final de <span class='hl'>{saldo_final_bco:,.2f}</span> "
+                            f"(inicial: {saldo_inicial_bco:,.2f}; Debe: {debe_bco:,.2f}; Haber: {haber_bco:,.2f}), "
+                            f"dato clave para medir la liquidez inmediata del cierre, validar la conciliación del período "
+                            f"y proyectar la cobertura de gastos próximos."
                         )
 
                     posts_periodo.append({
@@ -14556,9 +14562,12 @@ if opcion_menu == "🏠 Inicio":
                         "severidad": sev_bco,
                         "etiqueta": etiq_bco,
                         "titular_html": txt_bco,
-                        "contexto": f"Flujo de Caja • Saldo inicial + Debe - Haber ({cant_bco} mov)",
+                        "contexto": (
+                            f"Flujo de Caja • Neto: {flujo_neto_bco:+,.2f} "
+                            f"(Inicial + Debe - Haber • {cant_bco} mov)"
+                        ),
                         "fecha": f"{mes_num_actual:02d}/{anio_actual}",
-                    })
+    })
 
                 # 4. Impuestos / Retenciones con arrastre mes a mes + desglose en una sola consulta
                 cant_imp = _a_int(r0.get("cant_imp"))
