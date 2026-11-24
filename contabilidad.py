@@ -13497,37 +13497,37 @@ if opcion_menu == "🏠 Inicio":
 
 
     def _resolver_contexto_flujo(prefijo: str, mes: int, titulo_desde: str, titulo_hasta: str):
-    db_val = st.session_state.get("DB_ACTUAL")
-    if not db_val or str(db_val).strip() in ("", "{db}", "None"):
-        st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
-        return None
+        db_val = st.session_state.get("DB_ACTUAL")
+        if not db_val or str(db_val).strip() in ("", "{db}", "None"):
+            st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
+            return None
 
-    db_limpia = str(db_val).strip()
-    try:
-        emp_data = obtener_datos_empresa_activa() or {}
-    except Exception:
-        emp_data = {}
+        db_limpia = str(db_val).strip()
+        try:
+            emp_data = obtener_datos_empresa_activa() or {}
+        except Exception:
+            emp_data = {}
 
-    nombre_emp = (
-        str(emp_data.get("nombre") or emp_data.get("nombre_empresa") or "").strip()
-        or str(st.session_state.get("CLIENTE_NOMBRE") or db_limpia).strip()
-    )
+        nombre_emp = (
+            str(emp_data.get("nombre") or emp_data.get("nombre_empresa") or "").strip()
+            or str(st.session_state.get("CLIENTE_NOMBRE") or db_limpia).strip()
+        )
 
-    anio_fis = _safe_int(st.session_state.get("ejercicio_fiscal"), datetime.today().year)
-    ultimo_dia = calendar.monthrange(anio_fis, mes)[1]
+        anio_fis = _safe_int(st.session_state.get("ejercicio_fiscal"), datetime.today().year)
+        ultimo_dia = calendar.monthrange(anio_fis, mes)[1]
 
-    col_desde, col_hasta = st.columns(2)
-    with col_desde:
-        f_ini = st.date_input(titulo_desde, date(anio_fis, mes, 1), key=f"{prefijo}_ini_{db_limpia}")
-    with col_hasta:
-        f_fin = st.date_input(titulo_hasta, date(anio_fis, mes, ultimo_dia), key=f"{prefijo}_fin_{db_limpia}")
+        col_desde, col_hasta = st.columns(2)
+        with col_desde:
+            f_ini = st.date_input(titulo_desde, date(anio_fis, mes, 1), key=f"{prefijo}_ini_{db_limpia}")
+        with col_hasta:
+            f_fin = st.date_input(titulo_hasta, date(anio_fis, mes, ultimo_dia), key=f"{prefijo}_fin_{db_limpia}")
 
-    if isinstance(f_ini, (list, tuple)):
-        f_ini = f_ini[0] if f_ini else date(anio_fis, mes, 1)
-    if isinstance(f_fin, (list, tuple)):
-        f_fin = f_fin[0] if f_fin else date(anio_fis, mes, ultimo_dia)
+        if isinstance(f_ini, (list, tuple)):
+            f_ini = f_ini[0] if f_ini else date(anio_fis, mes, 1)
+        if isinstance(f_fin, (list, tuple)):
+            f_fin = f_fin[0] if f_fin else date(anio_fis, mes, ultimo_dia)
 
-    return db_limpia, nombre_emp, f_ini.strftime("%Y-%m-%d"), f_fin.strftime("%Y-%m-%d")
+        return db_limpia, nombre_emp, f_ini.strftime("%Y-%m-%d"), f_fin.strftime("%Y-%m-%d")
 
 
     # --- 1. MÓDULO DE TESORERÍA Y FLUJO DE CAJA REAL (DETALLADO) ---
