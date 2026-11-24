@@ -10801,6 +10801,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     saldo_final_calculado = 0.0
     nombre_mes = ""
     ano = 0
+    df_audit = pd.DataFrame()
 
     try:
         dt_ini = datetime.strptime(str(fecha_inicio), "%Y-%m-%d")
@@ -10946,13 +10947,6 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         variacion_efectivo = flujo_operacion + flujo_inversion + flujo_financiamiento
         saldo_final_calculado = saldo_inicial_bancos + variacion_efectivo
 
-        # =========================================================================
-        # AUDITORÍA EN PANTALLA
-        # =========================================================================
-        str_lit.markdown("---")
-        str_lit.subheader(f"📊 ESTADO DE FLUJOS DE EFECTIVO — {nombre_mes} {ano}")
-        str_lit.markdown("*(Método Indirecto - Período Actual)*")
-
         df_audit = pd.DataFrame({
             "Concepto / Cuenta": [
                 "1. ACTIVIDADES DE OPERACIÓN",
@@ -11018,11 +11012,12 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
             ]
         })
 
-        str_lit.dataframe(df_audit, use_container_width=True)
-        str_lit.markdown("---")
-
     except Exception as e:
-        str_lit.error(f"Error en motor detallado de efectivo: {e}")
+        try:
+            import streamlit as str_lit
+            str_lit.error(f"Error en motor detallado de efectivo: {e}")
+        except Exception:
+            pass
 
     return {
         "utilidad_neta": utilidad_neta,
@@ -11047,6 +11042,9 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         "efectivo_final_calculado": saldo_final_calculado,
         "fecha_inicio": fecha_inicio,
         "fecha_fin": fecha_fin,
+        "nombre_mes": nombre_mes,
+        "ano": ano,
+        "df_audit": df_audit,
     }
 
 import io
@@ -13596,67 +13594,69 @@ if opcion_menu == "🏠 Inicio":
             st.session_state["fe_activo_params"] = (db_fe, f_ini_fe_ui, f_fin_fe_ui, nombre_emp_fe)
 
         fe_params = st.session_state.get("fe_activo_params")
-        if fe_params and fe_params[0] == db_fe:
-            _, f_ini_fe_str, f_fin_fe_str, emp_guardada_fe = fe_params
-            try:
-                datos_efectivo = _calcular_flujo_efectivo_cacheado(db_fe, f_ini_fe_str, f_fin_fe_str)
+            if fe_params and fe_params[0] == db_fe and fe_params[1] == f_ini_fe_ui and fe_params[2] == f_fin_fe_ui:
+                _, f_ini_fe_str, f_fin_fe_str, emp_guardada_fe = fe_params
+                try:
+                    datos_efectivo = _calcular_flujo_efectivo_cacheado(db_fe, f_ini_fe_str, f_fin_fe_str)
 
-                u_neta_val = _safe_float(datos_efectivo.get("utilidad_neta"), 0.0)
-                f_op_val = _safe_float(datos_efectivo.get("flujo_operacion"), 0.0)
-                f_inv_val = _safe_float(datos_efectivo.get("flujo_inversion"), 0.0)
-                f_fin_val = _safe_float(datos_efectivo.get("flujo_financiamiento"), 0.0)
-                c_neto_val = _safe_float(datos_efectivo.get("cambio_neto_efectivo"), f_op_val + f_inv_val + f_fin_val)
-                s_ini_bco_val = _safe_float(datos_efectivo.get("saldo_inicial_bancos"), 0.0)
-                var_ef_val = _safe_float(datos_efectivo.get("variacion_efectivo"), c_neto_val)
-                s_fin_calc_val = _safe_float(datos_efectivo.get("saldo_final_calculado"), s_ini_bco_val + var_ef_val)
+                    u_neta_val = _safe_float(datos_efectivo.get("utilidad_neta"), 0.0)
+                    f_op_val = _safe_float(datos_efectivo.get("flujo_operacion"), 0.0)
+                    f_inv_val = _safe_float(datos_efectivo.get("flujo_inversion"), 0.0)
+                    f_fin_val = _safe_float(datos_efectivo.get("flujo_financiamiento"), 0.0)
+                    c_neto_val = _safe_float(datos_efectivo.get("cambio_neto_efectivo"), f_op_val + f_inv_val + f_fin_val)
+                    s_ini_bco_val = _safe_float(datos_efectivo.get("saldo_inicial_bancos"), 0.0)
+                    var_ef_val = _safe_float(datos_efectivo.get("variacion_efectivo"), c_neto_val)
+                    s_fin_calc_val = _safe_float(datos_efectivo.get("saldo_final_calculado"), s_ini_bco_val + var_ef_val)
 
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Utilidad Neta", f"Bs. {u_neta_val:,.2f}")
-                m2.metric("Flujo Operación", f"Bs. {f_op_val:,.2f}")
-                m3.metric("Flujo Inversión", f"Bs. {f_inv_val:,.2f}")
-                m4.metric("Flujo Financiamiento", f"Bs. {f_fin_val:,.2f}", delta=f"Neto: Bs. {c_neto_val:,.2f}")
+                    with st.container(border=True):
+                        m1, m2, m3, m4 = st.columns(4)
+                        m1.metric("Utilidad Neta", f"Bs. {u_neta_val:,.2f}")
+                        m2.metric("Flujo Operación", f"Bs. {f_op_val:,.2f}")
+                        m3.metric("Flujo Inversión", f"Bs. {f_inv_val:,.2f}")
+                        m4.metric("Flujo Financiamiento", f"Bs. {f_fin_val:,.2f}", delta=f"Neto: Bs. {c_neto_val:,.2f}")
 
-                # ==========================================
-                # SECCIÓN INTEGRADA: Conciliación y Saldos Bancarios
-                # ==========================================
-                st.markdown("---")
-                st.subheader("📊 Conciliación y Saldos de Efectivo")
+                        st.markdown("---")
+                        st.subheader("📊 Conciliación y Saldos de Efectivo")
 
-                col_s1, col_s2, col_s3 = st.columns(3)
-                with col_s1:
-                    st.metric("Saldo Inicial (Banco)", f"Bs. {s_ini_bco_val:,.2f}")
-                with col_s2:
-                    st.metric("Variación del Efectivo", f"Bs. {var_ef_val:,.2f}")
-                with col_s3:
-                    st.metric("Saldo Final (Banco)", f"Bs. {s_fin_calc_val:,.2f}")
-                st.markdown("---")
-                # ==========================================
+                        col_s1, col_s2, col_s3 = st.columns(3)
+                        with col_s1:
+                            st.metric("Saldo Inicial (Banco)", f"Bs. {s_ini_bco_val:,.2f}")
+                        with col_s2:
+                            st.metric("Variación del Efectivo", f"Bs. {var_ef_val:,.2f}")
+                        with col_s3:
+                            st.metric("Saldo Final (Banco)", f"Bs. {s_fin_calc_val:,.2f}")
 
-                pdf_efectivo = _generar_pdf_flujo_efectivo_cacheado(
-                    emp_guardada_fe,
-                    db_fe,
-                    f_ini_fe_str,
-                    f_fin_fe_str,
-                    u_neta_val,
-                    f_op_val,
-                    f_inv_val,
-                    f_fin_val,
-                    c_neto_val,
-                    s_ini_bco_val,
-                    var_ef_val,
-                    s_fin_calc_val,
-                )
+                        df_audit_fe = datos_efectivo.get("df_audit")
+                        if isinstance(df_audit_fe, pd.DataFrame) and not df_audit_fe.empty:
+                            st.markdown("---")
+                            st.subheader(f"📋 Detalle de Auditoría — {datos_efectivo.get('nombre_mes', '')} {datos_efectivo.get('ano', '')}")
+                            st.dataframe(df_audit_fe, use_container_width=True)
 
-                st.download_button(
-                    label="📄 Descargar Estado de Flujo de Efectivo (PDF)",
-                    data=pdf_efectivo,
-                    file_name=f"Flujo_Efectivo_Indirecto_{db_fe}_{f_ini_fe_str}_{f_fin_fe_str}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="btn_download_flujo_efectivo",
-                )
-            except Exception as err:
-                st.error(f"Ocurrió un error al procesar el reporte de flujo de efectivo: {err}")
+                        pdf_efectivo = _generar_pdf_flujo_efectivo_cacheado(
+                            emp_guardada_fe,
+                            db_fe,
+                            f_ini_fe_str,
+                            f_fin_fe_str,
+                            u_neta_val,
+                            f_op_val,
+                            f_inv_val,
+                            f_fin_val,
+                            c_neto_val,
+                            s_ini_bco_val,
+                            var_ef_val,
+                            s_fin_calc_val,
+                        )
+
+                        st.download_button(
+                            label="📄 Descargar Estado de Flujo de Efectivo (PDF)",
+                            data=pdf_efectivo,
+                            file_name=f"Flujo_Efectivo_Indirecto_{db_fe}_{f_ini_fe_str}_{f_fin_fe_str}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                            key="btn_download_flujo_efectivo",
+                        )
+                except Exception as err:
+                    st.error(f"Ocurrió un error al procesar el reporte de flujo de efectivo: {err}")
     st.divider()
 
     import datetime as dt_mod
