@@ -13318,93 +13318,6 @@ if opcion_menu == "🏠 Inicio":
     import datetime as dt_mod
     from datetime import datetime, date
 
-    @st.cache_data(ttl=180, show_spinner=False)
-    def _calcular_flujo_efectivo_cacheado(db_nombre: str, f_ini_str: str, f_fin_str: str) -> dict:
-        defaults = {
-            "utilidad_neta": 0.0,
-            "flujo_operacion": 0.0,
-            "flujo_inversion": 0.0,
-            "flujo_financiamiento": 0.0,
-            "cambio_neto_efectivo": 0.0,
-            "saldo_inicial_bancos": 0.0,
-            "variacion_efectivo": 0.0,
-            "saldo_final_calculado": 0.0,
-        }
-        conn_fe = None
-        try:
-            conn_fe = conectar_db(db_nombre)
-            if not conn_fe:
-                return defaults
-
-            raw = calcular_flujo_efectivo_indirecto(conn_fe, db_nombre, f_ini_str, f_fin_str)
-            if not isinstance(raw, dict):
-                return defaults
-
-            u_neta = _safe_float(raw.get("utilidad_neta"), 0.0)
-            f_op = _safe_float(raw.get("flujo_operacion"), 0.0)
-            f_inv = _safe_float(raw.get("flujo_inversion"), 0.0)
-            f_fin = _safe_float(raw.get("flujo_financiamiento"), 0.0)
-
-            c_neto_raw = raw.get("cambio_neto_efectivo")
-            c_neto = (
-                _safe_float(c_neto_raw, f_op + f_inv + f_fin)
-                if c_neto_raw is not None
-                else round(f_op + f_inv + f_fin, 2)
-            )
-
-            s_ini_bco = _safe_float(raw.get("saldo_inicial_bancos"), 0.0)
-
-            var_raw = raw.get("variacion_efectivo")
-            var_ef = _safe_float(var_raw, c_neto) if var_raw is not None else c_neto
-
-            s_fin_raw = raw.get("saldo_final_calculado")
-            if s_fin_raw is None:
-                s_fin_raw = raw.get("saldo_final")
-            s_fin_calc = (
-                _safe_float(s_fin_raw, s_ini_bco + var_ef)
-                if s_fin_raw is not None
-                else round(s_ini_bco + var_ef, 2)
-            )
-
-            out = dict(raw)
-            out["utilidad_neta"] = u_neta
-            out["flujo_operacion"] = f_op
-            out["flujo_inversion"] = f_inv
-            out["flujo_financiamiento"] = f_fin
-            out["cambio_neto_efectivo"] = c_neto
-            out["saldo_inicial_bancos"] = s_ini_bco
-            out["variacion_efectivo"] = var_ef
-            out["saldo_final_calculado"] = s_fin_calc
-            return out
-        except Exception:
-            return defaults
-        finally:
-            if conn_fe and hasattr(conn_fe, "close"):
-                try:
-                    conn_fe.close()
-                except Exception:
-                    pass
-
-    @st.cache_data(ttl=300, show_spinner=False)
-    def _generar_pdf_flujo_cacheado(
-        nombre_empresa: str,
-        db_nombre: str,
-        f_ini_str: str,
-        f_fin_str: str,
-        saldo_inicial: float,
-        total_entradas: float,
-        total_salidas: float,
-        saldo_final: float,
-        flujo_neto: float,
-    ) -> bytes:
-        payload = {
-            "saldo_inicial": saldo_inicial,
-            "total_entradas": total_entradas,
-            "total_salidas": total_salidas,
-            "saldo_final": saldo_final,
-            "flujo_neto": flujo_neto,
-        }
-        return generar_pdf_flujo_caja_detallado(nombre_empresa, payload)
 
     @st.cache_data(ttl=180, show_spinner=False)
     def _calcular_flujo_caja_cacheado(db_nombre: str, f_ini_str: str, f_fin_str: str) -> dict:
@@ -13473,6 +13386,8 @@ if opcion_menu == "🏠 Inicio":
             "total_salidas": total_salidas,
             "saldo_final": saldo_final,
             "flujo_neto": flujo_neto,
+            "fecha_inicio": f_ini_str,
+            "fecha_fin": f_fin_str,
         }
         if "generar_pdf_flujo_caja_detallado" in globals() and callable(generar_pdf_flujo_caja_detallado):
             res = generar_pdf_flujo_caja_detallado(nombre_empresa, payload)
@@ -13572,14 +13487,16 @@ if opcion_menu == "🏠 Inicio":
             "saldo_inicial_bancos": saldo_inicial_bancos,
             "variacion_efectivo": variacion_efectivo,
             "saldo_final_calculado": saldo_final_calculado,
+            "fecha_inicio": f_ini_str,
+            "fecha_fin": f_fin_str,
         }
         if "generar_pdf_flujo_efectivo" in globals() and callable(generar_pdf_flujo_efectivo):
             res = generar_pdf_flujo_efectivo(nombre_empresa, payload)
             return res if isinstance(res, (bytes, bytearray)) else b""
-        return b""
+        return b"""
 
 
-    # --- 1. MÓDULO DE TESORERÍA Y FLUJO DE CAJA REAL (DETALLADO) ---
+    # --- 1. Estado de Flujo de Efectivo (IFRS / VEN-NIF)
     db = st.session_state.get("DB_ACTUAL")
 
     if not db or str(db).strip() in ("", "{db}", "None"):
