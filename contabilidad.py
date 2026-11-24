@@ -13493,7 +13493,7 @@ if opcion_menu == "🏠 Inicio":
         if "generar_pdf_flujo_efectivo" in globals() and callable(generar_pdf_flujo_efectivo):
             res = generar_pdf_flujo_efectivo(nombre_empresa, payload)
             return res if isinstance(res, (bytes, bytearray)) else b""
-        return b"""
+        return b""
 
 
     # --- 1. Estado de Flujo de Efectivo (IFRS / VEN-NIF)
