@@ -1512,9 +1512,6 @@ def login_screen():
 # ==============================================================================
 # 1. PANEL DE ADMINISTRACIÓN DE USUARIOS (Con aislamiento por Firma)
 # ==============================================================================
-# ==============================================================================
-# 1. PANEL DE ADMINISTRACIÓN DE USUARIOS (Con aislamiento por Firma)
-# ==============================================================================
 def panel_administracion(conn, rol_usuario, firma_id):
     if rol_usuario == "admin":
         st.header("⚙️ Gestión Global de Usuarios y Accesos (Super Admin)")
@@ -1664,9 +1661,9 @@ def panel_administracion(conn, rol_usuario, firma_id):
         cols_visibles = ["usuario", "rol", "empresa_asignada", "db_nombre", "telefono_whatsapp", "estado_visual", "contrasena_estado"]
         st.dataframe(df_mostrar[cols_visibles], width="stretch", hide_index=True)
 
-        # 3. MODIFICAR CONTRASEÑA Y SUSPENDER / REACTIVAR USUARIO
+        # 3. EDITAR DATOS, CONTRASEÑA O SUSPENDER / REACTIVAR USUARIO
         st.markdown("---")
-        st.subheader("🔐 Modificar Contraseña o Suspender Usuario")
+        st.subheader("✏️ Editar Datos, Contraseña o Suspender Usuario")
 
         mapa_usuarios = {
             f"{row['usuario']} ({row['rol']}) — [{str(row['estado']).lower()}]": int(row["id"])
@@ -1684,14 +1681,85 @@ def panel_administracion(conn, rol_usuario, firma_id):
         estado_actual = str(fila_sel["estado"] or "activo").strip().lower()
         esta_suspendido = estado_actual in ("suspendido", "suspendida", "inactivo", "0")
 
-        col_pwd, col_susp = st.columns(2)
+        col_datos, col_pwd, col_susp = st.columns(3)
 
+        # --- COLUMNA 1: EDITAR TELÉFONO / ROL / EMPRESA ---
+        with col_datos:
+            with st.form("form_editar_datos_usuario"):
+                st.markdown("**Datos del Usuario**")
+                tel_actual = str(fila_sel["telefono_whatsapp"] or "").strip() if pd.notna(fila_sel.get("telefono_whatsapp")) else ""
+                nuevo_tel_u = st.text_input(
+                    "Teléfono WhatsApp",
+                    value=tel_actual,
+                    placeholder="Ej: 584121234567",
+                    key=f"admin_edit_tel_{uid_sel}",
+                )
+
+                roles_disp = ["admin_firma", "cliente", "admin"] if rol_usuario == "admin" else ["operador_fiscal", "cliente"]
+                rol_actual_u = str(fila_sel["rol"] or "").strip()
+                if rol_actual_u and rol_actual_u not in roles_disp:
+                    roles_disp = [rol_actual_u] + roles_disp
+                idx_rol = roles_disp.index(rol_actual_u) if rol_actual_u in roles_disp else 0
+                nuevo_rol_u = st.selectbox("Rol", roles_disp, index=idx_rol, key=f"admin_edit_rol_{uid_sel}")
+
+                lista_emp_edit = ["Ninguna / Acceso Total"] + list(opciones_clientes.keys())
+                emp_actual_u = str(fila_sel["empresa_asignada"] or "").strip()
+                idx_emp = lista_emp_edit.index(emp_actual_u) if emp_actual_u in lista_emp_edit else 0
+                nueva_emp_u = st.selectbox(
+                    "Empresa / Cliente",
+                    lista_emp_edit,
+                    index=idx_emp,
+                    key=f"admin_edit_emp_{uid_sel}",
+                )
+
+                btn_guardar_datos = st.form_submit_button("💾 Guardar Datos")
+
+                if btn_guardar_datos:
+                    try:
+                        tel_guardar = nuevo_tel_u.strip() if nuevo_tel_u.strip() else None
+                        if nueva_emp_u == "Ninguna / Acceso Total":
+                            nuevo_cid = None
+                            nueva_db = None
+                        else:
+                            nuevo_cid, nueva_db = opciones_clientes.get(nueva_emp_u, (None, None))
+
+                        cursor = conn.cursor()
+                        if rol_usuario == "admin":
+                            cursor.execute(
+                                """
+                                UPDATE control_central.usuarios
+                                SET telefono_whatsapp = %s, rol = %s, cliente_id = %s, db_nombre = %s
+                                WHERE id = %s
+                                """,
+                                (tel_guardar, nuevo_rol_u, nuevo_cid, nueva_db, uid_sel),
+                            )
+                        else:
+                            cursor.execute(
+                                """
+                                UPDATE control_central.usuarios
+                                SET telefono_whatsapp = %s, rol = %s, cliente_id = %s, db_nombre = %s
+                                WHERE id = %s AND firma_id = %s
+                                """,
+                                (tel_guardar, nuevo_rol_u, nuevo_cid, nueva_db, uid_sel, firma_id),
+                            )
+                        conn.commit()
+                        cursor.close()
+                        st.success(f"✅ Datos actualizados para '{fila_sel['usuario']}'.")
+                        st.rerun()
+                    except Exception as e:
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
+                        st.error(f"❌ Error al actualizar datos: {e}")
+
+        # --- COLUMNA 2: CAMBIAR CONTRASEÑA ---
         with col_pwd:
             with st.form("form_cambiar_clave_usuario"):
                 st.markdown("**Cambiar Contraseña**")
                 nueva_clave_u = st.text_input("Nueva Contraseña", type="password", key="admin_nueva_clave")
                 confirmar_clave_u = st.text_input("Confirmar Contraseña", type="password", key="admin_conf_clave")
-                btn_cambiar_pwd = st.form_submit_button("Actualizar Contraseña")
+                btn_cambiar_pwd = st.form_submit_button("🔑 Actualizar Contraseña")
 
                 if btn_cambiar_pwd:
                     if not nueva_clave_u:
@@ -1714,7 +1782,7 @@ def panel_administracion(conn, rol_usuario, firma_id):
                                 )
                             conn.commit()
                             cursor.close()
-                            st.success(f"✅ Contraseña actualizada para {fila_sel['usuario']}.")
+                            st.success(f"✅ Contraseña actualizada para '{fila_sel['usuario']}'.")
                             st.rerun()
                         except Exception as e:
                             try:
@@ -1723,8 +1791,9 @@ def panel_administracion(conn, rol_usuario, firma_id):
                                 pass
                             st.error(f"❌ No se pudo actualizar la contraseña: {e}")
 
+        # --- COLUMNA 3: SUSPENDER / REACTIVAR ---
         with col_susp:
-            st.markdown("**Estado / Suspensión de Usuario**")
+            st.markdown("**Estado / Suspensión**")
             if not esta_suspendido:
                 st.info("Estado actual: **activo** (puede iniciar sesión).")
                 if st.button("🚫 Suspender Usuario", type="secondary", key="admin_btn_suspender"):
