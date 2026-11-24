@@ -10786,7 +10786,7 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     credito_cashea = 0.0
     cxp_accionistas = 0.0
     cxp_accionistas_2 = 0.0  # Cuenta 2.2.2.01
-    
+
     vehiculos_inversion = 0.0
     divisas_binance = 0.0
     credito_vehiculo_val = 0.0
@@ -10795,34 +10795,39 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
     flujo_inversion = 0.0
     flujo_financiamiento = 0.0
     variacion_efectivo = 0.0
-    
+
     saldo_inicial_bancos = 0.0
     saldo_final_bancos = 0.0
+    saldo_final_calculado = 0.0
+    nombre_mes = ""
+    ano = 0
 
     try:
-        dt_ini = datetime.strptime(fecha_inicio, '%Y-%m-%d')
-        ano = dt_ini.year
-        mes_num = dt_ini.month
+        dt_ini = datetime.strptime(str(fecha_inicio), "%Y-%m-%d")
+        ano = int(dt_ini.year)
+        mes_num = int(dt_ini.month)
 
         meses_es = {
-            1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 
-            5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto', 
-            9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
+            1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+            5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+            9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
         }
-        nombre_mes = meses_es.get(mes_num, '')
+        nombre_mes = meses_es.get(mes_num, "")
 
         # 1. Saldo de bancos desde MySQL
         query_sb = f"""
-            SELECT saldo_inicial, saldo_final 
-            FROM `{db_name}`.saldos_bancarios 
-            WHERE ano = {ano} AND LOWER(mes) = LOWER('{nombre_mes}')
+            SELECT saldo_inicial, saldo_final
+            FROM `{db_name}`.saldos_bancarios
+            WHERE ano = %s AND LOWER(TRIM(mes)) = LOWER(%s)
         """
-        df_sb = pd.read_sql(query_sb, conn)
-        if not df_sb.empty:
-            saldo_inicial_bancos = float(df_sb['saldo_inicial'].sum() or 0.0)
-            saldo_final_bancos = float(df_sb['saldo_final'].sum() or 0.0)
+        df_sb = pd.read_sql(query_sb, conn, params=(ano, nombre_mes))
+        if df_sb is not None and not df_sb.empty:
+            s_ini_col = pd.to_numeric(df_sb["saldo_inicial"], errors="coerce").fillna(0.0) if "saldo_inicial" in df_sb.columns else pd.Series(dtype=float)
+            s_fin_col = pd.to_numeric(df_sb["saldo_final"], errors="coerce").fillna(0.0) if "saldo_final" in df_sb.columns else pd.Series(dtype=float)
+            saldo_inicial_bancos = float(s_ini_col.sum()) if not s_ini_col.empty else 0.0
+            saldo_final_bancos = float(s_fin_col.sum()) if not s_fin_col.empty else 0.0
 
-        from datetime import date, datetime
+        from datetime import date
 
         try:
             import streamlit as st
@@ -10835,89 +10840,92 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
 
         # 2. Leer todos los movimientos del mes de MySQL
         query_asientos = f"""
-            SELECT plan_cuentas, cuenta_contable, debe, haber, fecha 
-            FROM `{db_name}`.`{tabla_fuente}` 
-            WHERE YEAR(fecha) = {ano} AND MONTH(fecha) = {mes_num}
+            SELECT plan_cuentas, cuenta_contable, debe, haber, fecha
+            FROM `{db_name}`.`{tabla_fuente}`
+            WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s
         """
-        df = pd.read_sql(query_asientos, conn)
+        df = pd.read_sql(query_asientos, conn, params=(ano, mes_num))
 
-        if not df.empty:
-            df['debe'] = pd.to_numeric(df['debe'], errors='coerce').fillna(0.0)
-            df['haber'] = pd.to_numeric(df['haber'], errors='coerce').fillna(0.0)
-            df['plan_cuentas'] = df['plan_cuentas'].astype(str).str.strip()
-            df['cuenta_lower'] = df['cuenta_contable'].astype(str).str.lower()
+        if df is not None and not df.empty:
+            df["debe"] = pd.to_numeric(df["debe"], errors="coerce").fillna(0.0)
+            df["haber"] = pd.to_numeric(df["haber"], errors="coerce").fillna(0.0)
+            df["plan_cuentas"] = df["plan_cuentas"].astype(str).str.strip()
+            df["cuenta_lower"] = df["cuenta_contable"].astype(str).str.lower()
 
             # --- Utilidad Neta Estándar (Clases 4, 5, 6, 7, 8) ---
-            c4 = df[df['plan_cuentas'].str.startswith('4')]['haber'].sum() - df[df['plan_cuentas'].str.startswith('4')]['debe'].sum()
-            c5 = df[df['plan_cuentas'].str.startswith('5')]['debe'].sum() - df[df['plan_cuentas'].str.startswith('5')]['haber'].sum()
-            c6 = df[df['plan_cuentas'].str.startswith('6')]['debe'].sum() - df[df['plan_cuentas'].str.startswith('6')]['haber'].sum()
-            c7 = df[df['plan_cuentas'].str.startswith('7')]['haber'].sum() - df[df['plan_cuentas'].str.startswith('7')]['debe'].sum()
-            c8 = df[df['plan_cuentas'].str.startswith('8')]['debe'].sum() - df[df['plan_cuentas'].str.startswith('8')]['haber'].sum()
-            
+            c4 = df[df["plan_cuentas"].str.startswith("4")]["haber"].sum() - df[df["plan_cuentas"].str.startswith("4")]["debe"].sum()
+            c5 = df[df["plan_cuentas"].str.startswith("5")]["debe"].sum() - df[df["plan_cuentas"].str.startswith("5")]["haber"].sum()
+            c6 = df[df["plan_cuentas"].str.startswith("6")]["debe"].sum() - df[df["plan_cuentas"].str.startswith("6")]["haber"].sum()
+            c7 = df[df["plan_cuentas"].str.startswith("7")]["haber"].sum() - df[df["plan_cuentas"].str.startswith("7")]["debe"].sum()
+            c8 = df[df["plan_cuentas"].str.startswith("8")]["debe"].sum() - df[df["plan_cuentas"].str.startswith("8")]["haber"].sum()
+
             utilidad_neta = float(c4 - c5 - c6 + c7 - c8)
 
             # --- A. Depreciación ---
             dep_df = df[
-                df['plan_cuentas'].str.startswith('6.1.1.04') | 
-                df['cuenta_lower'].str.contains('deprec')
+                df["plan_cuentas"].str.startswith("6.1.1.04") |
+                df["cuenta_lower"].str.contains("deprec", na=False)
             ]
             if not dep_df.empty:
-                gasto_depreciacion = abs(float((dep_df['debe'] - dep_df['haber']).sum()))
+                gasto_depreciacion = abs(float((dep_df["debe"] - dep_df["haber"]).sum()))
 
             # --- B. CxC Accionista Jean Marco (1.1.5.01.001) ---
-            jm_df = df[df['plan_cuentas'].str.startswith('1.1.5.01.001')]
+            jm_df = df[df["plan_cuentas"].str.startswith("1.1.5.01.001")]
             if not jm_df.empty:
-                cxc_jean = -float((jm_df['debe'] - jm_df['haber']).sum())
+                cxc_jean = -float((jm_df["debe"] - jm_df["haber"]).sum())
 
             # --- C. CxC Accionista Sandra Arroyo (1.1.5.01.002) ---
-            sa_df = df[df['plan_cuentas'].str.startswith('1.1.5.01.002')]
+            sa_df = df[df["plan_cuentas"].str.startswith("1.1.5.01.002")]
             if not sa_df.empty:
-                cxc_sandra = -float((sa_df['debe'] - sa_df['haber']).sum())
+                cxc_sandra = -float((sa_df["debe"] - sa_df["haber"]).sum())
 
             # --- D. Anticipo a Proveedores (1.1.6) ---
-            ant_df = df[df['plan_cuentas'].str.startswith('1.1.6')]
+            ant_df = df[df["plan_cuentas"].str.startswith("1.1.6")]
             if not ant_df.empty:
-                anticipo_proveedores = -float((ant_df['debe'] - ant_df['haber']).sum())
+                anticipo_proveedores = -float((ant_df["debe"] - ant_df["haber"]).sum())
 
             # --- E. Proveedores Nacionales (2.1.1) ---
-            prov_df = df[df['plan_cuentas'].str.startswith('2.1.1') & ~df['plan_cuentas'].str.startswith('2.1.1.01.002')]
+            prov_df = df[df["plan_cuentas"].str.startswith("2.1.1") & ~df["plan_cuentas"].str.startswith("2.1.1.01.002")]
             if not prov_df.empty:
-                proveedores_nacionales = float((prov_df['haber'] - prov_df['debe']).sum())
+                proveedores_nacionales = float((prov_df["haber"] - prov_df["debe"]).sum())
 
             # --- F. Retención ISLR Proveedores (2.1.2.01) ---
-            islr_df = df[df['plan_cuentas'].str.startswith('2.1.2.01')]
+            islr_df = df[df["plan_cuentas"].str.startswith("2.1.2.01")]
             if not islr_df.empty:
-                retencion_islr = float((islr_df['haber'] - islr_df['debe']).sum())
+                retencion_islr = float((islr_df["haber"] - islr_df["debe"]).sum())
 
             # --- G. Crédito Cashea (2.1.3.01) ---
-            cashea_df = df[df['plan_cuentas'].str.startswith('2.1.3.01')]
+            cashea_df = df[df["plan_cuentas"].str.startswith("2.1.3.01")]
             if not cashea_df.empty:
-                credito_cashea = float((cashea_df['haber'] - cashea_df['debe']).sum())
+                credito_cashea = float((cashea_df["haber"] - cashea_df["debe"]).sum())
 
             # --- H. Cuentas por Pagar Accionistas (2.2.1.01 y 2.2.2.01) ---
-            cxp_acc_df = df[df['plan_cuentas'].str.startswith('2.2.1.01')]
+            cxp_acc_df = df[df["plan_cuentas"].str.startswith("2.2.1.01")]
             if not cxp_acc_df.empty:
-                cxp_accionistas = float((cxp_acc_df['haber'] - cxp_acc_df['debe']).sum())
+                cxp_accionistas = float((cxp_acc_df["haber"] - cxp_acc_df["debe"]).sum())
 
-            cxp_acc_df_2 = df[df['plan_cuentas'].str.startswith('2.2.2.01')]
+            cxp_acc_df_2 = df[df["plan_cuentas"].str.startswith("2.2.2.01")]
             if not cxp_acc_df_2.empty:
-                cxp_accionistas_2 = float((cxp_acc_df_2['haber'] - cxp_acc_df_2['debe']).sum())
+                cxp_accionistas_2 = float((cxp_acc_df_2["haber"] - cxp_acc_df_2["debe"]).sum())
 
             # --- I. Inversión ---
-            veh_df = df[df['cuenta_lower'].str.contains('chery') | df['cuenta_lower'].str.contains('vehículo')]
+            veh_df = df[df["cuenta_lower"].str.contains("chery", na=False) | df["cuenta_lower"].str.contains("vehículo", na=False)]
             if not veh_df.empty:
-                vehiculos_inversion = -abs(float((veh_df['debe'] - veh_df['haber']).sum()))
+                vehiculos_inversion = -abs(float((veh_df["debe"] - veh_df["haber"]).sum()))
 
-            bin_df = df[df['cuenta_lower'].str.contains('binance') | df['cuenta_lower'].str.contains('divisa')]
+            bin_df = df[df["cuenta_lower"].str.contains("binance", na=False) | df["cuenta_lower"].str.contains("divisa", na=False)]
             if not bin_df.empty:
-                divisas_binance = -abs(float((bin_df['debe'] - bin_df['haber']).sum()))
+                divisas_binance = -abs(float((bin_df["debe"] - bin_df["haber"]).sum()))
 
             flujo_inversion = vehiculos_inversion + divisas_binance
 
             # --- J. Financiamiento ---
-            cred_veh_df = df[df['cuenta_lower'].str.contains('crédito vehículo') | (df['plan_cuentas'].str.startswith('3') & ~df['plan_cuentas'].str.startswith('3.1.1'))]
+            cred_veh_df = df[
+                df["cuenta_lower"].str.contains("crédito vehículo", na=False) |
+                (df["plan_cuentas"].str.startswith("3") & ~df["plan_cuentas"].str.startswith("3.1.1"))
+            ]
             if not cred_veh_df.empty:
-                credito_vehiculo_val = float((cred_veh_df['haber'] - cred_veh_df['debe']).sum())
+                credito_vehiculo_val = float((cred_veh_df["haber"] - cred_veh_df["debe"]).sum())
 
             flujo_financiamiento = credito_vehiculo_val + cxp_accionistas + cxp_accionistas_2
 
@@ -10925,13 +10933,13 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         # CONSOLIDACIÓN DEL FLUJO INDIRECTO LIMPIO
         # =========================================================================
         flujo_operacion = (
-            utilidad_neta + 
-            gasto_depreciacion + 
-            cxc_jean + 
-            cxc_sandra + 
-            anticipo_proveedores + 
-            proveedores_nacionales + 
-            retencion_islr + 
+            utilidad_neta +
+            gasto_depreciacion +
+            cxc_jean +
+            cxc_sandra +
+            anticipo_proveedores +
+            proveedores_nacionales +
+            retencion_islr +
             credito_cashea
         )
 
@@ -11017,28 +11025,28 @@ def calcular_flujo_efectivo_indirecto(conn, db_name, fecha_inicio, fecha_fin):
         str_lit.error(f"Error en motor detallado de efectivo: {e}")
 
     return {
-        'utilidad_neta': utilidad_neta,
-        'gasto_depreciacion': gasto_depreciacion,
-        'depreciaciones': gasto_depreciacion,
-        'cxp_accionistas': cxp_accionistas + cxp_accionistas_2,
-        'credito_cashea': credito_cashea,
-        'retencion_islr': retencion_islr,
-        'anticipo_proveedores': anticipo_proveedores,
-        'cxc_jean': cxc_jean,
-        'cxc_sandra': cxc_sandra,
-        'variacion_cxc': abs(cxc_jean) + abs(cxc_sandra),
-        'variacion_cxp': abs(proveedores_nacionales) + abs(retencion_islr) + abs(credito_cashea) + abs(cxp_accionistas) + abs(cxp_accionistas_2),
-        'flujo_operacion': flujo_operacion,
-        'flujo_inversion': flujo_inversion,
-        'flujo_financiamiento': flujo_financiamiento,
-        'cambio_neto_efectivo': variacion_efectivo,
-        'variacion_efectivo': variacion_efectivo,
-        'saldo_inicial_bancos': saldo_inicial_bancos,
-        'saldo_final_bancos': saldo_final_calculado,
-        'saldo_final_calculado': saldo_final_calculado,
-        'efectivo_final_calculado': saldo_final_calculado,
-        'fecha_inicio': fecha_inicio,
-        'fecha_fin': fecha_fin
+        "utilidad_neta": utilidad_neta,
+        "gasto_depreciacion": gasto_depreciacion,
+        "depreciaciones": gasto_depreciacion,
+        "cxp_accionistas": cxp_accionistas + cxp_accionistas_2,
+        "credito_cashea": credito_cashea,
+        "retencion_islr": retencion_islr,
+        "anticipo_proveedores": anticipo_proveedores,
+        "cxc_jean": cxc_jean,
+        "cxc_sandra": cxc_sandra,
+        "variacion_cxc": abs(cxc_jean) + abs(cxc_sandra),
+        "variacion_cxp": abs(proveedores_nacionales) + abs(retencion_islr) + abs(credito_cashea) + abs(cxp_accionistas) + abs(cxp_accionistas_2),
+        "flujo_operacion": flujo_operacion,
+        "flujo_inversion": flujo_inversion,
+        "flujo_financiamiento": flujo_financiamiento,
+        "cambio_neto_efectivo": variacion_efectivo,
+        "variacion_efectivo": variacion_efectivo,
+        "saldo_inicial_bancos": saldo_inicial_bancos,
+        "saldo_final_bancos": saldo_final_calculado,
+        "saldo_final_calculado": saldo_final_calculado,
+        "efectivo_final_calculado": saldo_final_calculado,
+        "fecha_inicio": fecha_inicio,
+        "fecha_fin": fecha_fin,
     }
 
 import io
