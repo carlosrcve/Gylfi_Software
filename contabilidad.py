@@ -17900,51 +17900,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 key=f"input_monto_abono_{int(fila_op_sel['id'])}"
                             )
 
-                        # --- TABLA BANCO MOVIMIENTOS ---
-                        st.divider()
-                        st.markdown("#### 📊 Movimientos Bancarios Registrados por Rango de Fecha")
-                        
-                        col_fec_bm1, col_fec_bm2 = st.columns(2)
-                        with col_fec_bm1:
-                            fec_desde_bm_tab3 = st.date_input("Desde la fecha (Movimiento)", key="bm_tab3_fec_desde")
-                        with col_fec_bm2:
-                            fec_hasta_bm_tab3 = st.date_input("Hasta la fecha (Movimiento)", key="bm_tab3_fec_hasta")
-
-                        try:
-                            conn_v_bm = conectar_db(db_actual)
-                            if conn_v_bm:
-                                query_ver_bm = """
-                                    SELECT id, banco_nombre, cuenta_numero, fecha_movimiento, referencia, descripcion, monto, estado_conciliacion, asiento_id 
-                                    FROM banco_movimientos 
-                                    WHERE fecha_movimiento BETWEEN %s AND %s
-                                    ORDER BY fecha_movimiento DESC, id DESC
-                                """
-                                df_ver_bm = ejecutar_consulta(query_ver_bm, conn_v_bm, params=(str(fec_desde_bm_tab3), str(fec_hasta_bm_tab3)))
-                                conn_v_bm.close()
-
-                                if df_ver_bm is not None and not df_ver_bm.empty:
-                                    df_ver_bm['monto'] = pd.to_numeric(df_ver_bm['monto'], errors='coerce').fillna(0.0)
-
-                                    st.dataframe(
-                                        df_ver_bm[['id', 'fecha_movimiento', 'banco_nombre', 'referencia', 'descripcion', 'monto', 'estado_conciliacion', 'asiento_id']],
-                                        use_container_width=True,
-                                        hide_index=True,
-                                        column_config={
-                                            "id": "ID",
-                                            "fecha_movimiento": "Fecha Mov.",
-                                            "banco_nombre": "Banco",
-                                            "referencia": "Referencia",
-                                            "descripcion": "Descripción",
-                                            "monto": st.column_config.NumberColumn("Monto", format="%,.2f", help="Monto del movimiento bancario"),
-                                            "estado_conciliacion": "Estado",
-                                            "asiento_id": "Comprobante"
-                                        }
-                                    )
-                                else:
-                                    st.info("ℹ️ No hay movimientos registrados en el rango de fechas seleccionado.")
-                        except Exception as err_v_bm:
-                            st.error(f"❌ Error al cargar los movimientos bancarios: {err_v_bm}")
-
+                        #------Selección de Cuenta Contable, Previsualización y Registro en Asientos------#
                         st.divider()
                         st.markdown("#### ⚡ Paso 2: Selección de Cuenta Contable, Previsualización y Registro en Asientos")
 
