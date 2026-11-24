@@ -12794,7 +12794,132 @@ if 'opcion_menu_auditoria' not in st.session_state:
 opcion_menu = st.session_state.get('opcion_menu_auditoria', "🏠 Inicio")
 
 
-# 3. Evaluamos si el usuario está en el Dashboard de Inicio
+def _safe_int(val, default: int = 0) -> int:
+    try:
+        if val is None:
+            return default
+        num = pd.to_numeric(val, errors="coerce")
+        if pd.isna(num):
+            return default
+        return int(float(num))
+    except Exception:
+        return default
+
+
+def _safe_float(val, default: float = 0.0) -> float:
+    try:
+        if val is None:
+            return default
+        num = pd.to_numeric(val, errors="coerce")
+        if pd.isna(num):
+            return default
+        return float(num)
+    except Exception:
+        return default
+
+
+@st.cache_data(ttl=180, show_spinner=False)
+def _obtener_solvencia_y_utilidad_mensual(db: str, anio: int, mes_num: int) -> tuple[dict, float]:
+    defaults_solv = {
+        "activo_total": 0.0,
+        "pasivo_total": 0.0,
+        "patrimonio": 0.0,
+        "utilidad_neta": 0.0,
+        "estado": "OBSERVACIÓN",
+        "puntaje": 0,
+        "motivos": "Sin movimientos registrados para el período seleccionado.",
+    }
+    try:
+        res_raw = evaluar_salud_financiera(db, anio, mes_num) or {}
+    except Exception:
+        res_raw = {}
+
+    resultado = {
+        "activo_total": _safe_float(res_raw.get("activo_total"), 0.0),
+        "pasivo_total": _safe_float(res_raw.get("pasivo_total"), 0.0),
+        "patrimonio": _safe_float(res_raw.get("patrimonio"), 0.0),
+        "utilidad_neta": _safe_float(res_raw.get("utilidad_neta"), 0.0),
+        "estado": str(res_raw.get("estado") or "OBSERVACIÓN"),
+        "puntaje": _safe_int(res_raw.get("puntaje"), 0),
+        "motivos": str(res_raw.get("motivos") or "Evaluación generada con los datos disponibles."),
+    }
+
+    u_mensual = 0.0
+    ultimo_dia = calendar.monthrange(anio, mes_num)[1]
+    f_ini_mes = f"{anio:04d}-{mes_num:02d}-01"
+    f_fin_mes = f"{anio:04d}-{mes_num:02d}-{ultimo_dia:02d}"
+
+    conn_m = None
+    try:
+        conn_m = conectar_db(db)
+        if conn_m:
+            query_m = f"""
+                SELECT
+                    LEFT(TRIM(plan_cuentas), 1) AS clase,
+                    COALESCE(SUM(debe), 0) AS total_debe,
+                    COALESCE(SUM(haber), 0) AS total_haber
+                FROM `{db}`.asientos_contables
+                WHERE fecha >= %s AND fecha <= %s
+                GROUP BY LEFT(TRIM(plan_cuentas), 1)
+            """
+            df_m = ejecutar_consulta(query_m, conn_m, params=(f_ini_mes, f_fin_mes))
+            if df_m is not None and not df_m.empty:
+                saldos_m = {str(i): 0.0 for i in range(1, 9)}
+                for _, row in df_m.iterrows():
+                    cl = str(row.get("clase") or "").strip()
+                    if cl not in saldos_m:
+                        continue
+                    db_val = _safe_float(row.get("total_debe"), 0.0)
+                    hb_val = _safe_float(row.get("total_haber"), 0.0)
+                    if cl in ("1", "5", "6", "8"):
+                        saldos_m[cl] = db_val - hb_val
+                    elif cl in ("2", "3", "4", "7"):
+                        saldos_m[cl] = hb_val - db_val
+                u_mensual = round(
+                    saldos_m["4"] - saldos_m["5"] - saldos_m["6"] + saldos_m["7"] - saldos_m["8"],
+                    2,
+                )
+    except Exception:
+        u_mensual = 0.0
+    finally:
+        if conn_m and hasattr(conn_m, "close"):
+            try:
+                conn_m.close()
+            except Exception:
+                pass
+
+    return resultado, u_mensual
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _generar_pdf_cacheado(
+    tipo_doc: str,
+    db: str,
+    anio: int,
+    mes_str: str,
+    estado_actual: str,
+    puntaje_actual: int,
+    motivos_actual: str,
+    activo_total: float,
+    pasivo_total: float,
+    patrimonio: float,
+    utilidad_neta: float,
+    u_mensual: float,
+) -> bytes:
+    payload_solv = {
+        "activo_total": activo_total,
+        "pasivo_total": pasivo_total,
+        "patrimonio": patrimonio,
+        "utilidad_neta": utilidad_neta,
+        "estado": estado_actual,
+        "puntaje": puntaje_actual,
+        "motivos": motivos_actual,
+    }
+    if tipo_doc == "certificado":
+        return generar_pdf_certificado_solvencia(db, anio, mes_str, payload_solv, u_mensual)
+    return generar_pdf_dossier_estrategico(db, anio, mes_str)
+
+
 if opcion_menu == "🏠 Inicio":
     # --- INYECCIÓN DE CSS ---
     st.markdown("""<style>
@@ -12804,42 +12929,52 @@ if opcion_menu == "🏠 Inicio":
         </style>""", unsafe_allow_html=True)
 
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
-    nombre_usuario_actual = (st.session_state.get('nombre_usuario') or st.session_state.get('username') or st.session_state.get('usuario') or '').strip().lower()
+    nombre_usuario_actual = (
+        st.session_state.get('nombre_usuario')
+        or st.session_state.get('username')
+        or st.session_state.get('usuario')
+        or ''
+    ).strip().lower()
 
-    conn_ctrl = conectar_db()
-    db_objetivo = None
-    
-    if conn_ctrl:
-        try:
-            if user_rol == 'admin':
-                db_objetivo = st.session_state.get('DB_ACTUAL')
-                if not db_objetivo or db_objetivo == 'No seleccionada':
+    db_objetivo = st.session_state.get('DB_ACTUAL')
+    if db_objetivo in ('', 'No seleccionada', 'None', None):
+        db_objetivo = None
+
+    # Solo consultamos control_central si no tenemos db_objetivo definida o si es usuario no-admin sin sesión resuelta
+    if not db_objetivo or user_rol != 'admin':
+        conn_ctrl = conectar_db()
+        if conn_ctrl:
+            try:
+                if user_rol == 'admin' and not db_objetivo:
                     df_temp = ejecutar_consulta("SELECT db_nombre FROM clientes LIMIT 1", conn_ctrl)
-                    if not df_temp.empty: db_objetivo = str(df_temp['db_nombre'].iloc[0])
-            else:
-                # --- BÚSQUEDA DIRECTA Y SEGURA ---
-                query = f"SELECT db_nombre FROM usuarios WHERE LOWER(TRIM(usuario)) = '{nombre_usuario_actual}'"
-                df_temp = ejecutar_consulta(query, conn_ctrl)
-                
-                if not df_temp.empty and df_temp['db_nombre'].iloc[0]:
-                    db_objetivo = str(df_temp['db_nombre'].iloc[0]).strip()
-                elif nombre_usuario_actual in ['alix_maria', 'alix']:
+                    if df_temp is not None and not df_temp.empty and df_temp['db_nombre'].iloc[0]:
+                        db_objetivo = str(df_temp['db_nombre'].iloc[0]).strip()
+                elif user_rol != 'admin':
+                    query = "SELECT db_nombre FROM usuarios WHERE LOWER(TRIM(usuario)) = %s LIMIT 1"
+                    df_temp = ejecutar_consulta(query, conn_ctrl, params=(nombre_usuario_actual,))
+
+                    if df_temp is not None and not df_temp.empty and df_temp['db_nombre'].iloc[0]:
+                        db_objetivo = str(df_temp['db_nombre'].iloc[0]).strip()
+                    elif nombre_usuario_actual in ['alix_maria', 'alix']:
+                        db_objetivo = 'rishon_letzion_ca'
+                    else:
+                        st.error(f"❌ Acceso denegado: El usuario '{nombre_usuario_actual}' no tiene una empresa (DB) asociada.")
+                        st.stop()
+            except Exception as e:
+                if nombre_usuario_actual in ['alix_maria', 'alix']:
                     db_objetivo = 'rishon_letzion_ca'
                 else:
-                    st.error(f"❌ Acceso denegado: El usuario '{nombre_usuario_actual}' no tiene una empresa (DB) asociada.")
+                    st.error(f"❌ Error al resolver la base de datos: {e}")
                     st.stop()
-        except Exception as e:
-            if nombre_usuario_actual in ['alix_maria', 'alix']:
-                db_objetivo = 'rishon_letzion_ca'
-            else:
-                st.error(f"❌ Error al resolver la base de datos: {e}")
-                st.stop()
-        finally:
-            if conn_ctrl and hasattr(conn_ctrl, 'close'):
-                conn_ctrl.close()
+            finally:
+                if conn_ctrl and hasattr(conn_ctrl, 'close'):
+                    try:
+                        conn_ctrl.close()
+                    except Exception:
+                        pass
 
-    # Aseguramos que la sesión mantenga la DB activa
     if db_objetivo:
+        db_objetivo = str(db_objetivo).strip()
         st.session_state['DB_ACTUAL'] = db_objetivo
         st.session_state['db_a_conectar'] = db_objetivo
 
@@ -12850,7 +12985,11 @@ if opcion_menu == "🏠 Inicio":
     # --- LÓGICA DE CONEXIÓN ROBUSTA ---
     necesita_reconexion = False
 
-    if 'conn' not in st.session_state or st.session_state.get('ultima_db_conectada') != db_objetivo or st.session_state.conn is None:
+    if (
+        'conn' not in st.session_state
+        or st.session_state.get('ultima_db_conectada') != db_objetivo
+        or st.session_state.get('conn') is None
+    ):
         necesita_reconexion = True
     else:
         try:
@@ -12874,44 +13013,39 @@ if opcion_menu == "🏠 Inicio":
             st.error(f"Error crítico conectando: {e}")
             st.session_state.conn = None
             st.stop()
-    
+
     conn = st.session_state.conn
 
     # 1. DEFINICIÓN DE ESTRUCTURA DE TIEMPO
     dic_meses = {
-        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
+        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4,
+        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8,
         "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
     }
     meses_lista = list(dic_meses.keys())
 
-    anio_f = int(st.session_state.get('año_seleccionado', datetime.now().year))
-    mes_nombre_f = st.session_state.get('mes_seleccionado', meses_lista[datetime.now().month - 1])
+    anio_f = _safe_int(st.session_state.get('año_seleccionado'), datetime.now().year)
+    mes_nombre_f = st.session_state.get('mes_seleccionado') or meses_lista[datetime.now().month - 1]
+    if mes_nombre_f not in dic_meses:
+        mes_nombre_f = meses_lista[datetime.now().month - 1]
 
     m_idx = dic_meses.get(mes_nombre_f, 1)
     ultimo_dia = calendar.monthrange(anio_f, m_idx)[1]
 
-    f_inicio_global = date(anio_f, 1, 1) 
+    f_inicio_global = date(anio_f, 1, 1)
     f_fin_global = date(anio_f, m_idx, ultimo_dia)
 
     st.session_state["f_inicio_global"] = f_inicio_global
     st.session_state["f_fin_global"] = f_fin_global
 
     # 5. UI DEL DASHBOARD DE INICIO
-    if db_objetivo:
-        st.title(f"📊 Auditoría Profesional: {db_objetivo}")
-        st.markdown(f"**Período de Análisis (Acumulado):** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
-        st.divider()
-    else:
-        st.title("📊 Auditoría Profesional")
-        st.markdown(f"**Período de Análisis (Acumulado):** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
-        st.divider()
+    st.title(f"📊 Auditoría Profesional: {db_objetivo}")
+    st.markdown(f"**Período de Análisis (Acumulado):** {f_inicio_global.strftime('%d/%m/%Y')} al {f_fin_global.strftime('%d/%m/%Y')}")
+    st.divider()
 
-    #isabelelenoctaviourdaneta
     # --- SECCIÓN: CERTIFICADO DE SOLVENCIA FINANCIERA AUTOMATIZADO ---
     st.markdown("---")
-    
-    # Encabezado con diseño elegante
+
     st.markdown("""
         <div style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 20px; border-radius: 12px; color: white; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
             <h3 style="margin: 0; font-size: 1.4rem; color: #ffffff;">🏆 Certificación de Solvencia y Diagnóstico Financiero</h3>
@@ -12919,84 +13053,39 @@ if opcion_menu == "🏠 Inicio":
         </div>
     """, unsafe_allow_html=True)
 
-    # 1. Diccionario de meses para traducir el texto de la barra lateral a número
-    dic_meses = {
-        "Enero": 1, "Febrero": 2, "Marzo": 3, "Abril": 4, 
-        "Mayo": 5, "Junio": 6, "Julio": 7, "Agosto": 8, 
-        "Septiembre": 9, "Octubre": 10, "Noviembre": 11, "Diciembre": 12
-    }
+    anio_fiscal = _safe_int(st.session_state.get("ejercicio_fiscal"), datetime.today().year)
+    año_int = _safe_int(st.session_state.get("año_seleccionado"), anio_fiscal)
 
-    # 2. Sincronizamos las variables con las claves exactas de tus selectores de la barra lateral
-    from datetime import datetime
+    mes_str = st.session_state.get('mes_seleccionado') or 'Mayo'
+    if mes_str not in dic_meses:
+        mes_str = 'Mayo'
+    mes_int = dic_meses.get(mes_str, 5)
 
-    anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or datetime.today().year)
-
-    raw_año = st.session_state.get("año_seleccionado")
-    try:
-        año_int = int(raw_año) if raw_año is not None else anio_fiscal
-    except (TypeError, ValueError):
-        año_int = anio_fiscal
-
-    mes_str = st.session_state.get('mes_seleccionado', 'Mayo')
-    mes_int = dic_meses.get(mes_str, 5)  # Por defecto mes 5 (Mayo) si ocurre algún imprevisto
-
-    # 3. Recuperamos la base de datos activa de forma segura desde st.session_state
     db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
 
-    if not db or str(db).strip() == "" or str(db) == "{db}" or str(db) == "None":
+    if not db or str(db).strip() in ("", "{db}", "None"):
         st.markdown("""
             <div style="padding: 15px; background-color: #fff3cd; border-left: 5px solid #ffc107; border-radius: 4px; color: #856404;">
                 <strong>⚠️ Atención:</strong> Por favor, selecciona una empresa o base de datos activa en la barra lateral para ver su diagnóstico de solvencia.
             </div>
         """, unsafe_allow_html=True)
     else:
-        # Aseguramos que la sesión mantenga el valor actualizado
+        db = str(db).strip()
         st.session_state['DB_ACTUAL'] = db
 
-        # 4. Ejecutamos la función de evaluación para el acumulado del período
-        resultado_solvencia = evaluar_salud_financiera(db, año_int, mes_int)
+        resultado_solvencia, u_mensual = _obtener_solvencia_y_utilidad_mensual(db, año_int, mes_int)
 
-        # 4.1 Cálculo independiente de la Utilidad Mensual exclusiva del mes seleccionado
-        u_mensual = 0.0
-        try:
-            conn_m = conectar_db(db)
-            if conn_m:
-                query_m = f"""
-                    SELECT 
-                        LEFT(TRIM(plan_cuentas), 1) as clase,
-                        SUM(debe) as total_debe,
-                        SUM(haber) as total_haber
-                    FROM `{db}`.asientos_contables
-                    WHERE YEAR(fecha) = %s AND MONTH(fecha) = %s
-                    GROUP BY LEFT(TRIM(plan_cuentas), 1)
-                """
-                df_m = ejecutar_consulta(query_m, conn_m, params=(año_int, mes_int))
-                conn_m.close()
-                if df_m is not None and not df_m.empty:
-                    saldos_m = {str(i): 0.0 for i in range(1, 9)}
-                    for _, row in df_m.iterrows():
-                        cl = str(row['clase'])
-                        db_val = float(row['total_debe'] or 0)
-                        hb_val = float(row['total_haber'] or 0)
-                        if cl in ['1', '5', '6', '8']:
-                            saldos_m[cl] = db_val - hb_val
-                        elif cl in ['2', '3', '4', '7']:
-                            saldos_m[cl] = hb_val - db_val
-                    u_mensual = saldos_m['4'] - saldos_m['5'] - saldos_m['6'] + saldos_m['7'] - saldos_m['8']
-        except Exception:
-            u_mensual = 0.0
-
-        # 5. Mostramos las 5 tarjetas visuales con HTML/CSS personalizado
         col_s1, col_s2, col_s3, col_s4, col_s5 = st.columns(5)
-        
+
         def tarjeta_metrica(titulo, valor):
+            val_fmt = _safe_float(valor, 0.0)
             return f"""
                 <div style="background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 15px; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.02);">
                     <span style="font-size: 0.85rem; color: #6c757d; font-weight: 600; text-transform: uppercase;">{titulo}</span>
-                    <div style="font-size: 1.1rem; font-weight: bold; color: #212529; margin-top: 5px;">Bs. {valor:,.2f}</div>
+                    <div style="font-size: 1.1rem; font-weight: bold; color: #212529; margin-top: 5px;">Bs. {val_fmt:,.2f}</div>
                 </div>
             """
-        
+
         with col_s1:
             st.markdown(tarjeta_metrica("Activo Total", resultado_solvencia['activo_total']), unsafe_allow_html=True)
         with col_s2:
@@ -13010,12 +13099,10 @@ if opcion_menu == "🏠 Inicio":
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # 6. Panel de Estado y Diagnóstico con Estética CSS Avanzada
-        estado_actual = resultado_solvencia['estado']
-        puntaje_actual = resultado_solvencia['puntaje']
-        motivos_actual = resultado_solvencia['motivos']
+        estado_actual = str(resultado_solvencia['estado'])
+        puntaje_actual = _safe_int(resultado_solvencia['puntaje'], 0)
+        motivos_actual = str(resultado_solvencia['motivos'])
 
-        # Definir colores según el estado
         if "SOLVENTE" in estado_actual:
             bg_color = "#d4edda"
             border_color = "#28a745"
@@ -13038,9 +13125,8 @@ if opcion_menu == "🏠 Inicio":
             </div>
         """, unsafe_allow_html=True)
 
-        # 7. Panel de Acciones y Selección de Tipo de Documento Corporativo
         col_btn1, col_btn2 = st.columns([1.5, 1.5])
-        
+
         with col_btn1:
             if "SOLVENTE" in estado_actual:
                 st.markdown(f"""
@@ -13054,23 +13140,47 @@ if opcion_menu == "🏠 Inicio":
                         ⚠️ La empresa presenta alertas financieras. El certificado se emitirá con las observaciones correspondientes.
                     </div>
                 """, unsafe_allow_html=True)
-                
+
         with col_btn2:
             if puntaje_actual >= 40:
-                # Selector visual independiente (Bancos vs Inversionistas)
                 tipo_reporte = st.radio(
-                    "Seleccione el tipo de documento corporativo a emitir:", 
+                    "Seleccione el tipo de documento corporativo a emitir:",
                     ["Certificado Oficial de Solvencia (Bancario / Comercial)", "Dossier Ejecutivo y Modelo de Negocio (Inversionistas)"],
                     horizontal=False,
                     key="selector_tipo_reporte"
                 )
 
-                # Bifurcación exacta de funciones según el radio seleccionado
                 if tipo_reporte.startswith("Certificado Oficial"):
-                    pdf_bytes = generar_pdf_certificado_solvencia(db, año_int, mes_str, resultado_solvencia, u_mensual)
+                    pdf_bytes = _generar_pdf_cacheado(
+                        "certificado",
+                        db,
+                        año_int,
+                        mes_str,
+                        estado_actual,
+                        puntaje_actual,
+                        motivos_actual,
+                        resultado_solvencia['activo_total'],
+                        resultado_solvencia['pasivo_total'],
+                        resultado_solvencia['patrimonio'],
+                        resultado_solvencia['utilidad_neta'],
+                        u_mensual,
+                    )
                     nombre_archivo = f"Certificado_Solvencia_{db}_{mes_str}_{año_int}.pdf"
                 else:
-                    pdf_bytes = generar_pdf_dossier_estrategico(db, año_int, mes_str)
+                    pdf_bytes = _generar_pdf_cacheado(
+                        "dossier",
+                        db,
+                        año_int,
+                        mes_str,
+                        estado_actual,
+                        puntaje_actual,
+                        motivos_actual,
+                        resultado_solvencia['activo_total'],
+                        resultado_solvencia['pasivo_total'],
+                        resultado_solvencia['patrimonio'],
+                        resultado_solvencia['utilidad_neta'],
+                        u_mensual,
+                    )
                     nombre_archivo = f"Dossier_Estrategico_Gylfi_{db}.pdf"
 
                 st.download_button(
@@ -13083,140 +13193,272 @@ if opcion_menu == "🏠 Inicio":
                 )
             else:
                 st.error("❌ No apto para emisión de certificados.")
-    st.divider()
+
+    @st.cache_data(ttl=600, show_spinner=False)
+    def _obtener_tasa_bcv_cacheada(db_nombre: str, fecha_consulta: str) -> tuple[float, str]:
+        tasa_val = 0.0
+        origen_val = "No disponible"
+        conn_tmp = None
+        try:
+            conn_tmp = conectar_db(db_nombre)
+            if conn_tmp and "obtener_tasa_bcv_hoy" in globals() and callable(obtener_tasa_bcv_hoy):
+                try:
+                    t_raw, o_raw = obtener_tasa_bcv_hoy(conn_tmp, fecha_consulta)
+                except TypeError:
+                    t_raw, o_raw = obtener_tasa_bcv_hoy(conn_tmp)
+                tasa_val = _safe_float(t_raw, 0.0)
+                origen_val = str(o_raw).strip() if o_raw is not None and str(o_raw).strip() else "Manual / Desconocido"
+        except Exception:
+            tasa_val = 0.0
+            origen_val = "No disponible"
+        finally:
+            if conn_tmp and hasattr(conn_tmp, "close"):
+                try:
+                    conn_tmp.close()
+                except Exception:
+                    pass
+        return tasa_val, origen_val
+
+
     # --- FILA 7: TIPO DE CAMBIO BANCO CENTRAL DE VENEZUELA ---
     st.divider()
     st.markdown("### 🏦 Indicadores Cambiarios")
 
-    if db_actual and db_actual != "{db}" and db_actual != "None":
-        try: 
-            conn_bcv = conectar_db(db_actual)
-            if not conn_bcv:
-                st.warning(f"⚠️ No se pudo establecer conexión con la base de datos para {db_actual}.")
-            else:
-                # Blindaje por si la función no está definida o retorna None
-                tasa_dolar = 0.0
-                origen_datos = "No disponible"
-                
-                if 'obtener_tasa_bcv_hoy' in globals() and callable(obtener_tasa_bcv_hoy):
-                    # ⚠️ CORRECCIÓN: Asegúrate de pasarle 'conn_bcv' aquí para que no de el error de argumentos
-                    t_val, o_val = obtener_tasa_bcv_hoy(conn_bcv)
-                    tasa_dolar = t_val if t_val is not None else 0.0
-                    origen_datos = o_val if o_val is not None else "Manual / Desconocido"
+    db_bcv = str(db_actual).strip() if db_actual is not None else ""
+    if db_bcv and db_bcv not in ("{db}", "None"):
+        try:
+            fecha_ref_bcv = (
+                f_fin_global.isoformat()
+                if "f_fin_global" in locals() and hasattr(f_fin_global, "isoformat")
+                else date.today().isoformat()
+            )
+            tasa_dolar, origen_datos = _obtener_tasa_bcv_cacheada(db_bcv, fecha_ref_bcv)
 
-                col_tasa, col_info = st.columns([1, 2])
+            col_tasa, col_info = st.columns([1, 2])
 
-                with col_tasa:
-                    s = f"{tasa_dolar:,.8f}"
-                    tasa_formateada = f"Bs. {s.replace(',', 'X').replace('.', ',').replace('X', '.')}"
-                    st.metric(label="💵 Tasa Oficial BCV (USD/VES)", value=tasa_formateada)
+            with col_tasa:
+                s = f"{_safe_float(tasa_dolar, 0.0):,.8f}"
+                tasa_formateada = f"Bs. {s.replace(',', 'X').replace('.', ',').replace('X', '.')}"
+                st.metric(label="💵 Tasa Oficial BCV (USD/VES)", value=tasa_formateada)
 
-                with col_info:
-                    st.caption("ℹ️ **Actualización Automática:**")
-                    st.info(f"El sistema sincroniza directamente con el Banco Central de Venezuela. \n\n**Fuente de lectura actual:** {origen_datos}")
-                    
-                    # 🔥 BOTÓN DE ACTUALIZACIÓN FORZADA
-                    if st.button("🔄 Forzar Sincronización BCV"):
-                        from datetime import date
-                        try:
-                            if conn_bcv:
-                                # ⚠️ CORRECCIÓN: Comentamos esto para evitar bloqueos/congelamientos de Streamlit
-                                # conn_bcv.handle_unread_result()
-                                pass
-                        
-                            tasa_fresca, origen_fresco = 0.0, "Error"
-                            if 'consultar_bcv_directo_sin_bd' in globals() and callable(consultar_bcv_directo_sin_bd):
-                                # ⚠️ CORRECCIÓN: Asegúrate de pasarle 'conn_bcv' por si tu función lo requiere
-                                tasa_fresca, origen_fresco = consultar_bcv_directo_sin_bd(conn_bcv)
-                        
-                            if origen_fresco and "Error" not in origen_fresco and tasa_fresca > 0:
+            with col_info:
+                st.caption("ℹ️ **Actualización Automática:**")
+                st.info(
+                    f"El sistema sincroniza directamente con el Banco Central de Venezuela. "
+                    f"\n\n**Fuente de lectura actual:** {origen_datos}"
+                )
+
+                # 🔥 BOTÓN DE ACTUALIZACIÓN FORZADA
+                if st.button("🔄 Forzar Sincronización BCV", key=f"btn_sync_bcv_{db_bcv}"):
+                    conn_sync = None
+                    cursor_sync = None
+                    try:
+                        tasa_fresca, origen_fresco = 0.0, "Error"
+                        if "consultar_bcv_directo_sin_bd" in globals() and callable(consultar_bcv_directo_sin_bd):
+                            try:
+                                tasa_fresca, origen_fresco = consultar_bcv_directo_sin_bd()
+                            except TypeError:
+                                conn_sync = conectar_db(db_bcv)
+                                tasa_fresca, origen_fresco = consultar_bcv_directo_sin_bd(conn_sync)
+
+                        tasa_fresca = _safe_float(tasa_fresca, 0.0)
+                        if origen_fresco and "Error" not in str(origen_fresco) and tasa_fresca > 0:
+                            if conn_sync is None:
+                                conn_sync = conectar_db(db_bcv)
+                            if not conn_sync:
+                                st.error(f"⚠️ No se pudo establecer conexión con la base de datos para {db_bcv}.")
+                            else:
                                 hoy = date.today()
-                                cursor = conn_bcv.cursor()
+                                cursor_sync = conn_sync.cursor()
                                 try:
-                                    cursor.execute(f"""
-                                        INSERT INTO `{db_actual}`.tasas_diarias (fecha, tasa_valor) 
+                                    cursor_sync.execute(
+                                        f"""
+                                        INSERT INTO `{db_bcv}`.tasas_diarias (fecha, tasa_valor)
                                         VALUES (%s, %s)
                                         ON DUPLICATE KEY UPDATE tasa_valor = %s
-                                    """, (hoy, tasa_fresca, tasa_fresca))
-                                    conn_bcv.commit()
+                                        """,
+                                        (hoy, tasa_fresca, tasa_fresca),
+                                    )
+                                    conn_sync.commit()
+                                    _obtener_tasa_bcv_cacheada.clear()
                                     st.success("¡Tasa actualizada con éxito desde el BCV!")
                                     st.rerun()
                                 except Exception as db_err:
-                                    st.error(f"La tabla 'tasas_diarias' no existe en {db_actual} o hay un error SQL: {db_err}")
-                                finally:
-                                    cursor.close()
-                            else:
-                                st.error("No se pudo conectar a la web del BCV en este momento.")
-                        except Exception as e:
-                            st.error(f"Error al sincronizar: {e}")
-                
-                conn_bcv.close()
+                                    st.error(f"La tabla 'tasas_diarias' no existe en {db_bcv} o hay un error SQL: {db_err}")
+                        else:
+                            st.error("No se pudo conectar a la web del BCV en este momento.")
+                    except Exception as e:
+                        st.error(f"Error al sincronizar: {e}")
+                    finally:
+                        if cursor_sync is not None:
+                            try:
+                                cursor_sync.close()
+                            except Exception:
+                                pass
+                        if conn_sync and hasattr(conn_sync, "close"):
+                            try:
+                                conn_sync.close()
+                            except Exception:
+                                pass
         except Exception as e:
             st.error(f"Error al cargar indicadores cambiarios: {e}")
     else:
         st.warning("⚠️ Selecciona una empresa para ver los indicadores cambiarios.")
     st.divider()
-    
-    #FLUJO DE CAJA
-    # Sincronizamos la base de datos activa desde la sesión
+    # --- FLUJO DE CAJA ---
+    @st.cache_data(ttl=180, show_spinner=False)
+    def _calcular_flujo_caja_cacheado(db_nombre: str, f_ini_str: str, f_fin_str: str) -> dict:
+        defaults = {
+            "saldo_inicial": 0.0,
+            "total_entradas": 0.0,
+            "total_salidas": 0.0,
+            "saldo_final": 0.0,
+            "flujo_neto": 0.0,
+        }
+        conn_fc = None
+        try:
+            conn_fc = conectar_db(db_nombre)
+            if not conn_fc:
+                return defaults
+            raw = calcular_flujo_caja_detallado(conn_fc, db_nombre, f_ini_str, f_fin_str)
+            if not isinstance(raw, dict):
+                return defaults
+
+            saldo_ini = _safe_float(raw.get("saldo_inicial"), 0.0)
+            tot_ent = _safe_float(raw.get("total_entradas"), 0.0)
+            tot_sal = _safe_float(raw.get("total_salidas"), 0.0)
+            flujo_neto = (
+                _safe_float(raw.get("flujo_neto"), tot_ent - tot_sal)
+                if "flujo_neto" in raw and raw.get("flujo_neto") is not None
+                else round(tot_ent - tot_sal, 2)
+            )
+            saldo_fin = (
+                _safe_float(raw.get("saldo_final"), saldo_ini + tot_ent - tot_sal)
+                if "saldo_final" in raw and raw.get("saldo_final") is not None
+                else round(saldo_ini + tot_ent - tot_sal, 2)
+            )
+
+            resultado = dict(raw)
+            resultado["saldo_inicial"] = saldo_ini
+            resultado["total_entradas"] = tot_ent
+            resultado["total_salidas"] = tot_sal
+            resultado["flujo_neto"] = flujo_neto
+            resultado["saldo_final"] = saldo_fin
+            return resultado
+        except Exception:
+            return defaults
+        finally:
+            if conn_fc and hasattr(conn_fc, "close"):
+                try:
+                    conn_fc.close()
+                except Exception:
+                    pass
+
+
+    @st.cache_data(ttl=300, show_spinner=False)
+    def _generar_pdf_flujo_cacheado(
+        nombre_empresa: str,
+        db_nombre: str,
+        f_ini_str: str,
+        f_fin_str: str,
+        saldo_inicial: float,
+        total_entradas: float,
+        total_salidas: float,
+        saldo_final: float,
+        flujo_neto: float,
+    ) -> bytes:
+        payload = {
+            "saldo_inicial": saldo_inicial,
+            "total_entradas": total_entradas,
+            "total_salidas": total_salidas,
+            "saldo_final": saldo_final,
+            "flujo_neto": flujo_neto,
+        }
+        return generar_pdf_flujo_caja_detallado(nombre_empresa, payload)
+
+
+   
     db = st.session_state.get('DB_ACTUAL')
 
-    if not db or db == "{db}" or db == "None" or str(db).strip() == "":
+    if not db or str(db).strip() in ("", "{db}", "None"):
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
-        empresa_actual = obtener_datos_empresa_activa()
-        
-        st.markdown("### 📊 Módulo de Tesorería y Flujo de Caja Real (Detallado)")
-        
-        import calendar
-        from datetime import datetime
+        db = str(db).strip()
+        try:
+            empresa_actual = obtener_datos_empresa_activa() or {}
+        except Exception:
+            empresa_actual = {}
 
-        anio_fiscal = int(st.session_state.get("ejercicio_fiscal") or datetime.today().year)
+        nombre_emp_flujo = (
+            str(empresa_actual.get("nombre") or empresa_actual.get("nombre_empresa") or "").strip()
+            or str(st.session_state.get("CLIENTE_NOMBRE") or db).strip()
+        )
+
+        st.markdown("### 📊 Módulo de Tesorería y Flujo de Caja Real (Detallado)")
+
+        anio_fiscal = _safe_int(st.session_state.get("ejercicio_fiscal"), datetime.today().year)
         mes_flujo = 7
         ultimo_dia_flujo = calendar.monthrange(anio_fiscal, mes_flujo)[1]
 
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            fecha_ini = st.date_input("Fecha Desde:", datetime(anio_fiscal, mes_flujo, 1))
+            fecha_ini = st.date_input("Fecha Desde:", date(anio_fiscal, mes_flujo, 1), key=f"fc_fecha_ini_{db}")
         with col_f2:
-            fecha_fin = st.date_input("Fecha Hasta:", datetime(anio_fiscal, mes_flujo, ultimo_dia_flujo))
+            fecha_fin = st.date_input("Fecha Hasta:", date(anio_fiscal, mes_flujo, ultimo_dia_flujo), key=f"fc_fecha_fin_{db}")
 
-        if st.button("🔄 Calcular Flujo de Caja Detallado"):
+        if isinstance(fecha_ini, (list, tuple)):
+            fecha_ini = fecha_ini[0] if fecha_ini else date(anio_fiscal, mes_flujo, 1)
+        if isinstance(fecha_fin, (list, tuple)):
+            fecha_fin = fecha_fin[0] if fecha_fin else date(anio_fiscal, mes_flujo, ultimo_dia_flujo)
+
+        if st.button("🔄 Calcular Flujo de Caja Detallado", key=f"btn_calc_fc_{db}"):
+            st.session_state["fc_activo_params"] = (
+                db,
+                fecha_ini.strftime("%Y-%m-%d"),
+                fecha_fin.strftime("%Y-%m-%d"),
+                nombre_emp_flujo,
+            )
+
+        fc_params = st.session_state.get("fc_activo_params")
+        if fc_params and fc_params[0] == db:
+            _, f_ini_str, f_fin_str, emp_guardada = fc_params
             try:
-                conn = conectar_db(db)
-                if conn:
-                    # Calculamos el flujo detallado y agrupado por cuenta
-                    datos_flujo = calcular_flujo_caja_detallado(
-                        conn, 
-                        db, 
-                        fecha_ini.strftime('%Y-%m-%d'), 
-                        fecha_fin.strftime('%Y-%m-%d')
-                    )
-                    conn.close()
+                datos_flujo = _calcular_flujo_caja_cacheado(db, f_ini_str, f_fin_str)
 
-                    # Mostramos métricas en pantalla
-                    m1, m2, m3, m4 = st.columns(4)
-                    m1.metric("Saldo Inicial", f"Bs. {datos_flujo['saldo_inicial']:,.2f}")
-                    m2.metric("Total Entradas", f"Bs. {datos_flujo['total_entradas']:,.2f}")
-                    m3.metric("Total Salidas", f"Bs. {datos_flujo['total_salidas']:,.2f}")
-                    m4.metric("Saldo Final", f"Bs. {datos_flujo['saldo_final']:,.2f}", delta=f"Bs. {datos_flujo['flujo_neto']:,.2f}")
+                saldo_ini_val = _safe_float(datos_flujo.get("saldo_inicial"), 0.0)
+                tot_ent_val = _safe_float(datos_flujo.get("total_entradas"), 0.0)
+                tot_sal_val = _safe_float(datos_flujo.get("total_salidas"), 0.0)
+                flujo_neto_val = _safe_float(datos_flujo.get("flujo_neto"), tot_ent_val - tot_sal_val)
+                saldo_fin_val = _safe_float(datos_flujo.get("saldo_final"), saldo_ini_val + tot_ent_val - tot_sal_val)
 
-                    # Generamos el PDF oficial detallado con la estructura de Excel
-                    pdf_flujo = generar_pdf_flujo_caja_detallado(empresa_actual["nombre"], datos_flujo)
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Saldo Inicial", f"Bs. {saldo_ini_val:,.2f}")
+                m2.metric("Total Entradas", f"Bs. {tot_ent_val:,.2f}")
+                m3.metric("Total Salidas", f"Bs. {tot_sal_val:,.2f}")
+                m4.metric("Saldo Final", f"Bs. {saldo_fin_val:,.2f}", delta=f"Bs. {flujo_neto_val:,.2f}")
 
-                    st.download_button(
-                        label="📄 Descargar Estado de Flujo de Caja Detallado (PDF)",
-                        data=pdf_flujo,
-                        file_name=f"Flujo_de_Caja_Detallado_{db}_{fecha_ini}_{fecha_fin}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True,
-                        key="btn_download_flujo_detallado"
-                    )
-                else:
-                    st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+                pdf_flujo = _generar_pdf_flujo_cacheado(
+                    emp_guardada,
+                    db,
+                    f_ini_str,
+                    f_fin_str,
+                    saldo_ini_val,
+                    tot_ent_val,
+                    tot_sal_val,
+                    saldo_fin_val,
+                    flujo_neto_val,
+                )
+
+                st.download_button(
+                    label="📄 Descargar Estado de Flujo de Caja Detallado (PDF)",
+                    data=pdf_flujo,
+                    file_name=f"Flujo_de_Caja_Detallado_{db}_{f_ini_str}_{f_fin_str}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="btn_download_flujo_detallado",
+                )
             except Exception as err:
                 st.error(f"Ocurrió un error al procesar el reporte: {err}")
-
     st.divider()
     # Estado de Flujo de Efectivo (IFRS / VEN-NIF)
     import streamlit as st
@@ -13303,7 +13545,8 @@ if opcion_menu == "🏠 Inicio":
 
     st.divider()
 
-    import datetime
+    import datetime as dt_mod
+    import re
     import pandas as pd
     import streamlit as st
 
@@ -13311,144 +13554,168 @@ if opcion_menu == "🏠 Inicio":
     # MÓDULO: PUNTO DE EQUILIBRIO OPERATIVO (ESTÁNDAR GYLFI SOFTWARE)
     # ==============================================================================
 
-    db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
 
-    if not db or db == "{db}" or db == "None" or str(db).strip() == "":
+    def _formato_venezuela_pe(val) -> str:
+        try:
+            num = _safe_float(val, 0.0) if "_safe_float" in globals() else float(pd.to_numeric(val, errors="coerce") or 0.0)
+            s = f"{num:,.2f}"
+            return "Bs. " + s.replace(",", "X").replace(".", ",").replace("X", ".")
+        except Exception:
+            return "Bs. 0,00"
+
+
+    @st.cache_data(ttl=180, show_spinner=False)
+    def _consultar_punto_equilibrio_cacheado(db_nombre: str, f_ini_str: str, f_fin_str: str) -> tuple[float, float, float]:
+        db_segura = re.sub(r"[^A-Za-z0-9_]", "", str(db_nombre or "").strip())
+        if not db_segura:
+            return 0.0, 0.0, 0.0
+
+        conn_pe = None
+        try:
+            conn_pe = conectar_db(db_segura)
+            if not conn_pe:
+                return 0.0, 0.0, 0.0
+
+            query_pe = f"""
+                SELECT
+                    COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%%' THEN (haber - debe) ELSE 0 END), 0) AS total_ventas,
+                    0.0 AS costos_variables,
+                    COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%%' OR TRIM(plan_cuentas) LIKE '6%%' THEN (debe - haber) ELSE 0 END), 0) AS costos_fijos
+                FROM `{db_segura}`.asientos_contables
+                WHERE fecha >= %s AND fecha <= %s
+            """
+            df_pe = ejecutar_consulta(query_pe, conn_pe, params=(f_ini_str, f_fin_str))
+            if df_pe is None or df_pe.empty:
+                return 0.0, 0.0, 0.0
+
+            fila = df_pe.iloc[0]
+            ventas_val = float(pd.to_numeric(fila.get("total_ventas"), errors="coerce") or 0.0)
+            vars_val = float(pd.to_numeric(fila.get("costos_variables"), errors="coerce") or 0.0)
+            fijos_val = float(pd.to_numeric(fila.get("costos_fijos"), errors="coerce") or 0.0)
+            return round(ventas_val, 2), round(vars_val, 2), round(fijos_val, 2)
+        except Exception:
+            return 0.0, 0.0, 0.0
+        finally:
+            if conn_pe and hasattr(conn_pe, "close"):
+                try:
+                    conn_pe.close()
+                except Exception:
+                    pass
+
+
+    db = st.session_state.get("DB_ACTUAL") or st.session_state.get("db_actual")
+
+    if not db or str(db).strip() in ("", "{db}", "None"):
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
+        db = str(db).strip()
         try:
-            empresa_actual = obtener_datos_empresa_activa() if 'obtener_datos_empresa_activa' in globals() else {"nombre": str(db).upper()}
+            empresa_actual = (
+                obtener_datos_empresa_activa()
+                if "obtener_datos_empresa_activa" in globals() and callable(obtener_datos_empresa_activa)
+                else {"nombre": db.upper()}
+            ) or {"nombre": db.upper()}
         except Exception:
-            empresa_actual = {"nombre": str(db).upper()}
-            
+            empresa_actual = {"nombre": db.upper()}
+
         st.markdown("### 🎯 Análisis de Punto de Equilibrio Operativo")
         st.caption("Visualiza rápidamente si tu negocio está cubriendo sus costos fijos y alcanzando la rentabilidad.")
-        
-        hoy = datetime.date.today()
+
+        hoy = dt_mod.date.today()
         primer_dia_mes = hoy.replace(day=1)
-        
+
         col_f1, col_f2 = st.columns(2)
         with col_f1:
-            fecha_ini_pe = st.date_input("Fecha Desde:", primer_dia_mes, key="pe_equilibrio_ini_final")
+            fecha_ini_pe = st.date_input("Fecha Desde:", primer_dia_mes, key=f"pe_equilibrio_ini_final_{db}")
         with col_f2:
-            fecha_fin_pe = st.date_input("Fecha Hasta:", hoy, key="pe_equilibrio_fin_final")
+            fecha_fin_pe = st.date_input("Fecha Hasta:", hoy, key=f"pe_equilibrio_fin_final_{db}")
+
+        if isinstance(fecha_ini_pe, (list, tuple)):
+            fecha_ini_pe = fecha_ini_pe[0] if fecha_ini_pe else primer_dia_mes
+        if isinstance(fecha_fin_pe, (list, tuple)):
+            fecha_fin_pe = fecha_fin_pe[0] if fecha_fin_pe else hoy
 
         if fecha_ini_pe > fecha_fin_pe:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
         else:
             try:
-                conn = conectar_db(db)
-                if conn:
-                    conn.ping(reconnect=True)
-                    
-                    f_ini_str = fecha_ini_pe.strftime('%Y-%m-%d')
-                    f_fin_str = fecha_fin_pe.strftime('%Y-%m-%d')
-                    
-                    query_pe = f"""
-                        SELECT 
-                            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '4%' THEN (haber - debe) ELSE 0 END), 0) AS total_ventas,
-                            0.0 AS costos_variables,
-                            COALESCE(SUM(CASE WHEN TRIM(plan_cuentas) LIKE '5%' OR TRIM(plan_cuentas) LIKE '6%' THEN (debe - haber) ELSE 0 END), 0) AS costos_fijos
-                        FROM asientos_contables
-                        WHERE fecha BETWEEN '{f_ini_str}' AND '{f_fin_str}'
-                    """
-                    
-                    df_pe = pd.read_sql(query_pe, conn)
-                    conn.close()
+                f_ini_str = fecha_ini_pe.strftime("%Y-%m-%d")
+                f_fin_str = fecha_fin_pe.strftime("%Y-%m-%d")
 
-                    if not df_pe.empty:
-                        ventas = float(df_pe['total_ventas'].iloc[0] or 0.0)
-                        costos_vars = float(df_pe['costos_variables'].iloc[0] or 0.0)
-                        costos_fijos = float(df_pe['costos_fijos'].iloc[0] or 0.0)
-                    else:
-                        ventas, costos_vars, costos_fijos = 0.0, 0.0, 0.0
+                ventas, costos_vars, costos_fijos = _consultar_punto_equilibrio_cacheado(db, f_ini_str, f_fin_str)
 
-                    utilidad_bruta = ventas - costos_vars
-                    margen_contribucion = (utilidad_bruta / ventas) if ventas > 0 else 1.0
-                    
-                    if margen_contribucion > 0 and margen_contribucion <= 1.0:
-                        punto_equilibrio = costos_fijos / margen_contribucion
-                    else:
-                        punto_equilibrio = costos_fijos
+                utilidad_bruta = ventas - costos_vars
+                margen_contribucion = (utilidad_bruta / ventas) if ventas > 0 else 1.0
 
-                    def formato_venezuela_pe(val):
-                        try:
-                            s = f"{float(val):,.2f}"
-                            return "Bs. " + s.replace(',', 'X').replace('.', ',').replace('X', '.')
-                        except Exception:
-                            return "Bs. 0,00"
-
-                    with st.container(border=True):
-                        m1, m2, m3, m4 = st.columns(4)
-                        m1.metric("Costos Fijos", formato_venezuela_pe(costos_fijos))
-                        m2.metric("Margen Contribución", f"{margen_contribucion * 100:.1f}%")
-                        m3.metric("Ventas Reales", formato_venezuela_pe(ventas))
-                        
-                        ratio_cumplimiento = (ventas / punto_equilibrio) if punto_equilibrio > 0 else 0.0
-                        m4.metric(
-                            "Meta de Equilibrio", 
-                            formato_venezuela_pe(punto_equilibrio), 
-                            delta=f"{ratio_cumplimiento * 100:.1f}% log.",
-                            delta_color="normal" if ratio_cumplimiento >= 1.0 else "inverse"
-                        )
-
-                        st.markdown("---")
-
-                        if punto_equilibrio > 0:
-                            progreso = min(max(ratio_cumplimiento, 0.0), 1.0)
-                            st.progress(progreso)
-
-                            # CONDICIONES DINÁMICAS SEGÚN EL PORCENTAJE DE LOGRO Y RESULTADOS
-                            if ratio_cumplimiento >= 1.25:
-                                # Escenario 1: Alta Rentabilidad (Superávit mayor al 25%)
-                                excedente = ventas - punto_equilibrio
-                                st.success(
-                                    f"🌟 **¡Excelente desempeño (Superávit Sólido)!** Has superado con creces el punto de equilibrio. "
-                                    f"Tus ventas superan la meta por **{formato_venezuela_pe(excedente)}** ({ratio_cumplimiento * 100:.1f}% log.). "
-                                    f"El negocio está generando un excelente nivel de **Ganancia Neta Operativa**."
-                                )
-                            elif ratio_cumplimiento >= 1.0:
-                                # Escenario 2: Justo en la meta o superávit leve (100% a 124.9%)
-                                excedente = ventas - punto_equilibrio
-                                st.success(
-                                    f"🚀 **¡Meta cumplida (Zona de Éxito)!** Has cubierto el 100% de tus compromisos fijos. "
-                                    f"Generaste un excedente de **{formato_venezuela_pe(excedente)}** ({ratio_cumplimiento * 100:.1f}% log.) en Ganancia Neta."
-                                )
-                            elif ratio_cumplimiento >= 0.80:
-                                # Escenario 3: Alerta Temprana / Zona de Cierre (80% a 99.9%)
-                                faltante = punto_equilibrio - ventas
-                                st.warning(
-                                    f"⚠️ **Alerta de Cierre:** Estás muy cerca de la meta pero aún operas en déficit. "
-                                    f"Te faltan **{formato_venezuela_pe(faltante)}** para alcanzar el punto de equilibrio ({ratio_cumplimiento * 100:.1f}% log.). "
-                                    f"¡Acelera las ventas antes de que cierre el periodo!"
-                                )
-                            else:
-                                # Escenario 4: Déficit Crítico (Menor al 80%)
-                                faltante = punto_equilibrio - ventas
-                                st.error(
-                                    f"🔴 **Déficit Operativo Importante:** Las ventas actuales cubren solo el **{ratio_cumplimiento * 100:.1f}%** de los costos fijos. "
-                                    f"Faltan **{formato_venezuela_pe(faltante)}** en ventas. Es necesario revisar la estructura de costos o inyectar capital de trabajo."
-                                )
-
-                            # GUÍA PEDAGÓGICA DINÁMICA
-                            with st.expander("📖 ¿Cómo interpretar este resultado financiero según tu porcentaje?"):
-                                st.markdown("""
-                                * **Logro del 100% o más:** El negocio es autosostenible; los costos fijos están pagados y cada bolívar extra es **Ganancia Neta**.
-                                * **Logro entre 80% y 99.9% (Alerta Temprana):** Estás a un paso de la meta, un empuje comercial de última hora puede salvar el ejercicio mensual.
-                                * **Logro menor al 80% (Déficit):** El volumen de ventas está muy por debajo de la estructura de gastos. Requiere medidas correctivas urgentes (recorte de costos fijos o estrategias agresivas de precios y mercado).
-                                """)
-
-                        else:
-                            st.info("ℹ️ No se registran suficientes movimientos de ingresos en la cuenta 4 para el rango de fechas seleccionado.")
-
+                if 0 < margen_contribucion <= 1.0:
+                    punto_equilibrio = costos_fijos / margen_contribucion
                 else:
-                    st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+                    punto_equilibrio = costos_fijos
+
+                with st.container(border=True):
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Costos Fijos", _formato_venezuela_pe(costos_fijos))
+                    m2.metric("Margen Contribución", f"{margen_contribucion * 100:.1f}%")
+                    m3.metric("Ventas Reales", _formato_venezuela_pe(ventas))
+
+                    ratio_cumplimiento = (ventas / punto_equilibrio) if punto_equilibrio > 0 else 0.0
+                    m4.metric(
+                        "Meta de Equilibrio",
+                        _formato_venezuela_pe(punto_equilibrio),
+                        delta=f"{ratio_cumplimiento * 100:.1f}% log.",
+                        delta_color="normal" if ratio_cumplimiento >= 1.0 else "inverse",
+                    )
+
+                    st.markdown("---")
+
+                    if punto_equilibrio > 0:
+                        progreso = min(max(ratio_cumplimiento, 0.0), 1.0)
+                        st.progress(progreso)
+
+                        if ratio_cumplimiento >= 1.25:
+                            excedente = ventas - punto_equilibrio
+                            st.success(
+                                f"🌟 **¡Excelente desempeño (Superávit Sólido)!** Has superado con creces el punto de equilibrio. "
+                                f"Tus ventas superan la meta por **{_formato_venezuela_pe(excedente)}** ({ratio_cumplimiento * 100:.1f}% log.). "
+                                f"El negocio está generando un excelente nivel de **Ganancia Neta Operativa**."
+                            )
+                        elif ratio_cumplimiento >= 1.0:
+                            excedente = ventas - punto_equilibrio
+                            st.success(
+                                f"🚀 **¡Meta cumplida (Zona de Éxito)!** Has cubierto el 100% de tus compromisos fijos. "
+                                f"Generaste un excedente de **{_formato_venezuela_pe(excedente)}** ({ratio_cumplimiento * 100:.1f}% log.) en Ganancia Neta."
+                            )
+                        elif ratio_cumplimiento >= 0.80:
+                            faltante = punto_equilibrio - ventas
+                            st.warning(
+                                f"⚠️ **Alerta de Cierre:** Estás muy cerca de la meta pero aún operas en déficit. "
+                                f"Te faltan **{_formato_venezuela_pe(faltante)}** para alcanzar el punto de equilibrio ({ratio_cumplimiento * 100:.1f}% log.). "
+                                f"¡Acelera las ventas antes de que cierre el periodo!"
+                            )
+                        else:
+                            faltante = punto_equilibrio - ventas
+                            st.error(
+                                f"🔴 **Déficit Operativo Importante:** Las ventas actuales cubren solo el **{ratio_cumplimiento * 100:.1f}%** de los costos fijos. "
+                                f"Faltan **{_formato_venezuela_pe(faltante)}** en ventas. Es necesario revisar la estructura de costos o inyectar capital de trabajo."
+                            )
+
+                        with st.expander("📖 ¿Cómo interpretar este resultado financiero según tu porcentaje?"):
+                            st.markdown("""
+    - **Logro del 100% o más:** El negocio es autosostenible; los costos fijos están pagados y cada bolívar extra es **Ganancia Neta**.
+    - **Logro entre 80% y 99.9% (Alerta Temprana):** Estás a un paso de la meta, un empuje comercial de última hora puede salvar el ejercicio mensual.
+    - **Logro menor al 80% (Déficit):** El volumen de ventas está muy por debajo de la estructura de gastos. Requiere medidas correctivas urgentes (recorte de costos fijos o estrategias agresivas de precios y mercado).
+                            """)
+                    else:
+                        st.info("ℹ️ No se registran suficientes movimientos de ingresos en la cuenta 4 para el rango de fechas seleccionado.")
             except Exception as err:
                 st.error(f"Ocurrió un error al procesar el cálculo del punto de equilibrio: {err}")
 
     
     st.divider()
-    import datetime
+
+    import datetime as dt_mod
+    import html
+    import re
     import pandas as pd
     import streamlit as st
 
@@ -13456,102 +13723,159 @@ if opcion_menu == "🏠 Inicio":
     # MÓDULO: TOP 5 COSTOS Y GASTOS (TABLA HTML LIMPIA Y SIN SANGRIAS)
     # ==============================================================================
 
-    db = st.session_state.get('DB_ACTUAL') or st.session_state.get('db_actual')
 
-    if not db or db == "{db}" or db == "None" or str(db).strip() == "":
+    def _formato_venezuela_gasto(val) -> str:
+        try:
+            num = float(pd.to_numeric(val, errors="coerce") or 0.0)
+            s = f"{num:,.2f}"
+            return "Bs. " + s.replace(",", "X").replace(".", ",").replace("X", ".")
+        except Exception:
+            return "Bs. 0,00"
+
+
+    @st.cache_data(ttl=180, show_spinner=False)
+    def _consultar_top5_gastos_cacheado(
+        db_nombre: str,
+        f_ini_str: str,
+        f_fin_str: str,
+        ver_historico: bool,
+    ) -> list[dict]:
+        db_segura = re.sub(r"[^A-Za-z0-9_]", "", str(db_nombre or "").strip())
+        if not db_segura:
+            return []
+
+        conn_g = None
+        try:
+            conn_g = conectar_db(db_segura)
+            if not conn_g:
+                return []
+
+            if ver_historico:
+                filtro_fecha_sql = ""
+                params_sql = ()
+            else:
+                filtro_fecha_sql = "AND fecha >= %s AND fecha <= %s"
+                params_sql = (f_ini_str, f_fin_str)
+
+            query_gastos_puro = f"""
+                SELECT
+                    cuenta_contable AS nombre_cuenta,
+                    COALESCE(SUM(debe - haber), 0) AS total_gasto
+                FROM `{db_segura}`.asientos_contables
+                WHERE (
+                    cuenta_contable LIKE '%%Costo%%' OR
+                    cuenta_contable LIKE '%%Iva Credito Fiscal (Ingresos Exentos)%%' OR
+                    cuenta_contable LIKE '%%Gasto%%' OR
+                    cuenta_contable LIKE '%%Reparaciones%%'
+                )
+                AND cuenta_contable NOT LIKE '%%Cuentas por Cobrar%%'
+                AND cuenta_contable NOT LIKE '%%Chery%%'
+                {filtro_fecha_sql}
+                GROUP BY cuenta_contable
+                HAVING total_gasto > 0
+                ORDER BY total_gasto DESC
+                LIMIT 5
+            """
+
+            df_g = ejecutar_consulta(query_gastos_puro, conn_g, params=params_sql)
+            if df_g is None or df_g.empty:
+                return []
+
+            filas = []
+            for _, r in df_g.iterrows():
+                nombre = str(r.get("nombre_cuenta") or "").strip()
+                monto = float(pd.to_numeric(r.get("total_gasto"), errors="coerce") or 0.0)
+                if nombre and monto > 0:
+                    filas.append({"nombre_cuenta": nombre, "total_gasto": monto})
+            return filas
+        except Exception:
+            return []
+        finally:
+            if conn_g and hasattr(conn_g, "close"):
+                try:
+                    conn_g.close()
+                except Exception:
+                    pass
+
+
+    db = st.session_state.get("DB_ACTUAL") or st.session_state.get("db_actual")
+
+    if not db or str(db).strip() in ("", "{db}", "None"):
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
     else:
+        db = str(db).strip()
         st.markdown("### 📊 Top 5 Cuentas de Costos y Gastos")
         st.caption("Estructura consolidada de cuentas de detalle de costos y gastos.")
 
-        hoy_g = datetime.date.today()
+        hoy_g = dt_mod.date.today()
         primer_dia_g = hoy_g.replace(day=1)
-        
+
         col_g1, col_g2, col_g3 = st.columns([2, 2, 1])
         with col_g1:
-            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key="g_f_ini_html_clean")
+            fecha_ini_g = st.date_input("Fecha Desde:", primer_dia_g, key=f"g_f_ini_html_clean_{db}")
         with col_g2:
-            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key="g_f_fin_html_clean")
+            fecha_fin_g = st.date_input("Fecha Hasta:", hoy_g, key=f"g_f_fin_html_clean_{db}")
         with col_g3:
-            ver_historico_p = st.checkbox("¿Ver Todo?", value=False, key="chk_hist_html_clean", help="Muestra todo el acumulado histórico si el periodo actual está vacío.")
+            ver_historico_p = st.checkbox(
+                "¿Ver Todo?",
+                value=False,
+                key=f"chk_hist_html_clean_{db}",
+                help="Muestra todo el acumulado histórico si el periodo actual está vacío.",
+            )
+
+        if isinstance(fecha_ini_g, (list, tuple)):
+            fecha_ini_g = fecha_ini_g[0] if fecha_ini_g else primer_dia_g
+        if isinstance(fecha_fin_g, (list, tuple)):
+            fecha_fin_g = fecha_fin_g[0] if fecha_fin_g else hoy_g
 
         if fecha_ini_g > fecha_fin_g:
             st.warning("⚠️ La fecha de inicio no puede ser mayor que la fecha final.")
         else:
             try:
-                conn = conectar_db(db)
-                if conn:
-                    conn.ping(reconnect=True)
-                    
-                    f_ini_str_g = fecha_ini_g.strftime('%Y-%m-%d')
-                    f_fin_str_g = fecha_fin_g.strftime('%Y-%m-%d')
-                    
-                    filtro_fecha_sql = "" if ver_historico_p else f"AND fecha BETWEEN '{f_ini_str_g}' AND '{f_fin_str_g}'"
-                    
-                    # Consulta filtrando palabras clave típicas de costos y gastos
-                    query_gastos_puro = f"""
-                        SELECT 
-                            cuenta_contable AS nombre_cuenta,
-                            SUM(debe - haber) AS total_gasto
-                        FROM asientos_contables
-                        WHERE (
-                            cuenta_contable LIKE '%Costo%' OR 
-                            cuenta_contable LIKE '%Iva Credito Fiscal (Ingresos Exentos)%' OR 
-                            cuenta_contable LIKE '%Gasto%' OR 
-                            cuenta_contable LIKE '%Reparaciones%'
+                f_ini_str_g = fecha_ini_g.strftime("%Y-%m-%d")
+                f_fin_str_g = fecha_fin_g.strftime("%Y-%m-%d")
+
+                filas_gastos = _consultar_top5_gastos_cacheado(
+                    db, f_ini_str_g, f_fin_str_g, bool(ver_historico_p)
+                )
+
+                if filas_gastos:
+                    total_general_gastos = sum(item["total_gasto"] for item in filas_gastos)
+
+                    with st.container(border=True):
+                        st.metric("Total General Costos y Gastos", _formato_venezuela_gasto(total_general_gastos))
+
+                    st.markdown("#### 📋 Top 5 Detalle de Costos y Gastos")
+
+                    filas_html = ""
+                    for idx, item in enumerate(filas_gastos):
+                        bg_color = "#fdfdfd" if idx % 2 == 0 else "#ffffff"
+                        nombre_seguro = html.escape(item["nombre_cuenta"])
+                        monto_fmt = _formato_venezuela_gasto(item["total_gasto"])
+                        porc_val = (item["total_gasto"] / total_general_gastos * 100.0) if total_general_gastos > 0 else 0.0
+                        porc_fmt = f"{porc_val:.1f}%"
+                        filas_html += (
+                            f'<tr style="background-color: {bg_color}; border-bottom: 1px solid #f1f1f1;">'
+                            f'<td style="padding: 12px; font-weight: 500; color: #2A9D8F;">{nombre_seguro}</td>'
+                            f'<td style="padding: 12px; text-align: right; font-weight: 600; color: #264653;">{monto_fmt}</td>'
+                            f'<td style="padding: 12px; text-align: right; color: #666666;">{porc_fmt}</td>'
+                            f'</tr>'
                         )
-                        AND cuenta_contable NOT LIKE '%Cuentas por Cobrar%'
-                        AND cuenta_contable NOT LIKE '%Chery%'
-                        {filtro_fecha_sql}
-                        GROUP BY cuenta_contable
-                        HAVING total_gasto > 0
-                        ORDER BY total_gasto DESC
-                        LIMIT 5
-                    """
-                    
-                    df_gastos = pd.DataFrame()
-                    try:
-                        df_gastos = pd.read_sql(query_gastos_puro, conn)
-                    except Exception as sql_err:
-                        st.error(f"Error en la consulta SQL: {sql_err}")
-                    
-                    conn.close()
 
-                    def formato_venezuela_gasto(val):
-                        try:
-                            s = f"{float(val):,.2f}"
-                            return "Bs. " + s.replace(',', 'X').replace('.', ',').replace('X', '.')
-                        except Exception:
-                            return "Bs. 0,00"
+                    html_table = (
+                        f'<div style="overflow-x: auto; border-radius: 8px; border: 1px solid #e0e0e0; background-color: #ffffff; padding: 4px; margin-bottom: 20px;">'
+                        f'<table style="width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; color: #333333;">'
+                        f'<thead><tr style="background-color: #f8f9fa; border-bottom: 2px solid #dee2e6; text-align: left;">'
+                        f'<th style="padding: 12px; font-weight: 600; color: #2c3e50;">Denominación Contable</th>'
+                        f'<th style="padding: 12px; font-weight: 600; color: #2c3e50; text-align: right;">Total Cuenta (Bs.)</th>'
+                        f'<th style="padding: 12px; font-weight: 600; color: #2c3e50; text-align: right;">Peso (%)</th>'
+                        f'</tr></thead><tbody>{filas_html}</tbody></table></div>'
+                    )
 
-                    if not df_gastos.empty and len(df_gastos) > 0:
-                        total_general_gastos = df_gastos['total_gasto'].sum()
-                        df_gastos['porcentaje'] = (df_gastos['total_gasto'] / total_general_gastos) * 100
-
-                        with st.container(border=True):
-                            st.metric("Total General Costos y Gastos", formato_venezuela_gasto(total_general_gastos))
-
-                        st.markdown("#### 📋 Top 5 Detalle de Costos y Gastos")
-                        
-                        # Generamos las filas en una sola línea compacta
-                        filas_html = ""
-                        for idx, row in df_gastos.iterrows():
-                            bg_color = "#fdfdfd" if idx % 2 == 0 else "#ffffff"
-                            monto_fmt = formato_venezuela_gasto(row['total_gasto'])
-                            porc_fmt = f"{row['porcentaje']:.1f}%"
-                            filas_html += f'<tr style="background-color: {bg_color}; border-bottom: 1px solid #f1f1f1;"><td style="padding: 12px; font-weight: 500; color: #2A9D8F;">{row["nombre_cuenta"]}</td><td style="padding: 12px; text-align: right; font-weight: 600; color: #264653;">{monto_fmt}</td><td style="padding: 12px; text-align: right; color: #666666;">{porc_fmt}</td></tr>'
-
-                        # Estructura HTML unificada en una sola línea para que Streamlit la renderice perfectamente
-                        html_table = f'<div style="overflow-x: auto; border-radius: 8px; border: 1px solid #e0e0e0; background-color: #ffffff; padding: 4px; margin-bottom: 20px;"><table style="width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 14px; color: #333333;"><thead><tr style="background-color: #f8f9fa; border-bottom: 2px solid #dee2e6; text-align: left;"><th style="padding: 12px; font-weight: 600; color: #2c3e50;">Denominación Contable</th><th style="padding: 12px; font-weight: 600; color: #2c3e50; text-align: right;">Total Cuenta (Bs.)</th><th style="padding: 12px; font-weight: 600; color: #2c3e50; text-align: right;">Peso (%)</th></tr></thead><tbody>{filas_html}</tbody></table></div>'
-                        
-                        st.markdown(html_table, unsafe_allow_html=True)
-
-                    else:
-                        with st.container(border=True):
-                            st.info("ℹ️ No se registran movimientos en cuentas de costos y gastos para este periodo.")
-
+                    st.markdown(html_table, unsafe_allow_html=True)
                 else:
-                    st.error("No se pudo establecer conexión con la base de datos seleccionada.")
+                    with st.container(border=True):
+                        st.info("ℹ️ No se registran movimientos en cuentas de costos y gastos para este periodo.")
             except Exception as err:
                 st.error(f"Ocurrió un error al cargar el análisis: {err}")
 
@@ -13560,12 +13884,6 @@ if opcion_menu == "🏠 Inicio":
     import calendar
     import datetime as dt
     import pandas as pd
-
-
-    import calendar
-    import datetime as dt
-    import pandas as pd
-
 
     def obtener_deuda_proveedores_cierre_mes(conn, anio_actual, mes_num_actual, cuenta_codigo="2.1.1.01.001"):
         """
