@@ -13496,53 +13496,54 @@ if opcion_menu == "🏠 Inicio":
         return b""
 
 
-    # --- 1. Estado de Flujo de Efectivo (IFRS / VEN-NIF)
-    db = st.session_state.get("DB_ACTUAL")
-
-    if not db or str(db).strip() in ("", "{db}", "None"):
+    def _resolver_contexto_flujo(prefijo: str, mes: int, titulo_desde: str, titulo_hasta: str):
+    db_val = st.session_state.get("DB_ACTUAL")
+    if not db_val or str(db_val).strip() in ("", "{db}", "None"):
         st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
-    else:
-        db = str(db).strip()
-        try:
-            empresa_actual = obtener_datos_empresa_activa() or {}
-        except Exception:
-            empresa_actual = {}
+        return None
 
-        nombre_emp_flujo = (
-            str(empresa_actual.get("nombre") or empresa_actual.get("nombre_empresa") or "").strip()
-            or str(st.session_state.get("CLIENTE_NOMBRE") or db).strip()
-        )
+    db_limpia = str(db_val).strip()
+    try:
+        emp_data = obtener_datos_empresa_activa() or {}
+    except Exception:
+        emp_data = {}
 
-        st.markdown("### 📊 Módulo de Tesorería y Flujo de Caja Real (Detallado)")
+    nombre_emp = (
+        str(emp_data.get("nombre") or emp_data.get("nombre_empresa") or "").strip()
+        or str(st.session_state.get("CLIENTE_NOMBRE") or db_limpia).strip()
+    )
 
-        anio_fiscal = _safe_int(st.session_state.get("ejercicio_fiscal"), datetime.today().year)
-        mes_flujo = 7
-        ultimo_dia_flujo = calendar.monthrange(anio_fiscal, mes_flujo)[1]
+    anio_fis = _safe_int(st.session_state.get("ejercicio_fiscal"), datetime.today().year)
+    ultimo_dia = calendar.monthrange(anio_fis, mes)[1]
 
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            fecha_ini = st.date_input("Fecha Desde:", date(anio_fiscal, mes_flujo, 1), key=f"fc_fecha_ini_{db}")
-        with col_f2:
-            fecha_fin = st.date_input("Fecha Hasta:", date(anio_fiscal, mes_flujo, ultimo_dia_flujo), key=f"fc_fecha_fin_{db}")
+    col_desde, col_hasta = st.columns(2)
+    with col_desde:
+        f_ini = st.date_input(titulo_desde, date(anio_fis, mes, 1), key=f"{prefijo}_ini_{db_limpia}")
+    with col_hasta:
+        f_fin = st.date_input(titulo_hasta, date(anio_fis, mes, ultimo_dia), key=f"{prefijo}_fin_{db_limpia}")
 
-        if isinstance(fecha_ini, (list, tuple)):
-            fecha_ini = fecha_ini[0] if fecha_ini else date(anio_fiscal, mes_flujo, 1)
-        if isinstance(fecha_fin, (list, tuple)):
-            fecha_fin = fecha_fin[0] if fecha_fin else date(anio_fiscal, mes_flujo, ultimo_dia_flujo)
+    if isinstance(f_ini, (list, tuple)):
+        f_ini = f_ini[0] if f_ini else date(anio_fis, mes, 1)
+    if isinstance(f_fin, (list, tuple)):
+        f_fin = f_fin[0] if f_fin else date(anio_fis, mes, ultimo_dia)
 
-        if st.button("🔄 Calcular Flujo de Caja Detallado", key=f"btn_calc_fc_{db}"):
-            st.session_state["fc_activo_params"] = (
-                db,
-                fecha_ini.strftime("%Y-%m-%d"),
-                fecha_fin.strftime("%Y-%m-%d"),
-                nombre_emp_flujo,
-            )
+    return db_limpia, nombre_emp, f_ini.strftime("%Y-%m-%d"), f_fin.strftime("%Y-%m-%d")
+
+
+    # --- 1. MÓDULO DE TESORERÍA Y FLUJO DE CAJA REAL (DETALLADO) ---
+    st.markdown("### 📊 Módulo de Tesorería y Flujo de Caja Real (Detallado)")
+    ctx_fc = _resolver_contexto_flujo("fc_fecha", 7, "Fecha Desde:", "Fecha Hasta:")
+
+    if ctx_fc:
+        db_fc, nombre_emp_fc, f_ini_fc_ui, f_fin_fc_ui = ctx_fc
+        if st.button("🔄 Calcular Flujo de Caja Detallado", key=f"btn_calc_fc_{db_fc}"):
+            st.session_state["fc_activo_params"] = (db_fc, f_ini_fc_ui, f_fin_fc_ui, nombre_emp_fc)
 
         fc_params = st.session_state.get("fc_activo_params")
-        if fc_params and fc_params[0] == db:
+        if fc_params and fc_params[0] == db_fc:
             _, f_ini_str, f_fin_str, emp_guardada = fc_params
             try:
-                datos_flujo = _calcular_flujo_caja_cacheado(db, f_ini_str, f_fin_str)
+                datos_flujo = _calcular_flujo_caja_cacheado(db_fc, f_ini_str, f_fin_str)
 
                 saldo_ini_val = _safe_float(datos_flujo.get("saldo_inicial"), 0.0)
                 tot_ent_val = _safe_float(datos_flujo.get("total_entradas"), 0.0)
@@ -13558,7 +13559,7 @@ if opcion_menu == "🏠 Inicio":
 
                 pdf_flujo = _generar_pdf_flujo_cacheado(
                     emp_guardada,
-                    db,
+                    db_fc,
                     f_ini_str,
                     f_fin_str,
                     saldo_ini_val,
@@ -13571,7 +13572,7 @@ if opcion_menu == "🏠 Inicio":
                 st.download_button(
                     label="📄 Descargar Estado de Flujo de Caja Detallado (PDF)",
                     data=pdf_flujo,
-                    file_name=f"Flujo_de_Caja_Detallado_{db}_{f_ini_str}_{f_fin_str}.pdf",
+                    file_name=f"Flujo_de_Caja_Detallado_{db_fc}_{f_ini_str}_{f_fin_str}.pdf",
                     mime="application/pdf",
                     use_container_width=True,
                     key="btn_download_flujo_detallado",
@@ -13582,56 +13583,23 @@ if opcion_menu == "🏠 Inicio":
     st.divider()
 
     # --- 2. ESTADO DE FLUJO DE EFECTIVO (IFRS / VEN-NIF) ---
-    db = st.session_state.get("DB_ACTUAL")
+    st.markdown("### 📊 Estado de Flujo de Efectivo (Método Indirecto)")
+    st.info(
+        "Este reporte ajusta la utilidad neta con partidas que no implican efectivo y variaciones en el capital de trabajo, "
+        "desglosando las actividades de Operación, Inversión y Financiamiento."
+    )
+    ctx_fe = _resolver_contexto_flujo("fe", 7, "Fecha Desde (Flujo Efectivo):", "Fecha Hasta (Flujo Efectivo):")
 
-    if not db or str(db).strip() in ("", "{db}", "None"):
-        st.warning("⚠️ Por favor, selecciona una empresa o base de datos activa en la barra lateral.")
-    else:
-        db = str(db).strip()
-        try:
-            empresa_actual_fe = obtener_datos_empresa_activa() or {}
-        except Exception:
-            empresa_actual_fe = {}
-
-        nombre_emp_fe = (
-            str(empresa_actual_fe.get("nombre") or empresa_actual_fe.get("nombre_empresa") or "").strip()
-            or str(st.session_state.get("CLIENTE_NOMBRE") or db).strip()
-        )
-
-        st.markdown("### 📊 Estado de Flujo de Efectivo (Método Indirecto)")
-        st.info(
-            "Este reporte ajusta la utilidad neta con partidas que no implican efectivo y variaciones en el capital de trabajo, "
-            "desglosando las actividades de Operación, Inversión y Financiamiento."
-        )
-
-        anio_fiscal_fe = _safe_int(st.session_state.get("ejercicio_fiscal"), datetime.today().year)
-        mes_fe = 7
-        ultimo_dia_fe = calendar.monthrange(anio_fiscal_fe, mes_fe)[1]
-
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            fecha_ini_fe = st.date_input("Fecha Desde (Flujo Efectivo):", date(anio_fiscal_fe, mes_fe, 1), key=f"fe_ini_{db}")
-        with col_f2:
-            fecha_fin_fe = st.date_input("Fecha Hasta (Flujo Efectivo):", date(anio_fiscal_fe, mes_fe, ultimo_dia_fe), key=f"fe_fin_{db}")
-
-        if isinstance(fecha_ini_fe, (list, tuple)):
-            fecha_ini_fe = fecha_ini_fe[0] if fecha_ini_fe else date(anio_fiscal_fe, mes_fe, 1)
-        if isinstance(fecha_fin_fe, (list, tuple)):
-            fecha_fin_fe = fecha_fin_fe[0] if fecha_fin_fe else date(anio_fiscal_fe, mes_fe, ultimo_dia_fe)
-
-        if st.button("🔄 Calcular Flujo de Efectivo (Método Indirecto)", key=f"btn_calc_fe_{db}"):
-            st.session_state["fe_activo_params"] = (
-                db,
-                fecha_ini_fe.strftime("%Y-%m-%d"),
-                fecha_fin_fe.strftime("%Y-%m-%d"),
-                nombre_emp_fe,
-            )
+    if ctx_fe:
+        db_fe, nombre_emp_fe, f_ini_fe_ui, f_fin_fe_ui = ctx_fe
+        if st.button("🔄 Calcular Flujo de Efectivo (Método Indirecto)", key=f"btn_calc_fe_{db_fe}"):
+            st.session_state["fe_activo_params"] = (db_fe, f_ini_fe_ui, f_fin_fe_ui, nombre_emp_fe)
 
         fe_params = st.session_state.get("fe_activo_params")
-        if fe_params and fe_params[0] == db:
+        if fe_params and fe_params[0] == db_fe:
             _, f_ini_fe_str, f_fin_fe_str, emp_guardada_fe = fe_params
             try:
-                datos_efectivo = _calcular_flujo_efectivo_cacheado(db, f_ini_fe_str, f_fin_fe_str)
+                datos_efectivo = _calcular_flujo_efectivo_cacheado(db_fe, f_ini_fe_str, f_fin_fe_str)
 
                 u_neta_val = _safe_float(datos_efectivo.get("utilidad_neta"), 0.0)
                 f_op_val = _safe_float(datos_efectivo.get("flujo_operacion"), 0.0)
@@ -13666,7 +13634,7 @@ if opcion_menu == "🏠 Inicio":
 
                 pdf_efectivo = _generar_pdf_flujo_efectivo_cacheado(
                     emp_guardada_fe,
-                    db,
+                    db_fe,
                     f_ini_fe_str,
                     f_fin_fe_str,
                     u_neta_val,
@@ -13682,14 +13650,13 @@ if opcion_menu == "🏠 Inicio":
                 st.download_button(
                     label="📄 Descargar Estado de Flujo de Efectivo (PDF)",
                     data=pdf_efectivo,
-                    file_name=f"Flujo_Efectivo_Indirecto_{db}_{f_ini_fe_str}_{f_fin_fe_str}.pdf",
+                    file_name=f"Flujo_Efectivo_Indirecto_{db_fe}_{f_ini_fe_str}_{f_fin_fe_str}.pdf",
                     mime="application/pdf",
                     use_container_width=True,
                     key="btn_download_flujo_efectivo",
                 )
             except Exception as err:
                 st.error(f"Ocurrió un error al procesar el reporte de flujo de efectivo: {err}")
-
     st.divider()
 
     import datetime as dt_mod
