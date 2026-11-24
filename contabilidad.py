@@ -1512,6 +1512,9 @@ def login_screen():
 # ==============================================================================
 # 1. PANEL DE ADMINISTRACIÓN DE USUARIOS (Con aislamiento por Firma)
 # ==============================================================================
+# ==============================================================================
+# 1. PANEL DE ADMINISTRACIÓN DE USUARIOS (Con aislamiento por Firma)
+# ==============================================================================
 def panel_administracion(conn, rol_usuario, firma_id):
     if rol_usuario == "admin":
         st.header("⚙️ Gestión Global de Usuarios y Accesos (Super Admin)")
@@ -1527,6 +1530,7 @@ def panel_administracion(conn, rol_usuario, firma_id):
             with col1:
                 nuevo_u = st.text_input("Nombre de Usuario", help="Ej: operador_juan o contador_maria")
                 nueva_p = st.text_input("Contraseña", type="password")
+                tel_whatsapp = st.text_input("Teléfono WhatsApp (opcional)", placeholder="Ej: 584121234567")
 
             with col2:
                 if rol_usuario == "admin":
@@ -1536,13 +1540,17 @@ def panel_administracion(conn, rol_usuario, firma_id):
 
                 try:
                     if rol_usuario == "admin":
-                        query_cli = "SELECT id, nombre_empresa FROM control_central.clientes"
+                        query_cli = "SELECT id, nombre_empresa, db_nombre FROM control_central.clientes"
                         df_cli = ejecutar_consulta(query_cli, conn)
                     else:
-                        query_cli = "SELECT id, nombre_empresa FROM control_central.clientes WHERE firma_id = %s"
+                        query_cli = "SELECT id, nombre_empresa, db_nombre FROM control_central.clientes WHERE firma_id = %s"
                         df_cli = ejecutar_consulta(query_cli, conn, params=(firma_id,))
 
-                    opciones_clientes = {row["nombre_empresa"]: row["id"] for _, row in df_cli.iterrows()} if df_cli is not None and not df_cli.empty else {}
+                    opciones_clientes = (
+                        {row["nombre_empresa"]: (row["id"], row.get("db_nombre")) for _, row in df_cli.iterrows()}
+                        if df_cli is not None and not df_cli.empty
+                        else {}
+                    )
 
                     nombre_sel = st.selectbox(
                         "Asociar a Empresa / Cliente",
@@ -1561,17 +1569,33 @@ def panel_administracion(conn, rol_usuario, firma_id):
                 else:
                     try:
                         salt = bcrypt.gensalt()
-                        hash_cifrado = bcrypt.hashpw(nueva_p.encode("utf-8"), salt)
+                        hash_cifrado = bcrypt.hashpw(nueva_p.encode("utf-8"), salt).decode("utf-8")
 
-                        c_id = opciones_clientes.get(nombre_sel) if nombre_sel != "Ninguna / Acceso Total" else None
+                        c_id, db_cli = (
+                            opciones_clientes.get(nombre_sel, (None, None))
+                            if nombre_sel != "Ninguna / Acceso Total"
+                            else (None, None)
+                        )
+                        tel_limpio = tel_whatsapp.strip() if tel_whatsapp else None
 
                         cursor = conn.cursor()
                         if rol_usuario == "admin":
-                            sql = """INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id) VALUES (%s, %s, %s, %s)"""
-                            cursor.execute(sql, (nuevo_u.strip(), hash_cifrado.decode("utf-8"), rol_asignado, c_id))
+                            sql = """
+                                INSERT INTO control_central.usuarios
+                                    (usuario, clave_hash, rol, cliente_id, db_nombre, estado, telefono_whatsapp)
+                                VALUES (%s, %s, %s, %s, %s, 'activo', %s)
+                            """
+                            cursor.execute(sql, (nuevo_u.strip(), hash_cifrado, rol_asignado, c_id, db_cli, tel_limpio))
                         else:
-                            sql = """INSERT INTO control_central.usuarios (usuario, clave_hash, rol, cliente_id, firma_id) VALUES (%s, %s, %s, %s, %s)"""
-                            cursor.execute(sql, (nuevo_u.strip(), hash_cifrado.decode("utf-8"), rol_asignado, c_id, firma_id))
+                            sql = """
+                                INSERT INTO control_central.usuarios
+                                    (usuario, clave_hash, rol, cliente_id, db_nombre, estado, telefono_whatsapp, firma_id)
+                                VALUES (%s, %s, %s, %s, %s, 'activo', %s, %s)
+                            """
+                            cursor.execute(
+                                sql,
+                                (nuevo_u.strip(), hash_cifrado, rol_asignado, c_id, db_cli, tel_limpio, firma_id),
+                            )
 
                         conn.commit()
                         cursor.close()
@@ -1588,12 +1612,22 @@ def panel_administracion(conn, rol_usuario, firma_id):
     # 2. TABLA DE USUARIOS ACTUALES (Filtrada por permisos)
     st.subheader("👥 Usuarios Registrados")
     df_usuarios = None
-    tiene_columna_activo = True
 
     try:
         if rol_usuario == "admin":
             query_view = """
-                SELECT u.id, u.usuario, u.rol, c.nombre_empresa AS empresa_asignada, u.activo
+                SELECT
+                    u.id,
+                    u.usuario,
+                    u.rol,
+                    COALESCE(c.nombre_empresa, u.db_nombre, 'Acceso Total') AS empresa_asignada,
+                    u.db_nombre,
+                    COALESCE(u.estado, 'activo') AS estado,
+                    u.telefono_whatsapp,
+                    CASE
+                        WHEN u.clave_hash IS NOT NULL AND u.clave_hash != '' THEN '•••••••• (Cifrada)'
+                        ELSE '⚠️ Sin clave'
+                    END AS contrasena_estado
                 FROM control_central.usuarios u
                 LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
                 ORDER BY u.id DESC
@@ -1601,172 +1635,146 @@ def panel_administracion(conn, rol_usuario, firma_id):
             df_usuarios = ejecutar_consulta(query_view, conn)
         else:
             query_view = """
-                SELECT u.id, u.usuario, u.rol, c.nombre_empresa AS empresa_asignada, u.activo
+                SELECT
+                    u.id,
+                    u.usuario,
+                    u.rol,
+                    COALESCE(c.nombre_empresa, u.db_nombre, 'Acceso Total') AS empresa_asignada,
+                    u.db_nombre,
+                    COALESCE(u.estado, 'activo') AS estado,
+                    u.telefono_whatsapp,
+                    CASE
+                        WHEN u.clave_hash IS NOT NULL AND u.clave_hash != '' THEN '•••••••• (Cifrada)'
+                        ELSE '⚠️ Sin clave'
+                    END AS contrasena_estado
                 FROM control_central.usuarios u
                 LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
                 WHERE u.firma_id = %s
                 ORDER BY u.id DESC
             """
             df_usuarios = ejecutar_consulta(query_view, conn, params=(firma_id,))
-    except Exception:
-        tiene_columna_activo = False
-        try:
-            if rol_usuario == "admin":
-                query_view_fb = """
-                    SELECT u.id, u.usuario, u.rol, c.nombre_empresa AS empresa_asignada
-                    FROM control_central.usuarios u
-                    LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
-                    ORDER BY u.id DESC
-                """
-                df_usuarios = ejecutar_consulta(query_view_fb, conn)
-            else:
-                query_view_fb = """
-                    SELECT u.id, u.usuario, u.rol, c.nombre_empresa AS empresa_asignada
-                    FROM control_central.usuarios u
-                    LEFT JOIN control_central.clientes c ON u.cliente_id = c.id
-                    WHERE u.firma_id = %s
-                    ORDER BY u.id DESC
-                """
-                df_usuarios = ejecutar_consulta(query_view_fb, conn, params=(firma_id,))
-        except Exception:
-            df_usuarios = None
+    except Exception as e:
+        st.warning(f"⚠️ No se pudieron cargar los usuarios: {e}")
 
     if df_usuarios is not None and not df_usuarios.empty:
         df_mostrar = df_usuarios.copy()
-        if "activo" in df_mostrar.columns:
-            df_mostrar["estado_acceso"] = df_mostrar["activo"].apply(
-                lambda x: "🟢 Activa" if int(x or 0) == 1 else "🔴 Suspendida"
-            )
-            df_mostrar["contraseña"] = df_mostrar["activo"].apply(
-                lambda x: "•••••••• (Cifrada)" if int(x or 0) == 1 else "🔒 Suspendida"
-            )
-            cols_visibles = ["usuario", "rol", "empresa_asignada", "estado_acceso", "contraseña"]
-        else:
-            df_mostrar["estado_acceso"] = "🟢 Activa"
-            df_mostrar["contraseña"] = "•••••••• (Cifrada)"
-            cols_visibles = ["usuario", "rol", "empresa_asignada", "estado_acceso", "contraseña"]
-
+        df_mostrar["estado_visual"] = df_mostrar["estado"].apply(
+            lambda x: "🔴 Suspendido" if str(x).strip().lower() in ("suspendido", "suspendida", "inactivo", "0") else "🟢 Activo"
+        )
+        cols_visibles = ["usuario", "rol", "empresa_asignada", "db_nombre", "telefono_whatsapp", "estado_visual", "contrasena_estado"]
         st.dataframe(df_mostrar[cols_visibles], width="stretch", hide_index=True)
-
-        if not tiene_columna_activo:
-            st.caption(
-                "Nota: para suspender/reactivar usuarios en base de datos, agrega la columna `activo` con: "
-                "`ALTER TABLE control_central.usuarios ADD COLUMN activo TINYINT(1) NOT NULL DEFAULT 1;`"
-            )
 
         # 3. MODIFICAR CONTRASEÑA Y SUSPENDER / REACTIVAR USUARIO
         st.markdown("---")
         st.subheader("🔐 Modificar Contraseña o Suspender Usuario")
 
         mapa_usuarios = {
-            f"{row['usuario']} ({row['rol']})": int(row["id"])
+            f"{row['usuario']} ({row['rol']}) — [{str(row['estado']).lower()}]": int(row["id"])
             for _, row in df_usuarios.iterrows()
-            if "id" in row and pd.notna(row["id"])
+            if pd.notna(row["id"])
         }
 
-        if mapa_usuarios:
-            usuario_sel_label = st.selectbox(
-                "Seleccionar Usuario",
-                list(mapa_usuarios.keys()),
-                key="admin_sel_usuario_gestion",
-            )
-            uid_sel = mapa_usuarios[usuario_sel_label]
-            fila_sel = df_usuarios[df_usuarios["id"] == uid_sel].iloc[0]
-            estado_actual_num = int(fila_sel["activo"]) if "activo" in fila_sel and pd.notna(fila_sel["activo"]) else 1
+        usuario_sel_label = st.selectbox(
+            "Seleccionar Usuario",
+            list(mapa_usuarios.keys()),
+            key="admin_sel_usuario_gestion",
+        )
+        uid_sel = mapa_usuarios[usuario_sel_label]
+        fila_sel = df_usuarios[df_usuarios["id"] == uid_sel].iloc[0]
+        estado_actual = str(fila_sel["estado"] or "activo").strip().lower()
+        esta_suspendido = estado_actual in ("suspendido", "suspendida", "inactivo", "0")
 
-            col_pwd, col_susp = st.columns(2)
+        col_pwd, col_susp = st.columns(2)
 
-            with col_pwd:
-                with st.form("form_cambiar_clave_usuario"):
-                    st.markdown("**Cambiar Contraseña**")
-                    nueva_clave_u = st.text_input("Nueva Contraseña", type="password", key="admin_nueva_clave")
-                    confirmar_clave_u = st.text_input("Confirmar Contraseña", type="password", key="admin_conf_clave")
-                    btn_cambiar_pwd = st.form_submit_button("Actualizar Contraseña")
+        with col_pwd:
+            with st.form("form_cambiar_clave_usuario"):
+                st.markdown("**Cambiar Contraseña**")
+                nueva_clave_u = st.text_input("Nueva Contraseña", type="password", key="admin_nueva_clave")
+                confirmar_clave_u = st.text_input("Confirmar Contraseña", type="password", key="admin_conf_clave")
+                btn_cambiar_pwd = st.form_submit_button("Actualizar Contraseña")
 
-                    if btn_cambiar_pwd:
-                        if not nueva_clave_u:
-                            st.error("❌ Escribe la nueva contraseña.")
-                        elif nueva_clave_u != confirmar_clave_u:
-                            st.error("❌ Las contraseñas no coinciden.")
+                if btn_cambiar_pwd:
+                    if not nueva_clave_u:
+                        st.error("❌ Escribe la nueva contraseña.")
+                    elif nueva_clave_u != confirmar_clave_u:
+                        st.error("❌ Las contraseñas no coinciden.")
+                    else:
+                        try:
+                            nuevo_hash = bcrypt.hashpw(nueva_clave_u.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+                            cursor = conn.cursor()
+                            if rol_usuario == "admin":
+                                cursor.execute(
+                                    "UPDATE control_central.usuarios SET clave_hash = %s WHERE id = %s",
+                                    (nuevo_hash, uid_sel),
+                                )
+                            else:
+                                cursor.execute(
+                                    "UPDATE control_central.usuarios SET clave_hash = %s WHERE id = %s AND firma_id = %s",
+                                    (nuevo_hash, uid_sel, firma_id),
+                                )
+                            conn.commit()
+                            cursor.close()
+                            st.success(f"✅ Contraseña actualizada para {fila_sel['usuario']}.")
+                            st.rerun()
+                        except Exception as e:
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
+                            st.error(f"❌ No se pudo actualizar la contraseña: {e}")
+
+        with col_susp:
+            st.markdown("**Estado / Suspensión de Usuario**")
+            if not esta_suspendido:
+                st.info("Estado actual: **activo** (puede iniciar sesión).")
+                if st.button("🚫 Suspender Usuario", type="secondary", key="admin_btn_suspender"):
+                    try:
+                        cursor = conn.cursor()
+                        if rol_usuario == "admin":
+                            cursor.execute(
+                                "UPDATE control_central.usuarios SET estado = 'suspendido' WHERE id = %s",
+                                (uid_sel,),
+                            )
                         else:
-                            try:
-                                nuevo_hash = bcrypt.hashpw(nueva_clave_u.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-                                cursor = conn.cursor()
-                                if rol_usuario == "admin":
-                                    cursor.execute(
-                                        "UPDATE control_central.usuarios SET clave_hash = %s WHERE id = %s",
-                                        (nuevo_hash, uid_sel),
-                                    )
-                                else:
-                                    cursor.execute(
-                                        "UPDATE control_central.usuarios SET clave_hash = %s WHERE id = %s AND firma_id = %s",
-                                        (nuevo_hash, uid_sel, firma_id),
-                                    )
-                                conn.commit()
-                                cursor.close()
-                                st.success(f"✅ Contraseña actualizada para {usuario_sel_label}.")
-                                st.rerun()
-                            except Exception as e:
-                                try:
-                                    conn.rollback()
-                                except Exception:
-                                    pass
-                                st.error(f"❌ No se pudo actualizar la contraseña: {e}")
-
-            with col_susp:
-                st.markdown("**Estado / Suspensión de Acceso**")
-                if estado_actual_num == 1:
-                    st.info("Estado actual: **Activo** (puede iniciar sesión).")
-                    btn_suspender = st.button("🚫 Suspender Usuario", type="secondary", key="admin_btn_suspender")
-                    if btn_suspender:
+                            cursor.execute(
+                                "UPDATE control_central.usuarios SET estado = 'suspendido' WHERE id = %s AND firma_id = %s",
+                                (uid_sel, firma_id),
+                            )
+                        conn.commit()
+                        cursor.close()
+                        st.success(f"🚫 Usuario '{fila_sel['usuario']}' suspendido.")
+                        st.rerun()
+                    except Exception as e:
                         try:
-                            cursor = conn.cursor()
-                            if rol_usuario == "admin":
-                                cursor.execute(
-                                    "UPDATE control_central.usuarios SET activo = 0 WHERE id = %s",
-                                    (uid_sel,),
-                                )
-                            else:
-                                cursor.execute(
-                                    "UPDATE control_central.usuarios SET activo = 0 WHERE id = %s AND firma_id = %s",
-                                    (uid_sel, firma_id),
-                                )
-                            conn.commit()
-                            cursor.close()
-                            st.success(f"🚫 Usuario {usuario_sel_label} suspendido.")
-                            st.rerun()
-                        except Exception as e:
-                            try:
-                                conn.rollback()
-                            except Exception:
-                                pass
-                            st.error(f"❌ Error al suspender (verifica si existe la columna `activo`): {e}")
-                else:
-                    st.warning("Estado actual: **Suspendido** (acceso bloqueado).")
-                    btn_reactivar = st.button("✅ Reactivar Usuario", type="primary", key="admin_btn_reactivar")
-                    if btn_reactivar:
+                            conn.rollback()
+                        except Exception:
+                            pass
+                        st.error(f"❌ Error al suspender usuario: {e}")
+            else:
+                st.warning("Estado actual: **suspendido** (acceso bloqueado).")
+                if st.button("✅ Reactivar Usuario", type="primary", key="admin_btn_reactivar"):
+                    try:
+                        cursor = conn.cursor()
+                        if rol_usuario == "admin":
+                            cursor.execute(
+                                "UPDATE control_central.usuarios SET estado = 'activo' WHERE id = %s",
+                                (uid_sel,),
+                            )
+                        else:
+                            cursor.execute(
+                                "UPDATE control_central.usuarios SET estado = 'activo' WHERE id = %s AND firma_id = %s",
+                                (uid_sel, firma_id),
+                            )
+                        conn.commit()
+                        cursor.close()
+                        st.success(f"✅ Usuario '{fila_sel['usuario']}' reactivado.")
+                        st.rerun()
+                    except Exception as e:
                         try:
-                            cursor = conn.cursor()
-                            if rol_usuario == "admin":
-                                cursor.execute(
-                                    "UPDATE control_central.usuarios SET activo = 1 WHERE id = %s",
-                                    (uid_sel,),
-                                )
-                            else:
-                                cursor.execute(
-                                    "UPDATE control_central.usuarios SET activo = 1 WHERE id = %s AND firma_id = %s",
-                                    (uid_sel, firma_id),
-                                )
-                            conn.commit()
-                            cursor.close()
-                            st.success(f"✅ Usuario {usuario_sel_label} reactivado.")
-                            st.rerun()
-                        except Exception as e:
-                            try:
-                                conn.rollback()
-                            except Exception:
-                                pass
-                            st.error(f"❌ Error al reactivar: {e}")
+                            conn.rollback()
+                        except Exception:
+                            pass
+                        st.error(f"❌ Error al reactivar usuario: {e}")
     else:
         st.info("No hay usuarios registrados todavía.")
 
