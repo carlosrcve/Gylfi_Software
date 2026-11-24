@@ -13307,7 +13307,8 @@ if opcion_menu == "🏠 Inicio":
     
     # --- FLUJO DE CAJA ---
     st.divider()
-
+    import datetime as dt_mod
+    from datetime import datetime, date
 
     @st.cache_data(ttl=180, show_spinner=False)
     def _calcular_flujo_efectivo_cacheado(db_nombre: str, f_ini_str: str, f_fin_str: str) -> dict:
