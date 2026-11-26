@@ -12682,7 +12682,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
         with col_cfg1:
             frecuencia = st.selectbox("Frecuencia del Período", ["Quincenal", "Mensual"], key="nom_freq")
         with col_cfg2:
-            periodo_str = st.text_input("Período", value=datetime.date.today().strftime("%Y-%m"), key="nom_periodo")
+            periodo_str = st.text_input("Período", value=datetime.today().strftime("%Y-%m"), key="nom_periodo")
         with col_cfg3:
             fecha_pago_nom = st.date_input("Fecha de Pago / Asiento", value=datetime.date.today(), key="nom_fecha_pago")
 
