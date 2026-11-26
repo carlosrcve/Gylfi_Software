@@ -16446,38 +16446,49 @@ elif opcion_menu == "📝 Asientos Contables":
 
                 return p_lista, p_dict
 
-            # --- BOTÓN PARA REFRESCAR PROVEEDORES + SINCRONIZACIÓN POR EMPRESA ---
-            col_prov_btn, col_prov_info = st.columns([1, 3])
-            with col_prov_btn:
-                forzar_refresh_provs = st.button(
-                    "🔄 Actualizar Proveedores",
-                    key=f"btn_refresh_provs_tab2_{db_actual}",
-                    help="Recarga la lista de proveedores desde la base de datos"
-                )
+            # --- BOTÓN PARA REFRESCAR PROVEEDORES (SIEMPRE VISIBLE EN TAB 2) ---
+            if "prov_refresh_counter" not in st.session_state:
+                st.session_state.prov_refresh_counter = 0
 
-            empresa_cacheada = st.session_state.get("cache_provs_empresa")
+            col_prov_btn, col_prov_info = st.columns([1.2, 2.8])
+            with col_prov_btn:
+                if st.button(
+                    "🔄 Actualizar Proveedores",
+                    key="btn_actualizar_proveedores_tab2_fijo",
+                    use_container_width=True,
+                ):
+                    st.session_state.prov_refresh_counter += 1
+                    st.session_state.pop("cache_lista_provs", None)
+                    st.session_state.pop("cache_dict_provs", None)
+
+            empresa_actual_str = str(db_actual or "").strip()
+            empresa_cacheada = str(st.session_state.get("cache_provs_empresa") or "").strip()
+            contador_cacheado = st.session_state.get("prov_refresh_counter_cache", -1)
+
             necesita_cargar = (
-                forzar_refresh_provs
-                or empresa_cacheada != db_actual
+                empresa_cacheada != empresa_actual_str
+                or contador_cacheado != st.session_state.prov_refresh_counter
                 or "cache_lista_provs" not in st.session_state
                 or "cache_dict_provs" not in st.session_state
             )
 
             if necesita_cargar:
                 with st.spinner("Cargando catálogo de proveedores..."):
-                    p_lista, p_dict = cargar_proveedores_seguro(db_actual)
+                    p_lista, p_dict = cargar_proveedores_seguro(empresa_actual_str)
                     st.session_state.cache_lista_provs = p_lista
                     st.session_state.cache_dict_provs = p_dict
-                    st.session_state.cache_provs_empresa = db_actual
+                    st.session_state.cache_provs_empresa = empresa_actual_str
+                    st.session_state.prov_refresh_counter_cache = st.session_state.prov_refresh_counter
 
-            lista_provs = st.session_state.cache_lista_provs
-            dict_provs = st.session_state.cache_dict_provs
+            lista_provs = st.session_state.get("cache_lista_provs", [])
+            dict_provs = st.session_state.get("cache_dict_provs", {})
 
             with col_prov_info:
-                if forzar_refresh_provs:
-                    st.caption(f"✅ Catálogo actualizado ({len(lista_provs)} proveedores).")
-                else:
-                    st.caption(f"Proveedores disponibles: {len(lista_provs)}")
+                st.caption(
+                    f"Empresa: **{empresa_actual_str or 'Sin definir'}** | "
+                    f"Proveedores cargados: **{len(lista_provs)}** | "
+                    f"Actualizaciones: **{st.session_state.prov_refresh_counter}**"
+                )
             # ==========================================
             # 📋 OPCIÓN 1: EMITIR NUEVA ORDEN DE PAGO
             # ==========================================
