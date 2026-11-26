@@ -26421,6 +26421,7 @@ if opcion_menu == "🟢 WhatsApp":
 
 if opcion_menu == "👥 Nómina":
     db_actual = st.session_state.get("DB_ACTUAL")
+    st.write("DEBUG db_actual:", repr(db_actual), "cantidad:", len(empleados))
     if not db_actual:
         st.warning("⚠️ Selecciona primero una empresa activa para usar el módulo de Nómina.")
     else:
