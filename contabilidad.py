@@ -16550,31 +16550,48 @@ elif opcion_menu == "📝 Asientos Contables":
 
                             nro_factura_form = st.text_input("Número de Factura", key="op_fact")
                             nro_control_form = st.text_input("Número de Control", key="op_ctrl")
+                        def parsear_monto_ve(valor):
+                            if valor is None:
+                                return 0.0
+                            limpio = str(valor).strip().replace(",", "").replace(" ", "")
+                            if not limpio:
+                                return 0.0
+                            try:
+                                return float(limpio)
+                            except ValueError:
+                                return 0.0
+
                         with col_f1_2:
                             fecha_emision_form = st.date_input("Fecha de Emisión", key="op_fecha")
-                            
+
                             st.markdown("""
                                 <div style="background-color: #ffe6e6; padding: 6px 12px; border-radius: 6px; border: 1px solid #ff9999; margin-bottom: 5px;">
                                     <span style="color: #c0392b; font-weight: bold; font-size: 13px;">🔴 Campos de ingreso manual</span>
                                 </div>
                             """, unsafe_allow_html=True)
-                            
-                            base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f", key="op_base")
-                            st.caption(f"Formato miles: **{base_imponible_form:,.2f}**")
 
-                            monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f", key="op_exento")
-                            st.caption(f"Formato miles: **{monto_exento_form:,.2f}**")
+                            base_txt = st.text_input("Base Imponible", value="0.00", key="op_base_txt")
+                            base_imponible_form = parsear_monto_ve(base_txt)
+                            st.caption(f"Base formateada: **{base_imponible_form:,.2f}**")
+
+                            exento_txt = st.text_input("Monto Exento", value="0.00", key="op_exento_txt")
+                            monto_exento_form = parsear_monto_ve(exento_txt)
+                            st.caption(f"Exento formateado: **{monto_exento_form:,.2f}**")
 
                             col_f1_3, col_f1_4 = st.columns(2)
                             with col_f1_3:
-                                alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="op_alicuota")
+                                alicuota_iva_form = st.selectbox(
+                                    "Alícuota IVA",
+                                    options=[16.0, 8.0, 31.0, 0.0],
+                                    format_func=lambda x: f"{x}%",
+                                    key="op_alicuota"
+                                )
                             with col_f1_4:
                                 monto_iva_calculado = base_imponible_form * (alicuota_iva_form / 100.0)
                                 st.metric(label="Monto IVA (Calculado)", value=f"{monto_iva_calculado:,.2f}")
 
                             monto_bruto_calculado = base_imponible_form + monto_exento_form + monto_iva_calculado
                             st.metric(label="Monto Bruto / Total Factura (Calculado)", value=f"{monto_bruto_calculado:,.2f}")
-                        
                         st.markdown("---")
 
                         # --- 2DO FRAME: RETENCIÓN DE IVA ---
