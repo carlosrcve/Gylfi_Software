@@ -12984,7 +12984,10 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                 ]
 
                 df_asiento_preview = pd.DataFrame(filas_asiento)
-                st.dataframe(df_asiento_preview, use_container_width=True, hide_index=True)
+                df_asiento_visual = df_asiento_preview.copy()
+                df_asiento_visual["debe"] = df_asiento_visual["debe"].apply(lambda x: f"{float(x):,.2f}")
+                df_asiento_visual["haber"] = df_asiento_visual["haber"].apply(lambda x: f"{float(x):,.2f}")
+                st.dataframe(df_asiento_visual, use_container_width=True, hide_index=True)
 
                 lineas_a_guardar = [
                     fa for fa in filas_asiento if (float(fa["debe"]) > 0 or float(fa["haber"]) > 0)
