@@ -17685,6 +17685,33 @@ elif opcion_menu == "📝 Asientos Contables":
                         # --- 4TO FRAME: MONTO NETO Y OBSERVACIONES ---
                         st.markdown("#### 4️⃣ Frame: Cálculo del Monto Neto a Pagar")
                         monto_neto_calculado = monto_bruto_calculado - retencion_islr_calculada - retencion_iva_calculada
+
+                        # Extraer nombre limpio del proveedor seleccionado (sin el sufijo " (RIF: ...)")
+                        nombre_prov_concepto = ""
+                        if prov_seleccionado_form and prov_seleccionado_form != "No hay proveedores":
+                            if "dict_provs" in locals() and prov_seleccionado_form in dict_provs:
+                                nombre_prov_concepto = str(dict_provs[prov_seleccionado_form].get("nombre", "")).strip()
+                            else:
+                                nombre_prov_concepto = str(prov_seleccionado_form).split(" (RIF:")[0].strip()
+
+                        nro_fact_concepto = str(nro_factura_form or "").strip()
+
+                        if nombre_prov_concepto and nro_fact_concepto:
+                            concepto_sugerido = f"PAGO {nombre_prov_concepto.upper()} FACT N° {nro_fact_concepto}"
+                        elif nombre_prov_concepto:
+                            concepto_sugerido = f"PAGO {nombre_prov_concepto.upper()} FACT N° "
+                        elif nro_fact_concepto:
+                            concepto_sugerido = f"PAGO FACT N° {nro_fact_concepto}"
+                        else:
+                            concepto_sugerido = "PAGO "
+
+                        obs_actual = st.session_state.get("op_obs", "")
+                        obs_auto_anterior = st.session_state.get("_op_obs_auto_previo", "")
+
+                        # Actualiza automáticamente solo si aún no ha sido editado a mano o si cambió proveedor/factura
+                        if obs_actual == "" or obs_actual == obs_auto_anterior:
+                            st.session_state["op_obs"] = concepto_sugerido
+                            st.session_state["_op_obs_auto_previo"] = concepto_sugerido
                         
                         col_f4_1, col_f4_2 = st.columns(2)
                         with col_f4_1:
