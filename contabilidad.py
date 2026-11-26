@@ -12725,9 +12725,9 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             if conn_r:
                 with conn_r.cursor() as cur_r:
                     cur_r.execute("""
-                        SELECT id, cedula, nombre_completo, cargo, salario_base
+                        SELECT id, cedula, nombre_completo, cargo, salario_base, activo
                         FROM nomina_empleados
-                        WHERE empresa_db = %s AND activo = 1
+                        WHERE empresa_db = %s AND (activo = 1 OR activo IS NULL)
                         ORDER BY nombre_completo ASC
                     """, (str(db_actual),))
                     cols_emp = [desc[0] for desc in cur_r.description]
@@ -12737,7 +12737,10 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             st.error(f"❌ Error cargando trabajadores: {err_r}")
 
         if not empleados:
-            st.info("Aún no hay trabajadores activos registrados. Agrega uno en la pestaña **Trabajadores**.")
+            st.info(
+                f"Aún no hay trabajadores activos registrados para `{db_actual}`. "
+                "Agrega uno en la pestaña **Trabajadores** o revisa si quedaron con `activo = 0`."
+            )
         else:
             st.markdown("#### Detalle por trabajador")
             filas_calculadas = []
