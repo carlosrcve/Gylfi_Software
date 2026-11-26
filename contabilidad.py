@@ -11589,7 +11589,7 @@ def render_gestor_esquemas_mysql(conn, db_actual):
             with c_tip:
                 col_tmp_tip = st.selectbox(
                     "Tipo:",
-                    ["VARCHAR(150)", "VARCHAR(255)", "INT", "DECIMAL(18,2)", "DATE", "DATETIME", "TEXT"],
+                    ["VARCHAR(150)", "VARCHAR(255)", "INT", "DECIMAL(18,2)", "DATE", "DATETIME", "TEXT","LONGTEXT"],
                     key="tmp_col_tip"
                 )
             with c_nul:
@@ -12663,6 +12663,23 @@ def calcular_linea_nomina(salario_base, frecuencia="Quincenal", bonos=0.0, porc_
         "neto": neto,
     }
 
+import base64
+import io
+from PIL import Image
+
+
+def _procesar_foto_empleado(uploaded_file, max_size=(300, 300)):
+    if not uploaded_file:
+        return None
+    img = Image.open(uploaded_file)
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+    img.thumbnail(max_size)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=82)
+    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    return f"data:image/jpeg;base64,{b64}"
+
 
 def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict_bancos_detalle=None):
     lista_bancos_detalle = lista_bancos_detalle or []
@@ -12847,25 +12864,31 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             with ec5:
                 sal_emp = st.number_input("Salario Base Mensual", min_value=0.0, format="%.2f")
             with ec6:
-                st.write("")
-                st.write("")
-                env_emp = st.form_submit_button("➕ Guardar Trabajador", type="primary")
+                foto_nuevo_emp = st.file_uploader(
+                    "Foto del trabajador (opcional)",
+                    type=["png", "jpg", "jpeg", "webp"],
+                    key="nom_foto_nuevo"
+                )
+
+            env_emp = st.form_submit_button("➕ Guardar Trabajador", type="primary")
 
             if env_emp:
                 if not ced_emp.strip() or not nom_emp.strip():
                     st.warning("⚠️ Cédula y nombre completo son obligatorios.")
                 else:
                     try:
+                        foto_b64_nuevo = _procesar_foto_empleado(foto_nuevo_emp)
                         conn_e = conectar_db(db_actual)
                         if conn_e:
                             with conn_e.cursor() as cur_e:
                                 cur_e.execute("""
                                     INSERT INTO nomina_empleados (
-                                        empresa_db, cedula, nombre_completo, cargo, fecha_ingreso, salario_base
-                                    ) VALUES (%s, %s, %s, %s, %s, %s)
+                                        empresa_db, cedula, nombre_completo, cargo, fecha_ingreso, salario_base, foto_base64
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                                 """, (
                                     str(db_actual), ced_emp.strip(), nom_emp.strip(),
-                                    cargo_emp.strip() or "General", str(fing_emp), float(sal_emp)
+                                    cargo_emp.strip() or "General", str(fing_emp), float(sal_emp),
+                                    foto_b64_nuevo
                                 ))
                             conn_e.commit()
                             conn_e.close()
@@ -12883,7 +12906,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             if conn_g:
                 with conn_g.cursor() as cur_g:
                     cur_g.execute("""
-                        SELECT id, cedula, nombre_completo, cargo, fecha_ingreso, salario_base, activo
+                        SELECT id, cedula, nombre_completo, cargo, fecha_ingreso, salario_base, activo, foto_base64
                         FROM nomina_empleados
                         WHERE empresa_db = %s
                         ORDER BY id DESC
@@ -12925,35 +12948,51 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             else:
                 fecha_ing_val = date.today()
 
-            with st.form(f"form_editar_emp_{emp_edit_id}"):
-                m1, m2, m3 = st.columns(3)
-                with m1:
-                    edit_ced = st.text_input("Cédula / Identificación", value=str(emp_sel.get("cedula") or ""))
-                with m2:
-                    edit_nom = st.text_input("Nombre Completo", value=str(emp_sel.get("nombre_completo") or ""))
-                with m3:
-                    idx_cargo = opciones_cargo_edit.index(cargo_actual) if cargo_actual in opciones_cargo_edit else 0
-                    edit_cargo_sel = st.selectbox("Cargo", options=opciones_cargo_edit, index=idx_cargo)
-                    edit_cargo_otro = st.text_input("Especificar cargo (si eliges Otro...)", value="")
+            col_foto_prev, col_form_edit = st.columns([1.2, 3.8])
+            with col_foto_prev:
+                st.caption("Foto actual")
+                if emp_sel.get("foto_base64"):
+                    st.image(emp_sel["foto_base64"], width=140)
+                else:
+                    st.info("Sin foto")
 
-                m4, m5, m6 = st.columns(3)
-                with m4:
-                    edit_fing = st.date_input("Fecha de Ingreso", value=fecha_ing_val)
-                with m5:
-                    edit_sal = st.number_input(
-                        "Salario Base Mensual",
-                        min_value=0.0,
-                        value=float(emp_sel.get("salario_base") or 0.0),
-                        format="%.2f"
+            with col_form_edit:
+                with st.form(f"form_editar_emp_{emp_edit_id}"):
+                    m1, m2, m3 = st.columns(3)
+                    with m1:
+                        edit_ced = st.text_input("Cédula / Identificación", value=str(emp_sel.get("cedula") or ""))
+                    with m2:
+                        edit_nom = st.text_input("Nombre Completo", value=str(emp_sel.get("nombre_completo") or ""))
+                    with m3:
+                        idx_cargo = opciones_cargo_edit.index(cargo_actual) if cargo_actual in opciones_cargo_edit else 0
+                        edit_cargo_sel = st.selectbox("Cargo", options=opciones_cargo_edit, index=idx_cargo)
+                        edit_cargo_otro = st.text_input("Especificar cargo (si eliges Otro...)", value="")
+
+                    m4, m5, m6 = st.columns(3)
+                    with m4:
+                        edit_fing = st.date_input("Fecha de Ingreso", value=fecha_ing_val)
+                    with m5:
+                        edit_sal = st.number_input(
+                            "Salario Base Mensual",
+                            min_value=0.0,
+                            value=float(emp_sel.get("salario_base") or 0.0),
+                            format="%.2f"
+                        )
+                    with m6:
+                        edit_activo = st.checkbox("Activo en nómina", value=bool(emp_sel.get("activo", 1)))
+                        quitar_foto = st.checkbox("Quitar foto actual", value=False)
+
+                    edit_foto_file = st.file_uploader(
+                        "Cambiar foto del trabajador",
+                        type=["png", "jpg", "jpeg", "webp"],
+                        key=f"edit_foto_{emp_edit_id}"
                     )
-                with m6:
-                    edit_activo = st.checkbox("Activo en nómina", value=bool(emp_sel.get("activo", 1)))
 
-                b_upd, b_del = st.columns(2)
-                with b_upd:
-                    btn_actualizar_emp = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
-                with b_del:
-                    btn_eliminar_emp = st.form_submit_button("🗑️ Eliminar Trabajador", use_container_width=True)
+                    b_upd, b_del = st.columns(2)
+                    with b_upd:
+                        btn_actualizar_emp = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
+                    with b_del:
+                        btn_eliminar_emp = st.form_submit_button("🗑️ Eliminar Trabajador", use_container_width=True)
 
             if btn_actualizar_emp:
                 cargo_final_edit = (
@@ -12965,6 +13004,13 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     st.warning("⚠️ Cédula y nombre completo son obligatorios.")
                 else:
                     try:
+                        if quitar_foto:
+                            foto_final_edit = None
+                        elif edit_foto_file is not None:
+                            foto_final_edit = _procesar_foto_empleado(edit_foto_file)
+                        else:
+                            foto_final_edit = emp_sel.get("foto_base64")
+
                         conn_u = conectar_db(db_actual)
                         if conn_u:
                             with conn_u.cursor() as cur_u:
@@ -12975,7 +13021,8 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                                         cargo = %s,
                                         fecha_ingreso = %s,
                                         salario_base = %s,
-                                        activo = %s
+                                        activo = %s,
+                                        foto_base64 = %s
                                     WHERE id = %s AND empresa_db = %s
                                 """, (
                                     edit_ced.strip(),
@@ -12984,6 +13031,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                                     str(edit_fing),
                                     float(edit_sal),
                                     1 if edit_activo else 0,
+                                    foto_final_edit,
                                     emp_edit_id,
                                     str(db_actual)
                                 ))
