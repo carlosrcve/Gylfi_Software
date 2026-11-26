@@ -12668,6 +12668,13 @@ import io
 from PIL import Image
 
 
+import base64
+import io
+from datetime import date, datetime
+import pandas as pd
+from PIL import Image
+
+
 def _procesar_foto_empleado(uploaded_file, max_size=(300, 300)):
     if not uploaded_file:
         return None
@@ -12699,7 +12706,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
         with col_cfg1:
             frecuencia = st.selectbox("Frecuencia del Período", ["Quincenal", "Mensual"], key="nom_freq")
         with col_cfg2:
-            periodo_str = st.text_input("Período", value=datetime.today().strftime("%Y-%m"), key="nom_periodo")
+            periodo_str = st.text_input("Período", value=date.today().strftime("%Y-%m"), key="nom_periodo")
         with col_cfg3:
             fecha_pago_nom = st.date_input("Fecha de Pago / Asiento", value=date.today(), key="nom_fecha_pago")
 
@@ -12886,8 +12893,9 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             with conn_e.cursor() as cur_e:
                                 cur_e.execute("""
                                     INSERT INTO nomina_empleados (
-                                        empresa_db, cedula, nombre_completo, cargo, fecha_ingreso, salario_base, foto_base64
-                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                                        empresa_db, cedula, nombre_completo, cargo,
+                                        fecha_ingreso, salario_base, activo, creado_en, foto_base64
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, 1, NOW(), %s)
                                 """, (
                                     str(db_actual), ced_emp.strip(), nom_emp.strip(),
                                     cargo_emp.strip() or "General", str(fing_emp), float(sal_emp),
@@ -12896,6 +12904,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             conn_e.commit()
                             conn_e.close()
                             st.success(f"✅ Trabajador **{nom_emp.strip()}** agregado.")
+                            st.rerun()
                     except Exception as err_e:
                         st.error(f"❌ Error al guardar trabajador: {err_e}")
 
@@ -12915,6 +12924,23 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
 
         if st.session_state["mostrar_gestion_emp"]:
             st.markdown("#### Gestionar trabajadores registrados")
+
+            if st.button("✅ Activar trabajadores inactivos o pendientes", key="btn_activar_todos_emp"):
+                try:
+                    conn_act = conectar_db(db_actual)
+                    if conn_act:
+                        with conn_act.cursor() as cur_act:
+                            cur_act.execute("""
+                                UPDATE nomina_empleados
+                                SET activo = 1
+                                WHERE empresa_db = %s AND (activo IS NULL OR activo = 0)
+                            """, (str(db_actual),))
+                        conn_act.commit()
+                        conn_act.close()
+                        st.success("✅ Trabajadores activados para la empresa actual.")
+                        st.rerun()
+                except Exception as err_act:
+                    st.error(f"❌ Error al activar trabajadores: {err_act}")
 
             trabajadores_gestion = []
             try:
@@ -13073,6 +13099,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             st.rerun()
                     except Exception as err_d:
                         st.error(f"❌ Error al eliminar trabajador: {err_d}")
+
     with tab_hist:
         recibos = []
         try:
@@ -13097,7 +13124,6 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             st.dataframe(pd.DataFrame(recibos), use_container_width=True, hide_index=True)
         else:
             st.info("No hay recibos de nómina registrados todavía.")
-
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
