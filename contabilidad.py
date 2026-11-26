@@ -12815,25 +12815,25 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
 
     with tab_emp:
         st.markdown("#### Registrar nuevo trabajador")
+        CARGOS_NOMINA = [
+            "Analista / Operativo",
+            "Asistente Administrativo",
+            "Contador / Administrador",
+            "Supervisor / Coordinador",
+            "Gerente",
+            "Vendedor / Atención al Cliente",
+            "Chofer / Repartidor",
+            "Almacén / Logística",
+            "Mantenimiento / Limpieza",
+            "Otro...",
+        ]
+
         with st.form("form_nuevo_empleado", clear_on_submit=True):
             ec1, ec2, ec3 = st.columns(3)
             with ec1:
                 ced_emp = st.text_input("Cédula / Identificación")
             with ec2:
                 nom_emp = st.text_input("Nombre Completo")
-            CARGOS_NOMINA = [
-                "Analista / Operativo",
-                "Asistente Administrativo",
-                "Contador / Administrador",
-                "Supervisor / Coordinador",
-                "Gerente",
-                "Vendedor / Atención al Cliente",
-                "Chofer / Repartidor",
-                "Almacén / Logística",
-                "Mantenimiento / Limpieza",
-                "Otro...",
-            ]
-
             with ec3:
                 cargo_sel = st.selectbox("Cargo", options=CARGOS_NOMINA, key="nom_cargo_sel")
                 if cargo_sel == "Otro...":
@@ -12873,6 +12873,142 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             st.rerun()
                     except Exception as err_e:
                         st.error(f"❌ Error al guardar trabajador: {err_e}")
+
+        st.divider()
+        st.markdown("#### Gestionar trabajadores registrados")
+
+        trabajadores_gestion = []
+        try:
+            conn_g = conectar_db(db_actual)
+            if conn_g:
+                with conn_g.cursor() as cur_g:
+                    cur_g.execute("""
+                        SELECT id, cedula, nombre_completo, cargo, fecha_ingreso, salario_base, activo
+                        FROM nomina_empleados
+                        WHERE empresa_db = %s
+                        ORDER BY id DESC
+                    """, (str(db_actual),))
+                    cols_g = [desc[0] for desc in cur_g.description]
+                    trabajadores_gestion = [dict(zip(cols_g, fila)) for fila in cur_g.fetchall()]
+                conn_g.close()
+        except Exception as err_g:
+            st.error(f"❌ Error cargando lista de trabajadores: {err_g}")
+
+        if not trabajadores_gestion:
+            st.info("No hay trabajadores registrados para esta empresa.")
+        else:
+            opciones_emp = {
+                f"{t['nombre_completo']} ({t['cedula']}) — {t['cargo']}": t
+                for t in trabajadores_gestion
+            }
+            emp_sel_label = st.selectbox(
+                "Selecciona un trabajador para editar o eliminar:",
+                options=list(opciones_emp.keys()),
+                key="sel_emp_gestion"
+            )
+            emp_sel = opciones_emp[emp_sel_label]
+            emp_edit_id = int(emp_sel["id"])
+
+            cargo_actual = emp_sel.get("cargo") or "Analista / Operativo"
+            opciones_cargo_edit = list(CARGOS_NOMINA)
+            if cargo_actual not in opciones_cargo_edit:
+                opciones_cargo_edit.insert(0, cargo_actual)
+
+            fecha_ing_raw = emp_sel.get("fecha_ingreso")
+            if isinstance(fecha_ing_raw, str) and fecha_ing_raw:
+                try:
+                    fecha_ing_val = date.fromisoformat(fecha_ing_raw[:10])
+                except ValueError:
+                    fecha_ing_val = date.today()
+            elif hasattr(fecha_ing_raw, "year"):
+                fecha_ing_val = fecha_ing_raw
+            else:
+                fecha_ing_val = date.today()
+
+            with st.form(f"form_editar_emp_{emp_edit_id}"):
+                m1, m2, m3 = st.columns(3)
+                with m1:
+                    edit_ced = st.text_input("Cédula / Identificación", value=str(emp_sel.get("cedula") or ""))
+                with m2:
+                    edit_nom = st.text_input("Nombre Completo", value=str(emp_sel.get("nombre_completo") or ""))
+                with m3:
+                    idx_cargo = opciones_cargo_edit.index(cargo_actual) if cargo_actual in opciones_cargo_edit else 0
+                    edit_cargo_sel = st.selectbox("Cargo", options=opciones_cargo_edit, index=idx_cargo)
+                    edit_cargo_otro = st.text_input("Especificar cargo (si eliges Otro...)", value="")
+
+                m4, m5, m6 = st.columns(3)
+                with m4:
+                    edit_fing = st.date_input("Fecha de Ingreso", value=fecha_ing_val)
+                with m5:
+                    edit_sal = st.number_input(
+                        "Salario Base Mensual",
+                        min_value=0.0,
+                        value=float(emp_sel.get("salario_base") or 0.0),
+                        format="%.2f"
+                    )
+                with m6:
+                    edit_activo = st.checkbox("Activo en nómina", value=bool(emp_sel.get("activo", 1)))
+
+                b_upd, b_del = st.columns(2)
+                with b_upd:
+                    btn_actualizar_emp = st.form_submit_button("💾 Guardar Cambios", type="primary", use_container_width=True)
+                with b_del:
+                    btn_eliminar_emp = st.form_submit_button("🗑️ Eliminar Trabajador", use_container_width=True)
+
+            if btn_actualizar_emp:
+                cargo_final_edit = (
+                    edit_cargo_otro.strip()
+                    if edit_cargo_sel == "Otro..." and edit_cargo_otro.strip()
+                    else edit_cargo_sel.strip() or "General"
+                )
+                if not edit_ced.strip() or not edit_nom.strip():
+                    st.warning("⚠️ Cédula y nombre completo son obligatorios.")
+                else:
+                    try:
+                        conn_u = conectar_db(db_actual)
+                        if conn_u:
+                            with conn_u.cursor() as cur_u:
+                                cur_u.execute("""
+                                    UPDATE nomina_empleados
+                                    SET cedula = %s,
+                                        nombre_completo = %s,
+                                        cargo = %s,
+                                        fecha_ingreso = %s,
+                                        salario_base = %s,
+                                        activo = %s
+                                    WHERE id = %s AND empresa_db = %s
+                                """, (
+                                    edit_ced.strip(),
+                                    edit_nom.strip(),
+                                    cargo_final_edit,
+                                    str(edit_fing),
+                                    float(edit_sal),
+                                    1 if edit_activo else 0,
+                                    emp_edit_id,
+                                    str(db_actual)
+                                ))
+                            conn_u.commit()
+                            conn_u.close()
+                            st.success(f"✅ Datos de **{edit_nom.strip()}** actualizados.")
+                            st.rerun()
+                    except Exception as err_u:
+                        st.error(f"❌ Error al actualizar trabajador: {err_u}")
+
+            if btn_eliminar_emp:
+                try:
+                    conn_d = conectar_db(db_actual)
+                    if conn_d:
+                        with conn_d.cursor() as cur_d:
+                            cur_d.execute("""
+                                DELETE FROM nomina_empleados
+                                WHERE id = %s AND empresa_db = %s
+                            """, (emp_edit_id, str(db_actual)))
+                        conn_d.commit()
+                        conn_d.close()
+                        st.success(f"🗑️ Trabajador **{emp_sel.get('nombre_completo')}** eliminado.")
+                        st.rerun()
+                except Exception as err_d:
+                    st.error(f"❌ Error al eliminar trabajador: {err_d}")
 
     with tab_hist:
         recibos = []
