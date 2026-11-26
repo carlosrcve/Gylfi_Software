@@ -12743,6 +12743,8 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
         except Exception as err_r:
             st.error(f"❌ Error cargando trabajadores: {err_r}")
 
+        st.write("DEBUG db_actual:", repr(db_actual), "cantidad:", len(empleados))
+
         if not empleados:
             st.info(
                 f"Aún no hay trabajadores activos registrados para `{db_actual}`. "
@@ -12783,7 +12785,6 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     "deducciones": calc["deducciones"],
                     "neto": calc["neto"],
                 })
-            st.write("DEBUG db_actual:", repr(db_actual), "cantidad:", len(empleados))
             st.divider()
             m1, m2, m3 = st.columns(3)
             m1.metric("Total Devengado", f"{total_dev_gral:,.2f}")
