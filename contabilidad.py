@@ -18242,6 +18242,35 @@ elif opcion_menu == "📝 Asientos Contables":
                                 key=f"input_monto_abono_{int(fila_op_sel['id'])}"
                             )
 
+                        def obtener_comprobante_factura(conn, db_actual, fila_op, fallback_comp):
+                            # 1. Si ya viene en la fila de la orden seleccionada, úsalo
+                            for col in ("n_comprobante", "nro_comprobante", "numero_comprobante", "comprobante", "asiento_id"):
+                                if col in fila_op and fila_op[col]:
+                                    val = str(fila_op[col]).strip()
+                                    if val:
+                                        return val
+
+                            # 2. Si no está en fila_op, búscalo en asientos_contables por nro_factura o descripción
+                            nro_fact = str(fila_op.get("nro_factura", "")).strip()
+                            if conn and nro_fact:
+                                try:
+                                    with conn.cursor() as cur:
+                                        cur.execute("""
+                                            SELECT n_comprobante
+                                            FROM asientos_contables
+                                            WHERE descripcion LIKE %s
+                                            ORDER BY id ASC
+                                            LIMIT 1
+                                        """, (f"%{nro_fact}%",))
+                                        row = cur.fetchone()
+                                        if row and row[0]:
+                                            return str(row[0]).strip()
+                                except Exception:
+                                    pass
+
+                            return fallback_comp
+
+
                         #------Selección de Cuenta Contable, Previsualización y Registro en Asientos------#
                         st.divider()
                         st.markdown("#### ⚡ Paso 2: Selección de Cuenta Contable, Previsualización y Registro en Asientos")
@@ -18259,7 +18288,16 @@ elif opcion_menu == "📝 Asientos Contables":
 
                         n_fact_prev = str(fila_op_sel['nro_factura'])
                         prov_prev = str(fila_op_sel['proveedor'])
-                        n_comp_prev = f"PAGO-{n_fact_prev}-AB{num_abono_actual}"
+                        n_comp_fallback_prev = f"PAGO-{n_fact_prev}-AB{num_abono_actual}"
+
+                        conn_prev = None
+                        try:
+                            conn_prev = conectar_db(db_actual)
+                            n_comp_prev = obtener_comprobante_factura(conn_prev, db_actual, fila_op_sel, n_comp_fallback_prev)
+                        finally:
+                            if conn_prev:
+                                conn_prev.close()
+
                         desc_prev = f"Abono #{num_abono_actual} a {prov_prev} - Factura {n_fact_prev} (Saldo tras pago: {nuevo_saldo_prev:,.2f})"
                         ref_prev = referencia_bancaria if referencia_bancaria else "(Pendiente de Ref)"
                         fecha_prev = str(fecha_pago_real)
@@ -18322,11 +18360,12 @@ elif opcion_menu == "📝 Asientos Contables":
 
                                                 n_fact_val = str(fila_op_sel['nro_factura'])
                                                 prov_nombre_val = str(fila_op_sel['proveedor'])
-                                                num_abono_seguro, n_comp_asiento = _obtener_siguiente_comp(
+                                                num_abono_seguro, n_comp_fallback = _obtener_siguiente_comp(
                                                     fila_op_sel['observaciones'],
                                                     n_fact_val,
                                                     num_abono_actual
                                                 )
+                                                n_comp_asiento = obtener_comprobante_factura(conn_bm, db_actual, fila_op_sel, n_comp_fallback)
                                                 bco_reg = info_banco_prev['nombre'] if info_banco_prev else (
                                                     str(fila_op_sel['banco_prov']) if fila_op_sel['banco_prov'] else "Banco Emisor"
                                                 )
@@ -18402,11 +18441,12 @@ elif opcion_menu == "📝 Asientos Contables":
 
                                                 n_fact_val = str(fila_op_sel['nro_factura'])
                                                 prov_nombre_val = str(fila_op_sel['proveedor'])
-                                                num_abono_seguro, n_comp_asiento = _obtener_siguiente_comp(
+                                                num_abono_seguro, n_comp_fallback = _obtener_siguiente_comp(
                                                     fila_op_sel['observaciones'],
                                                     n_fact_val,
                                                     num_abono_actual
                                                 )
+                                                n_comp_asiento = obtener_comprobante_factura(conn_update, db_actual, fila_op_sel, n_comp_fallback)
                                                 desc_asiento = f"Abono #{num_abono_seguro} a {prov_nombre_val} - Factura {n_fact_val}"
 
                                                 nueva_obs = _construir_nueva_observacion(
