@@ -13284,13 +13284,15 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                         st.error(f"❌ Error al eliminar trabajador: {err_d}")
 
     with tab_hist:
+        import io
+
         recibos = []
         try:
             conn_h = conectar_db(db_actual)
             if conn_h:
                 with conn_h.cursor() as cur_h:
                     cur_h.execute("""
-                        SELECT n_comprobante, periodo, fecha_pago, nombre_empleado,
+                        SELECT id, n_comprobante, periodo, fecha_pago, nombre_empleado,
                                salario_periodo, bonos, deducciones, neto_pagar
                         FROM nomina_recibos
                         WHERE empresa_db = %s
@@ -13304,7 +13306,157 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             st.error(f"❌ Error consultando recibos: {err_h}")
 
         if recibos:
-            st.dataframe(pd.DataFrame(recibos), use_container_width=True, hide_index=True)
+            df_recibos = pd.DataFrame(recibos)
+
+            # Botón de descarga en Excel (.xlsx)
+            buffer_xlsx = io.BytesIO()
+            try:
+                with pd.ExcelWriter(buffer_xlsx, engine="openpyxl") as writer:
+                    df_recibos.to_excel(writer, index=False, sheet_name="Recibos_Nomina")
+                st.download_button(
+                    label="📥 Descargar Recibos en Excel (.xlsx)",
+                    data=buffer_xlsx.getvalue(),
+                    file_name=f"recibos_nomina_{db_actual}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="btn_descargar_nomina_xlsx"
+                )
+            except Exception:
+                st.download_button(
+                    label="📥 Descargar Recibos en CSV",
+                    data=df_recibos.to_csv(index=False).encode("utf-8-sig"),
+                    file_name=f"recibos_nomina_{db_actual}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    key="btn_descargar_nomina_csv"
+                )
+
+            df_visual = df_recibos.copy()
+            for col_m in ["salario_periodo", "bonos", "deducciones", "neto_pagar"]:
+                if col_m in df_visual.columns:
+                    df_visual[col_m] = df_visual[col_m].apply(lambda x: f"{float(x or 0.0):,.2f}")
+
+            st.dataframe(df_visual, use_container_width=True, hide_index=True)
+
+            st.divider()
+            st.markdown("#### 🛠️ Modificar o Eliminar Recibo por Fila")
+
+            opciones_rec = {
+                f"ID {r['id']} | {r['n_comprobante']} | {r['nombre_empleado']} | Neto: {float(r['neto_pagar'] or 0.0):,.2f}": r
+                for r in recibos
+            }
+            rec_sel_label = st.selectbox(
+                "Selecciona una fila de recibo:",
+                options=list(opciones_rec.keys()),
+                key="sel_recibo_hist"
+            )
+            rec_sel = opciones_rec[rec_sel_label]
+            rec_id = int(rec_sel["id"])
+
+            f_raw = rec_sel.get("fecha_pago")
+            if isinstance(f_raw, str) and f_raw:
+                try:
+                    f_val = date.fromisoformat(f_raw[:10])
+                except ValueError:
+                    f_val = date.today()
+            elif hasattr(f_raw, "year"):
+                f_val = f_raw
+            else:
+                f_val = date.today()
+
+            with st.form(f"form_editar_recibo_{rec_id}"):
+                r1, r2, r3, r4 = st.columns(4)
+                with r1:
+                    edit_comp = st.text_input("N° Comprobante", value=str(rec_sel.get("n_comprobante") or ""))
+                with r2:
+                    edit_per = st.text_input("Período", value=str(rec_sel.get("periodo") or ""))
+                with r3:
+                    edit_fec = st.date_input("Fecha de Pago", value=f_val)
+                with r4:
+                    edit_emp_nom = st.text_input("Trabajador", value=str(rec_sel.get("nombre_empleado") or ""))
+
+                m1, m2, m3 = st.columns(3)
+                with m1:
+                    edit_sal_per = st.number_input(
+                        "Salario Período",
+                        min_value=0.0,
+                        value=float(rec_sel.get("salario_periodo") or 0.0),
+                        format="%.2f"
+                    )
+                with m2:
+                    edit_bon_per = st.number_input(
+                        "Bonos",
+                        min_value=0.0,
+                        value=float(rec_sel.get("bonos") or 0.0),
+                        format="%.2f"
+                    )
+                with m3:
+                    edit_ded_per = st.number_input(
+                        "Deducciones",
+                        min_value=0.0,
+                        value=float(rec_sel.get("deducciones") or 0.0),
+                        format="%.2f"
+                    )
+
+                neto_recalc = round(max(0.0, float(edit_sal_per) + float(edit_bon_per) - float(edit_ded_per)), 2)
+                st.caption(f"Neto a pagar recalculado: **{neto_recalc:,.2f}**")
+
+                b_save, b_del = st.columns(2)
+                with b_save:
+                    btn_upd_rec = st.form_submit_button("💾 Guardar Cambios en Fila", type="primary", use_container_width=True)
+                with b_del:
+                    btn_del_rec = st.form_submit_button("🗑️ Eliminar Fila", use_container_width=True)
+
+            if btn_upd_rec:
+                try:
+                    conn_u = conectar_db(db_actual)
+                    if conn_u:
+                        with conn_u.cursor() as cur_u:
+                            cur_u.execute("""
+                                UPDATE nomina_recibos
+                                SET n_comprobante = %s,
+                                    periodo = %s,
+                                    fecha_pago = %s,
+                                    nombre_empleado = %s,
+                                    salario_periodo = %s,
+                                    bonos = %s,
+                                    deducciones = %s,
+                                    neto_pagar = %s
+                                WHERE id = %s AND empresa_db = %s
+                            """, (
+                                edit_comp.strip(),
+                                edit_per.strip(),
+                                str(edit_fec),
+                                edit_emp_nom.strip(),
+                                float(edit_sal_per),
+                                float(edit_bon_per),
+                                float(edit_ded_per),
+                                float(neto_recalc),
+                                rec_id,
+                                str(db_actual),
+                            ))
+                        conn_u.commit()
+                        conn_u.close()
+                        st.success(f"✅ Recibo ID `{rec_id}` actualizado.")
+                        st.rerun()
+                except Exception as err_u:
+                    st.error(f"❌ Error actualizando el recibo: {err_u}")
+
+            if btn_del_rec:
+                try:
+                    conn_d = conectar_db(db_actual)
+                    if conn_d:
+                        with conn_d.cursor() as cur_d:
+                            cur_d.execute("""
+                                DELETE FROM nomina_recibos
+                                WHERE id = %s AND empresa_db = %s
+                            """, (rec_id, str(db_actual)))
+                        conn_d.commit()
+                        conn_d.close()
+                        st.warning(f"🗑️ Recibo ID `{rec_id}` eliminado.")
+                        st.rerun()
+                except Exception as err_d:
+                    st.error(f"❌ Error eliminando el recibo: {err_d}")
         else:
             st.info("No hay recibos de nómina registrados todavía.")
 def gestionar_sidebar():
