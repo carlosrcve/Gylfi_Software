@@ -12721,97 +12721,97 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
 
         if not empleados:
             st.info("Aún no hay trabajadores activos registrados. Agrega uno en la pestaña **Trabajadores**.")
-            return
+        else:
+            st.markdown("#### Detalle por trabajador")
+            filas_calculadas = []
+            total_dev_gral = 0.0
+            total_ded_gral = 0.0
+            total_neto_gral = 0.0
 
-        st.markdown("#### Detalle por trabajador")
-        filas_calculadas = []
-        total_dev_gral = 0.0
-        total_ded_gral = 0.0
-        total_neto_gral = 0.0
+            for emp in empleados:
+                emp_id = emp["id"]
+                c_nom, c_sal, c_bon, c_net = st.columns([3, 1.5, 1.5, 1.5])
+                with c_nom:
+                    st.markdown(f"**{emp['nombre_completo']}** (`{emp['cedula']}`) — *{emp['cargo']}*")
+                with c_sal:
+                    sal_base_emp = st.number_input(
+                        "Salario Mensual", min_value=0.0, value=float(emp["salario_base"] or 0.0), format="%.2f", key=f"nom_sal_{emp_id}"
+                    )
+                with c_bon:
+                    bono_emp = st.number_input("Bonos / Extras", min_value=0.0, value=0.0, format="%.2f", key=f"nom_bon_{emp_id}")
 
-        for emp in empleados:
-            emp_id = emp["id"]
-            c_nom, c_sal, c_bon, c_net = st.columns([3, 1.5, 1.5, 1.5])
-            with c_nom:
-                st.markdown(f"**{emp['nombre_completo']}** (`{emp['cedula']}`) — *{emp['cargo']}*")
-            with c_sal:
-                sal_base_emp = st.number_input(
-                    "Salario Mensual", min_value=0.0, value=float(emp["salario_base"] or 0.0), format="%.2f", key=f"nom_sal_{emp_id}"
-                )
-            with c_bon:
-                bono_emp = st.number_input("Bonos / Extras", min_value=0.0, value=0.0, format="%.2f", key=f"nom_bon_{emp_id}")
+                calc = calcular_linea_nomina(sal_base_emp, frecuencia, bono_emp, porc_ded_gral)
+                with c_net:
+                    st.metric("Neto a Pagar", f"{calc['neto']:,.2f}")
 
-            calc = calcular_linea_nomina(sal_base_emp, frecuencia, bono_emp, porc_ded_gral)
-            with c_net:
-                st.metric("Neto a Pagar", f"{calc['neto']:,.2f}")
+                total_dev_gral = round(total_dev_gral + calc["total_devengado"], 2)
+                total_ded_gral = round(total_ded_gral + calc["deducciones"], 2)
+                total_neto_gral = round(total_neto_gral + calc["neto"], 2)
 
-            total_dev_gral = round(total_dev_gral + calc["total_devengado"], 2)
-            total_ded_gral = round(total_ded_gral + calc["deducciones"], 2)
-            total_neto_gral = round(total_neto_gral + calc["neto"], 2)
+                filas_calculadas.append({
+                    "empleado_id": emp_id,
+                    "nombre_completo": emp["nombre_completo"],
+                    "total_devengado": calc["total_devengado"],
+                    "bonos": bono_emp,
+                    "deducciones": calc["deducciones"],
+                    "neto": calc["neto"],
+                })
 
-            filas_calculadas.append({
-                "empleado_id": emp_id,
-                "nombre_completo": emp["nombre_completo"],
-                "total_devengado": calc["total_devengado"],
-                "deducciones": calc["deducciones"],
-                "neto": calc["neto"],
-            })
+            st.divider()
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Total Devengado", f"{total_dev_gral:,.2f}")
+            m2.metric("Total Deducciones", f"{total_ded_gral:,.2f}")
+            m3.metric("Total Neto Nómina", f"{total_neto_gral:,.2f}")
 
-        st.divider()
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Total Devengado", f"{total_dev_gral:,.2f}")
-        m2.metric("Total Deducciones", f"{total_ded_gral:,.2f}")
-        m3.metric("Total Neto Nómina", f"{total_neto_gral:,.2f}")
+            if st.button("💾 Registrar Nómina y Asiento Contable", type="primary", use_container_width=True, key="btn_guardar_nomina"):
+                if not n_comp_nom.strip():
+                    st.warning("⚠️ Indica el número de comprobante.")
+                elif total_neto_gral <= 0:
+                    st.warning("⚠️ El total neto de la nómina debe ser mayor a 0.")
+                else:
+                    try:
+                        conn_w = conectar_db(db_actual)
+                        if conn_w:
+                            with conn_w.cursor() as cur_w:
+                                obs_nom = f"Nómina {frecuencia} período {periodo_str} ({n_comp_nom.strip()})"
+                                for item in filas_calculadas:
+                                    cur_w.execute("""
+                                        INSERT INTO nomina_recibos (
+                                            empresa_db, n_comprobante, periodo, fecha_pago,
+                                            empleado_id, nombre_empleado, salario_periodo,
+                                            bonos, deducciones, neto_pagar, observaciones
+                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    """, (
+                                        str(db_actual), n_comp_nom.strip(), periodo_str.strip(), str(fecha_pago_nom),
+                                        int(item["empleado_id"]), str(item["nombre_completo"]),
+                                        float(item["total_devengado"] - item["bonos"]), float(item["bonos"]),
+                                        float(item["deducciones"]), float(item["neto"]), obs_nom
+                                    ))
 
-        if st.button("💾 Registrar Nómina y Asiento Contable", type="primary", use_container_width=True, key="btn_guardar_nomina"):
-            if not n_comp_nom.strip():
-                st.warning("⚠️ Indica el número de comprobante.")
-            elif total_neto_gral <= 0:
-                st.warning("⚠️ El total neto de la nómina debe ser mayor a 0.")
-            else:
-                try:
-                    conn_w = conectar_db(db_actual)
-                    if conn_w:
-                        with conn_w.cursor() as cur_w:
-                            obs_nom = f"Nómina {frecuencia} período {periodo_str} ({n_comp_nom.strip()})"
-                            for item in filas_calculadas:
-                                cur_w.execute("""
-                                    INSERT INTO nomina_recibos (
-                                        empresa_db, n_comprobante, periodo, fecha_pago,
-                                        empleado_id, nombre_empleado, salario_periodo,
-                                        bonos, deducciones, neto_pagar, observaciones
-                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                """, (
-                                    str(db_actual), n_comp_nom.strip(), periodo_str.strip(), str(fecha_pago_nom),
-                                    int(item["empleado_id"]), str(item["nombre_completo"]),
-                                    float(item["total_devengado"] - item["bonos"]), float(item["bonos"]),
-                                    float(item["deducciones"]), float(item["neto"]), obs_nom
-                                ))
-
-                            query_asiento = """
-                                INSERT INTO asientos_contables (
-                                    n_comprobante, descripcion, fecha, plan_cuentas,
-                                    cuenta_contable, referencia, debe, haber, bloqueado
-                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
-                            """
-                            cur_w.execute(query_asiento, (
-                                n_comp_nom.strip(), obs_nom, str(fecha_pago_nom),
-                                "5.1.1.01.001", "Sueldos y Salarios", periodo_str.strip(), float(total_dev_gral), 0.00
-                            ))
-                            if total_ded_gral > 0:
+                                query_asiento = """
+                                    INSERT INTO asientos_contables (
+                                        n_comprobante, descripcion, fecha, plan_cuentas,
+                                        cuenta_contable, referencia, debe, haber, bloqueado
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0)
+                                """
                                 cur_w.execute(query_asiento, (
                                     n_comp_nom.strip(), obs_nom, str(fecha_pago_nom),
-                                    "2.1.2.01.001", "Retenciones y Aportes por Pagar", periodo_str.strip(), 0.00, float(total_ded_gral)
+                                    "5.1.1.01.001", "Sueldos y Salarios", periodo_str.strip(), float(total_dev_gral), 0.00
                                 ))
-                            cur_w.execute(query_asiento, (
-                                n_comp_nom.strip(), obs_nom, str(fecha_pago_nom),
-                                info_bco_nom["codigo"], info_bco_nom["nombre"], periodo_str.strip(), 0.00, float(total_neto_gral)
-                            ))
-                        conn_w.commit()
-                        conn_w.close()
-                        st.success(f"✅ Nómina `{n_comp_nom.strip()}` registrada y asentada por `{total_neto_gral:,.2f}`.")
-                except Exception as err_w:
-                    st.error(f"❌ Error al registrar la nómina: {err_w}")
+                                if total_ded_gral > 0:
+                                    cur_w.execute(query_asiento, (
+                                        n_comp_nom.strip(), obs_nom, str(fecha_pago_nom),
+                                        "2.1.2.01.001", "Retenciones y Aportes por Pagar", periodo_str.strip(), 0.00, float(total_ded_gral)
+                                    ))
+                                cur_w.execute(query_asiento, (
+                                    n_comp_nom.strip(), obs_nom, str(fecha_pago_nom),
+                                    info_bco_nom["codigo"], info_bco_nom["nombre"], periodo_str.strip(), 0.00, float(total_neto_gral)
+                                ))
+                            conn_w.commit()
+                            conn_w.close()
+                            st.success(f"✅ Nómina `{n_comp_nom.strip()}` registrada y asentada por `{total_neto_gral:,.2f}`.")
+                    except Exception as err_w:
+                        st.error(f"❌ Error al registrar la nómina: {err_w}")
 
     with tab_emp:
         st.markdown("#### Registrar nuevo trabajador")
@@ -12826,7 +12826,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
 
             ec4, ec5, ec6 = st.columns(3)
             with ec4:
-                fing_emp = st.date_input("Fecha de Ingreso", value=datetime.date.today())
+                fing_emp = st.date_input("Fecha de Ingreso", value=date.today())
             with ec5:
                 sal_emp = st.number_input("Salario Base Mensual", min_value=0.0, format="%.2f")
             with ec6:
@@ -12858,10 +12858,11 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                         st.error(f"❌ Error al guardar trabajador: {err_e}")
 
     with tab_hist:
+        recibos = []
         try:
             conn_h = conectar_db(db_actual)
             if conn_h:
-                with conn_h.cursor(dictionary=True) as cur_h:
+                with conn_h.cursor() as cur_h:
                     cur_h.execute("""
                         SELECT n_comprobante, periodo, fecha_pago, nombre_empleado,
                                salario_periodo, bonos, deducciones, neto_pagar
@@ -12870,14 +12871,16 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                         ORDER BY id DESC
                         LIMIT 200
                     """, (str(db_actual),))
-                    recibos = cur_h.fetchall()
+                    cols_rec = [desc[0] for desc in cur_h.description]
+                    recibos = [dict(zip(cols_rec, fila)) for fila in cur_h.fetchall()]
                 conn_h.close()
-                if recibos:
-                    st.dataframe(recibos, use_container_width=True)
-                else:
-                    st.info("No hay recibos de nómina registrados todavía.")
         except Exception as err_h:
             st.error(f"❌ Error consultando recibos: {err_h}")
+
+        if recibos:
+            st.dataframe(pd.DataFrame(recibos), use_container_width=True, hide_index=True)
+        else:
+            st.info("No hay recibos de nómina registrados todavía.")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
