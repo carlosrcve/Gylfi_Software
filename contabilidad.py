@@ -11786,7 +11786,7 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                         nueva_col = st.text_input("Nombre (sin espacios):", key="add_col_name").strip().lower()
                         tipo_col = st.selectbox(
                             "Tipo de dato:",
-                            ["VARCHAR(150)", "VARCHAR(255)", "INT", "DECIMAL(18,2)", "DATE", "TEXT"],
+                            ["VARCHAR(150)", "VARCHAR(255)", "INT", "DECIMAL(18,2)", "DATE", "TEXT","LONGTEXT"],
                             key="add_col_type"
                         )
 
