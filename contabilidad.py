@@ -16493,7 +16493,7 @@ elif opcion_menu == "📝 Asientos Contables":
                     f"Empresa activa: **{empresa_actual_str or 'No seleccionada'}** · "
                     f"Proveedores: **{len(lista_provs)}**"
                 )
-            # ==========================================
+           # ==========================================
             # 📋 OPCIÓN 1: EMITIR NUEVA ORDEN DE PAGO
             # ==========================================
             if modo_vista == "Emitir Nueva Orden de Pago":
@@ -16533,11 +16533,22 @@ elif opcion_menu == "📝 Asientos Contables":
                     with st.container():
                         col_f1_1, col_f1_2 = st.columns(2)
                         with col_f1_1:
-                            prov_seleccionado_form = st.selectbox(
-                                "Seleccionar Proveedor", 
-                                options=lista_provs if lista_provs else ["No hay proveedores"], 
-                                key="op_prov"
-                            )
+                            col_prov_sel, col_prov_btn = st.columns([3, 1])
+                            with col_prov_sel:
+                                prov_seleccionado_form = st.selectbox(
+                                    "Seleccionar Proveedor", 
+                                    options=lista_provs if lista_provs else ["No hay proveedores"], 
+                                    key="op_prov"
+                                )
+                            with col_prov_btn:
+                                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                                if st.button("🔄", key="btn_actualizar_prov_form", help="Actualizar lista de proveedores", use_container_width=True):
+                                    st.session_state.pop("cache_lista_provs", None)
+                                    st.session_state.pop("cache_dict_provs", None)
+                                    st.session_state.pop("cache_provs_empresa", None)
+                                    st.session_state.pop("op_prov", None)
+                                    st.rerun()
+
                             nro_factura_form = st.text_input("Número de Factura", key="op_fact")
                             nro_control_form = st.text_input("Número de Control", key="op_ctrl")
                         with col_f1_2:
