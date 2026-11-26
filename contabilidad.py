@@ -16377,8 +16377,9 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error al eliminar: {e}")
-        # --- TAB 2: GESTIÓN Y GENERACIÓN DE ÓRDENES DE PAGO Y CRUCE ---
-        with tab2:
+       
+
+       with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
             # 🌟 INICIALIZAR VARIABLES DE SESIÓN DE FORMA SEGURA
@@ -16397,6 +16398,8 @@ elif opcion_menu == "📝 Asientos Contables":
             # --- CARGAR PROVEEDORES SEGURO Y ORDENADOS A-Z ---
             def cargar_proveedores_seguro(empresa):
                 p_lista, p_dict = [], {}
+                conn = None
+                cursor = None
                 try:
                     conn = conectar_db(empresa)
                     if conn:
@@ -16406,9 +16409,7 @@ elif opcion_menu == "📝 Asientos Contables":
                             (str(empresa),)
                         )
                         filas = cursor.fetchall()
-                        cursor.close()
-                        conn.close()
-                        
+
                         if filas:
                             for row in filas:
                                 p_id = row[0]
@@ -16416,7 +16417,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                 rif_prov = str(row[2] if row[2] else 'S/N')
                                 cod_cta = str(row[3] if row[3] else 'N/A')
                                 desc_cta = str(row[4] if row[4] else 'N/A')
-                                
+
                                 label = f"{nombre_prov} (RIF: {rif_prov})"
                                 p_lista.append(label)
                                 p_dict[label] = {
@@ -16426,25 +16427,51 @@ elif opcion_menu == "📝 Asientos Contables":
                                     'codigo_cuenta': cod_cta,
                                     'descripcion_cuenta': desc_cta
                                 }
-                                
+
                     p_lista = sorted(p_lista, key=lambda x: str(x).strip().lower())
 
                 except Exception as ex_prov:
                     st.error(f"⚠️ Error crítico al cargar proveedores: {ex_prov}")
-                    
+                finally:
+                    if cursor:
+                        try:
+                            cursor.close()
+                        except Exception:
+                            pass
+                    if conn:
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+
                 return p_lista, p_dict
 
-            # --- CARGAR Y ORDENAR PROVEEDORES ALFABÉTICAMENTE RÁPIDO ---
-            if "cache_lista_provs" not in st.session_state or "cache_dict_provs" not in st.session_state:
+            # --- BOTÓN PARA REFRESCAR PROVEEDORES + SINCRONIZACIÓN POR EMPRESA ---
+            col_prov_btn, col_prov_info = st.columns([1, 3])
+            with col_prov_btn:
+                forzar_refresh_provs = st.button(
+                    "🔄 Actualizar Proveedores",
+                    key=f"btn_refresh_provs_tab2_{db_actual}",
+                    help="Recarga la lista de proveedores desde la base de datos"
+                )
+
+            empresa_cacheada = st.session_state.get("cache_provs_empresa")
+            necesita_cargar = (
+                forzar_refresh_provs
+                or empresa_cacheada != db_actual
+                or "cache_lista_provs" not in st.session_state
+                or "cache_dict_provs" not in st.session_state
+            )
+
+            if necesita_cargar:
                 with st.spinner("Cargando catálogo de proveedores..."):
                     p_lista, p_dict = cargar_proveedores_seguro(db_actual)
-                    
                     st.session_state.cache_lista_provs = p_lista
                     st.session_state.cache_dict_provs = p_dict
+                    st.session_state.cache_provs_empresa = db_actual
 
             lista_provs = st.session_state.cache_lista_provs
             dict_provs = st.session_state.cache_dict_provs
-
             # ==========================================
             # 📋 OPCIÓN 1: EMITIR NUEVA ORDEN DE PAGO
             # ==========================================
