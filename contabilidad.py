@@ -16379,7 +16379,7 @@ elif opcion_menu == "📝 Asientos Contables":
                         st.error(f"Error al eliminar: {e}")
        
 
-       with tab2:
+        with tab2:
             st.markdown("### 🧾 Gestión y Generación de Órdenes de Pago y Cruce")
 
             # 🌟 INICIALIZAR VARIABLES DE SESIÓN DE FORMA SEGURA
