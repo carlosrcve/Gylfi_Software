@@ -12821,8 +12821,25 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                 ced_emp = st.text_input("Cédula / Identificación")
             with ec2:
                 nom_emp = st.text_input("Nombre Completo")
+            CARGOS_NOMINA = [
+                "Analista / Operativo",
+                "Asistente Administrativo",
+                "Contador / Administrador",
+                "Supervisor / Coordinador",
+                "Gerente",
+                "Vendedor / Atención al Cliente",
+                "Chofer / Repartidor",
+                "Almacén / Logística",
+                "Mantenimiento / Limpieza",
+                "Otro...",
+            ]
+
             with ec3:
-                cargo_emp = st.text_input("Cargo", value="Analista / Operativo")
+                cargo_sel = st.selectbox("Cargo", options=CARGOS_NOMINA, key="nom_cargo_sel")
+                if cargo_sel == "Otro...":
+                    cargo_emp = st.text_input("Especificar cargo", key="nom_cargo_otro")
+                else:
+                    cargo_emp = cargo_sel
 
             ec4, ec5, ec6 = st.columns(3)
             with ec4:
