@@ -11648,18 +11648,25 @@ def render_gestor_esquemas_mysql(conn, db_actual):
                         st.error("Selecciona al menos una columna para la clave única.")
 
             if cols_actuales:
-                st.dataframe(pd.DataFrame(cols_actuales), use_container_width=True, hide_index=True)
+                st.markdown("**Columnas agregadas:**")
+                for idx, col in enumerate(cols_actuales):
+                    c1, c2, c3, c4 = st.columns([2.5, 2, 1, 1])
+                    c1.write(col["nombre"])
+                    c2.write(col["tipo"])
+                    c3.write("NULL" if col["null"] else "NOT NULL")
+                    if c4.button("🗑️", key=f"del_col_{idx}"):
+                        st.session_state["cols_nueva_tabla"].pop(idx)
+                        st.rerun()
 
             if st.session_state["uniques_nueva_tabla"]:
-                st.caption("Claves únicas configuradas:")
-                st.dataframe(
-                    pd.DataFrame([
-                        {"clave": u["nombre"], "columnas": ", ".join(u["columnas"])}
-                        for u in st.session_state["uniques_nueva_tabla"]
-                    ]),
-                    use_container_width=True,
-                    hide_index=True
-                )
+                st.markdown("**Claves únicas configuradas:**")
+                for idx, uq in enumerate(st.session_state["uniques_nueva_tabla"]):
+                    u1, u2, u3 = st.columns([2.5, 3, 1])
+                    u1.write(uq["nombre"])
+                    u2.write(", ".join(uq["columnas"]))
+                    if u3.button("🗑️", key=f"del_uq_{idx}"):
+                        st.session_state["uniques_nueva_tabla"].pop(idx)
+                        st.rerun()
 
             if cols_actuales or st.session_state["uniques_nueva_tabla"]:
                 if st.button("🧹 Limpiar columnas y claves", key="btn_clear_tmp_cols"):
