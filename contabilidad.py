@@ -12893,7 +12893,6 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             conn_e.commit()
                             conn_e.close()
                             st.success(f"✅ Trabajador **{nom_emp.strip()}** agregado.")
-                            st.rerun()
                     except Exception as err_e:
                         st.error(f"❌ Error al guardar trabajador: {err_e}")
 
