@@ -12896,60 +12896,70 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             return idx
                     return 0
 
-                s1, s2, s3 = st.columns(3)
+                s1, s2 = st.columns(2)
                 with s1:
                     sel_cta_sueldos = st.selectbox(
-                        "Cuenta Sueldos y Salarios (Debe)",
+                        "1. Cuenta Salario Mensual (Debe)",
                         options=lista_pc if lista_pc else ["5.1.1.01.001 - Sueldos y Salarios"],
-                        index=_idx_defecto(lista_pc, ["5.1.1", "5.1"]) if lista_pc else 0,
+                        index=_idx_defecto(lista_pc, ["5.1.1", "6.1.1", "5.1"]) if lista_pc else 0,
                         key="post_nom_cta_sueldos"
                     )
                 with s2:
                     sel_cta_bonos = st.selectbox(
-                        "Cuenta Bonificaciones Extras (Debe)",
+                        "2. Cuenta Bonos / Extras (Debe)",
                         options=lista_pc if lista_pc else ["5.1.1.02.001 - Bonificaciones Extras"],
                         index=_idx_defecto(lista_pc, ["5.1.2", "5.1.1", "5.1"]) if lista_pc else 0,
                         key="post_nom_cta_bonos"
                     )
+
+                s3, s4 = st.columns(2)
                 with s3:
                     sel_cta_ded = st.selectbox(
-                        "Cuenta Deducciones (Haber)",
+                        "3. Cuenta Deducciones (Haber)",
                         options=lista_pc if lista_pc else ["2.1.2.01.001 - Retenciones y Deducciones por Pagar"],
                         index=_idx_defecto(lista_pc, ["2.1.2", "2.1"]) if lista_pc else 0,
                         key="post_nom_cta_ded"
+                    )
+                with s4:
+                    sel_cta_neto = st.selectbox(
+                        "4. Cuenta Neto a Pagar / Pago Nómina (Haber)",
+                        options=lista_pc if lista_pc else [f"{datos_asiento['banco_codigo']} - {datos_asiento['banco_nombre']}"],
+                        index=_idx_defecto(lista_pc, ["1.1.1", "2.1.1", "1.1"]) if lista_pc else 0,
+                        key="post_nom_cta_neto"
                     )
 
                 cta_sueldos_info = opciones_pc.get(sel_cta_sueldos, {"codigo": "5.1.1.01.001", "nombre": str(sel_cta_sueldos)})
                 cta_bonos_info = opciones_pc.get(sel_cta_bonos, {"codigo": "5.1.1.02.001", "nombre": str(sel_cta_bonos)})
                 cta_ded_info = opciones_pc.get(sel_cta_ded, {"codigo": "2.1.2.01.001", "nombre": str(sel_cta_ded)})
+                cta_neto_info = opciones_pc.get(
+                    sel_cta_neto,
+                    {"codigo": datos_asiento["banco_codigo"], "nombre": datos_asiento["banco_nombre"]}
+                )
 
-                filas_asiento = []
-                if datos_asiento["total_salarios"] > 0:
-                    filas_asiento.append({
+                filas_asiento = [
+                    {
                         "n_comprobante": datos_asiento["n_comprobante"],
-                        "descripcion": f"{datos_asiento['descripcion']} - Sueldos y Salarios",
+                        "descripcion": f"{datos_asiento['descripcion']} - Salario Mensual",
                         "fecha": datos_asiento["fecha"],
                         "plan_cuentas": cta_sueldos_info["codigo"],
                         "cuenta_contable": cta_sueldos_info["nombre"],
                         "referencia": datos_asiento["periodo"],
-                        "debe": float(datos_asiento["total_salarios"]),
+                        "debe": round(float(datos_asiento["total_salarios"]), 2),
                         "haber": 0.00,
                         "bloqueado": 0,
-                    })
-                if datos_asiento["total_bonos"] > 0:
-                    filas_asiento.append({
+                    },
+                    {
                         "n_comprobante": datos_asiento["n_comprobante"],
-                        "descripcion": f"{datos_asiento['descripcion']} - Bonificaciones Extras",
+                        "descripcion": f"{datos_asiento['descripcion']} - Bonos / Extras",
                         "fecha": datos_asiento["fecha"],
                         "plan_cuentas": cta_bonos_info["codigo"],
                         "cuenta_contable": cta_bonos_info["nombre"],
                         "referencia": datos_asiento["periodo"],
-                        "debe": float(datos_asiento["total_bonos"]),
+                        "debe": round(float(datos_asiento["total_bonos"]), 2),
                         "haber": 0.00,
                         "bloqueado": 0,
-                    })
-                if datos_asiento["total_deducciones"] > 0:
-                    filas_asiento.append({
+                    },
+                    {
                         "n_comprobante": datos_asiento["n_comprobante"],
                         "descripcion": f"{datos_asiento['descripcion']} - Deducciones",
                         "fecha": datos_asiento["fecha"],
@@ -12957,24 +12967,28 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                         "cuenta_contable": cta_ded_info["nombre"],
                         "referencia": datos_asiento["periodo"],
                         "debe": 0.00,
-                        "haber": float(datos_asiento["total_deducciones"]),
+                        "haber": round(float(datos_asiento["total_deducciones"]), 2),
                         "bloqueado": 0,
-                    })
-                if datos_asiento["total_neto"] > 0:
-                    filas_asiento.append({
+                    },
+                    {
                         "n_comprobante": datos_asiento["n_comprobante"],
-                        "descripcion": f"{datos_asiento['descripcion']} - Pago Neto Nómina",
+                        "descripcion": f"{datos_asiento['descripcion']} - Neto a Pagar",
                         "fecha": datos_asiento["fecha"],
-                        "plan_cuentas": datos_asiento["banco_codigo"],
-                        "cuenta_contable": datos_asiento["banco_nombre"],
+                        "plan_cuentas": cta_neto_info["codigo"],
+                        "cuenta_contable": cta_neto_info["nombre"],
                         "referencia": datos_asiento["periodo"],
                         "debe": 0.00,
-                        "haber": float(datos_asiento["total_neto"]),
+                        "haber": round(float(datos_asiento["total_neto"]), 2),
                         "bloqueado": 0,
-                    })
+                    },
+                ]
 
                 df_asiento_preview = pd.DataFrame(filas_asiento)
                 st.dataframe(df_asiento_preview, use_container_width=True, hide_index=True)
+
+                lineas_a_guardar = [
+                    fa for fa in filas_asiento if (float(fa["debe"]) > 0 or float(fa["haber"]) > 0)
+                ]
 
                 if st.button("📌 Guardar Asiento en `asientos_contables`", type="primary", use_container_width=True, key="btn_guardar_asiento_post"):
                     try:
@@ -12987,7 +13001,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                                         cuenta_contable, referencia, debe, haber, bloqueado
                                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                                 """
-                                for fa in filas_asiento:
+                                for fa in lineas_a_guardar:
                                     cur_a.execute(query_ins_asiento, (
                                         fa["n_comprobante"],
                                         fa["descripcion"],
