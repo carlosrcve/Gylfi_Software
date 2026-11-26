@@ -16561,17 +16561,20 @@ elif opcion_menu == "📝 Asientos Contables":
                             """, unsafe_allow_html=True)
                             
                             base_imponible_form = st.number_input("Base Imponible", min_value=0.0, format="%.2f", key="op_base")
+                            st.caption(f"Formato miles: **{base_imponible_form:,.2f}**")
+
                             monto_exento_form = st.number_input("Monto Exento", min_value=0.0, format="%.2f", key="op_exento")
+                            st.caption(f"Formato miles: **{monto_exento_form:,.2f}**")
 
-                        col_f1_3, col_f1_4 = st.columns(2)
-                        with col_f1_3:
-                            alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="op_alicuota")
-                        with col_f1_4:
-                            monto_iva_calculado = base_imponible_form * (alicuota_iva_form / 100.0)
-                            st.metric(label="Monto IVA (Calculado)", value=f"{monto_iva_calculado:,.2f}")
+                            col_f1_3, col_f1_4 = st.columns(2)
+                            with col_f1_3:
+                                alicuota_iva_form = st.selectbox("Alícuota IVA", options=[16.0, 8.0, 31.0, 0.0], format_func=lambda x: f"{x}%", key="op_alicuota")
+                            with col_f1_4:
+                                monto_iva_calculado = base_imponible_form * (alicuota_iva_form / 100.0)
+                                st.metric(label="Monto IVA (Calculado)", value=f"{monto_iva_calculado:,.2f}")
 
-                        monto_bruto_calculado = base_imponible_form + monto_exento_form + monto_iva_calculado
-                        st.metric(label="Monto Bruto / Total Factura (Calculado)", value=f"{monto_bruto_calculado:,.2f}")
+                            monto_bruto_calculado = base_imponible_form + monto_exento_form + monto_iva_calculado
+                            st.metric(label="Monto Bruto / Total Factura (Calculado)", value=f"{monto_bruto_calculado:,.2f}")
                         
                         st.markdown("---")
 
