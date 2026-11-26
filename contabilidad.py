@@ -12757,7 +12757,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
 
             for emp in empleados:
                 emp_id = emp["id"]
-                c_nom, c_sal, c_bon, c_net = st.columns([3, 1.5, 1.5, 1.5])
+                c_nom, c_sal, c_bon, c_ded, c_net = st.columns([2.8, 1.3, 1.3, 1.3, 1.3])
                 with c_nom:
                     st.markdown(f"**{emp['nombre_completo']}** (`{emp['cedula']}`) — *{emp['cargo']}*")
                 with c_sal:
@@ -12766,22 +12766,35 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     )
                 with c_bon:
                     bono_emp = st.number_input("Bonos / Extras", min_value=0.0, value=0.0, format="%.2f", key=f"nom_bon_{emp_id}")
+                with c_ded:
+                    ded_emp_extra = st.number_input(
+                        "Deducciones",
+                        min_value=0.0,
+                        value=0.0,
+                        format="%.2f",
+                        help="Préstamos, descuentos por retardos o deducciones puntuales",
+                        key=f"nom_ded_{emp_id}"
+                    )
 
-                calc = calcular_linea_nomina(sal_base_emp, frecuencia, bono_emp, porc_ded_gral)
+                calc_base = calcular_linea_nomina(sal_base_emp, frecuencia, bono_emp, porc_ded_gral)
+                total_dev_emp = round(float(calc_base["total_devengado"]), 2)
+                total_ded_emp = round(float(calc_base["deducciones"]) + float(ded_emp_extra), 2)
+                neto_emp = round(max(0.0, total_dev_emp - total_ded_emp), 2)
+
                 with c_net:
-                    st.metric("Neto a Pagar", f"{calc['neto']:,.2f}")
+                    st.metric("Neto a Pagar", f"{neto_emp:,.2f}")
 
-                total_dev_gral = round(total_dev_gral + calc["total_devengado"], 2)
-                total_ded_gral = round(total_ded_gral + calc["deducciones"], 2)
-                total_neto_gral = round(total_neto_gral + calc["neto"], 2)
+                total_dev_gral = round(total_dev_gral + total_dev_emp, 2)
+                total_ded_gral = round(total_ded_gral + total_ded_emp, 2)
+                total_neto_gral = round(total_neto_gral + neto_emp, 2)
 
                 filas_calculadas.append({
                     "empleado_id": emp_id,
                     "nombre_completo": emp["nombre_completo"],
-                    "total_devengado": calc["total_devengado"],
-                    "bonos": bono_emp,
-                    "deducciones": calc["deducciones"],
-                    "neto": calc["neto"],
+                    "total_devengado": total_dev_emp,
+                    "bonos": round(float(bono_emp), 2),
+                    "deducciones": total_ded_emp,
+                    "neto": neto_emp,
                 })
             st.divider()
             m1, m2, m3 = st.columns(3)
