@@ -12743,8 +12743,6 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
         except Exception as err_r:
             st.error(f"❌ Error cargando trabajadores: {err_r}")
 
-        st.write("DEBUG db_actual:", repr(db_actual), "cantidad:", len(empleados))
-
         if not empleados:
             st.info(
                 f"Aún no hay trabajadores activos registrados para `{db_actual}`. "
