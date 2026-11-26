@@ -16530,10 +16530,16 @@ elif opcion_menu == "📝 Asientos Contables":
                                     st.session_state["op_exento"] = float(res_ocr.get("monto_exento", 0.0))
                                     st.rerun()
 
-                    with st.container():
-                        col_f1_1, col_f1_2 = st.columns(2)
-                        with col_f1_1:
-                            col_prov_btn = st.columns([3, 1])
+                   with st.container():
+                        col_f1_99, col_f1_2 = st.columns(2)
+                        with col_f1_99:
+                            col_prov_sel, col_prov_btn = st.columns([3, 1])
+                            with col_prov_sel:
+                                prov_seleccionado_form = st.selectbox(
+                                    "Seleccionar Proveedor", 
+                                    options=lista_provs if lista_provs else ["No hay proveedores"], 
+                                    key="op_prov"
+                                )
                             with col_prov_btn:
                                 st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
                                 if st.button("🔄", key="btn_actualizar_prov_form", help="Actualizar lista de proveedores", use_container_width=True):
