@@ -12706,14 +12706,15 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
         try:
             conn_r = conectar_db(db_actual)
             if conn_r:
-                with conn_r.cursor(dictionary=True) as cur_r:
+                with conn_r.cursor() as cur_r:
                     cur_r.execute("""
                         SELECT id, cedula, nombre_completo, cargo, salario_base
                         FROM nomina_empleados
                         WHERE empresa_db = %s AND activo = 1
                         ORDER BY nombre_completo ASC
                     """, (str(db_actual),))
-                    empleados = cur_r.fetchall()
+                    cols_emp = [desc[0] for desc in cur_r.description]
+                    empleados = [dict(zip(cols_emp, fila)) for fila in cur_r.fetchall()]
                 conn_r.close()
         except Exception as err_r:
             st.error(f"❌ Error cargando trabajadores: {err_r}")
