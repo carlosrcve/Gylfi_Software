@@ -16530,7 +16530,7 @@ elif opcion_menu == "📝 Asientos Contables":
                                     st.session_state["op_exento"] = float(res_ocr.get("monto_exento", 0.0))
                                     st.rerun()
 
-                   with st.container():
+                    with st.container():
                         col_f1_99, col_f1_2 = st.columns(2)
                         with col_f1_99:
                             col_prov_sel, col_prov_btn = st.columns([3, 1])
