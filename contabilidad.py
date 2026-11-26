@@ -16472,6 +16472,12 @@ elif opcion_menu == "📝 Asientos Contables":
 
             lista_provs = st.session_state.cache_lista_provs
             dict_provs = st.session_state.cache_dict_provs
+
+            with col_prov_info:
+                if forzar_refresh_provs:
+                    st.caption(f"✅ Catálogo actualizado ({len(lista_provs)} proveedores).")
+                else:
+                    st.caption(f"Proveedores disponibles: {len(lista_provs)}")
             # ==========================================
             # 📋 OPCIÓN 1: EMITIR NUEVA ORDEN DE PAGO
             # ==========================================
