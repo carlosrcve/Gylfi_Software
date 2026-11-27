@@ -13905,7 +13905,26 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             except Exception as err_hbs:
                 st.error(f"❌ Error consultando `beneficios_sociales`: {err_hbs}")
 
-           # 4) Asiento Contable al final, debajo del Historial de Beneficios Sociales
+            # 4) Asiento Contable al final, debajo del Historial de Beneficios Sociales
+            def _trimestre_texto_bs(fecha_val) -> str:
+                f_obj = fecha_val
+                if isinstance(f_obj, str):
+                    try:
+                        f_obj = date.fromisoformat(f_obj[:10])
+                    except ValueError:
+                        f_obj = date.today()
+                elif hasattr(f_obj, "date"):
+                    f_obj = f_obj.date()
+
+                mes = getattr(f_obj, "month", date.today().month)
+                if mes <= 3:
+                    return "primer"
+                if mes <= 6:
+                    return "segundo"
+                if mes <= 9:
+                    return "tercero"
+                return "cuarto"
+
             st.divider()
             state_key_asiento = f"bs_registrar_asiento_{emp_id_bs}"
             if state_key_asiento not in st.session_state:
@@ -13996,12 +14015,16 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                 )
 
                 monto_prest_bs = round(float(res_bs.get("prestaciones_sociales") or 0.0), 2)
-                desc_base_bs = f"Abono prestaciones sociales - {nombre_emp_bs}".strip()
+                trimestre_bs = _trimestre_texto_bs(fecha_asiento_bs)
+                desc_trimestre_bs = (
+                    f"Abonos trimestrales correspondientes a las prestaciones sociales de los empleados "
+                    f"del {trimestre_bs} trimestre ({nombre_emp_bs})".strip()
+                )
 
                 filas_asiento_bs = [
                     {
                         "n_comprobante": n_comprobante_bs.strip(),
-                        "descripcion": f"{desc_base_bs} (Prestaciones Sociales)",
+                        "descripcion": desc_trimestre_bs,
                         "fecha": fecha_asiento_bs,
                         "plan_cuentas": cta_prest_info["codigo"],
                         "cuenta_contable": cta_prest_info["nombre"],
@@ -14012,7 +14035,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     },
                     {
                         "n_comprobante": n_comprobante_bs.strip(),
-                        "descripcion": f"{desc_base_bs} - Ver ({cta_ver_info['nombre']})",
+                        "descripcion": desc_trimestre_bs,
                         "fecha": fecha_asiento_bs,
                         "plan_cuentas": cta_ver_info["codigo"],
                         "cuenta_contable": cta_ver_info["nombre"],
