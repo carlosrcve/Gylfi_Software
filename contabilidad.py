@@ -15467,9 +15467,9 @@ if menu_lateral == "📊 Auditoría Contable":
             "📄 Auxiliar Cta por Pagar",
             "📸 Códigos QR y Escaneo",
             "👥 Nómina",
-            "Facturacion Digital",
-
+            "🧾 Facturación Digital",
         ]
+
         if "PEDACITO" in str(nombre_sel).upper() and "CIELO" in str(nombre_sel).upper():
             if "🧁 Inventarios" not in modulos_disponibles:
                 modulos_disponibles.append("🧁 Inventarios")
@@ -28411,7 +28411,7 @@ if opcion_menu == "👥 Nómina":
 
 
 
-if opcion_menu == "Facturacion Digital":
+if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
     db_actual = st.session_state.get("DB_ACTUAL")
     if not db_actual:
         st.warning("⚠️ Selecciona primero una empresa activa para usar el módulo de Facturación Digital.")
