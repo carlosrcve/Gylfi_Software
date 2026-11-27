@@ -14889,7 +14889,7 @@ def generar_xml_factura(cabecera: dict, totales: dict, rango: dict) -> str:
 
 
 def generar_pdf_factura_digital(cabecera: dict, totales: dict, rango: dict) -> bytes:
-    """Genera el PDF de Factura Digital en formato A4 usando fpdf2 con alineación limpia."""
+    """Genera el PDF de Factura Digital en formato A4 con formato venezolano y datos operativos."""
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=12)
     pdf.add_page()
@@ -14900,76 +14900,102 @@ def generar_pdf_factura_digital(cabecera: dict, totales: dict, rango: dict) -> b
     def _txt(v) -> str:
         return str(v or "").encode("latin-1", errors="replace").decode("latin-1")
 
-    # --- Encabezado superior: Emisor (izq) y Datos del Documento (der) ---
+    rif_em_fmt = _formatear_rif(rango.get("rif_emisor", ""))
+    rif_cli_fmt = _formatear_rif(cabecera.get("cliente_rif", ""))
+    hora_fmt = _hora_12h_am_pm(cabecera.get("hora_emision", ""))
+    fecha_asig = cabecera.get("fecha_asignacion_control") or cabecera.get("fecha_emision") or ""
+
+    # --- Encabezado superior: Emisor (izq) y Control / Emisión (der) ---
     y_top = pdf.get_y()
     pdf.set_xy(margen_izq, y_top)
     pdf.set_font("Helvetica", "B", 12)
-    pdf.multi_cell(116, 5.5, _txt(rango.get("razon_social_emisor") or "EMISOR"))
+    pdf.multi_cell(114, 5.5, _txt(rango.get("razon_social_emisor") or "EMISOR"))
 
     pdf.set_font("Helvetica", "", 8)
     pdf.set_x(margen_izq)
-    pdf.cell(116, 4.5, _txt(f"RIF: {rango.get('rif_emisor', '')} | Act. Econ.: {rango.get('codigo_actividad_economica', '')}"), ln=1)
+    pdf.cell(114, 4.2, _txt(f"RIF: {rif_em_fmt} | Act. Econ.: {rango.get('codigo_actividad_economica', '')}"), ln=1)
     pdf.set_x(margen_izq)
-    pdf.multi_cell(116, 4, _txt(rango.get("direccion_fiscal", "")))
+    pdf.multi_cell(114, 4, _txt(rango.get("direccion_fiscal", "")))
+    contacto_em = " | ".join(
+        p for p in [
+            f"Tel: {rango.get('telefono_emisor')}" if rango.get("telefono_emisor") else "",
+            f"Correo: {rango.get('correo_emisor')}" if rango.get("correo_emisor") else "",
+        ] if p
+    )
+    if contacto_em:
+        pdf.set_x(margen_izq)
+        pdf.cell(114, 4, _txt(contacto_em), ln=1)
     y_fin_izq = pdf.get_y()
 
-    pdf.set_xy(130, y_top)
+    pdf.set_xy(128, y_top)
     pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(68, 5.5, "FACTURA DIGITAL", ln=1, align="R")
-    pdf.set_x(130)
+    pdf.cell(70, 5.5, "FACTURA DIGITAL", ln=1, align="R")
+    pdf.set_x(128)
     pdf.set_font("Helvetica", "B", 8)
-    pdf.cell(68, 4.5, _txt(f"N° Documento: {cabecera.get('n_documento', '')}"), ln=1, align="R")
-    pdf.set_x(130)
-    pdf.cell(68, 4.5, _txt(f"N° de Control: {cabecera.get('n_control', '')}"), ln=1, align="R")
-    pdf.set_x(130)
-    pdf.set_font("Helvetica", "", 8)
-    pdf.cell(68, 4, _txt(f"Emisión: {cabecera.get('fecha_emision', '')} {cabecera.get('hora_emision', '')}"), ln=1, align="R")
+    pdf.cell(70, 4.2, _txt(f"N° Documento: {cabecera.get('n_documento', '')}"), ln=1, align="R")
+    pdf.set_x(128)
+    pdf.cell(70, 4.2, _txt(f"N° de Control: {cabecera.get('n_control', '')}"), ln=1, align="R")
+    pdf.set_x(128)
+    pdf.set_font("Helvetica", "", 7.8)
+    pdf.cell(70, 4, _txt(f"Fecha de emisión: {cabecera.get('fecha_emision', '')}"), ln=1, align="R")
+    pdf.set_x(128)
+    pdf.cell(70, 4, _txt(f"Hora de emisión: {hora_fmt}"), ln=1, align="R")
+    pdf.set_x(128)
+    pdf.cell(70, 4, _txt(f"Fecha de asignación: {fecha_asig}"), ln=1, align="R")
     y_fin_der = pdf.get_y()
 
     pdf.set_y(max(y_fin_izq, y_fin_der) + 4)
 
-    # --- Bloque Datos del Cliente / Receptor ---
+    # --- Bloque Datos del Cliente y Campos Operativos ---
     pdf.set_x(margen_izq)
     pdf.set_fill_color(235, 240, 246)
     pdf.set_font("Helvetica", "B", 8)
-    pdf.cell(ancho_util, 5.5, "DATOS DEL CLIENTE / RECEPTOR", ln=1, fill=True)
+    pdf.cell(ancho_util, 5.5, "NOMBRE Ó RAZÓN SOCIAL / DATOS OPERATIVOS", ln=1, fill=True)
 
-    pdf.set_font("Helvetica", "", 8)
+    pdf.set_font("Helvetica", "", 7.8)
     pdf.set_x(margen_izq)
-    pdf.cell(118, 5, _txt(f"Razón Social: {cabecera.get('cliente_nombre', '')}"), ln=0)
-    pdf.cell(68, 5, _txt(f"RIF / C.I.: {cabecera.get('cliente_rif', '')}"), ln=1, align="R")
-
-    pdf.set_x(margen_izq)
-    pdf.cell(118, 5, _txt(f"Condición: {cabecera.get('condicion_pago', '')} | Tipo: {cabecera.get('tipo_venta', '')}"), ln=0)
-    pdf.cell(68, 5, _txt(f"Período: {cabecera.get('periodo_fact', '')} | Tasa BCV: {totales['tasa_bcv']:,.4f}"), ln=1, align="R")
+    pdf.cell(118, 4.5, _txt(f"Razón Social: {cabecera.get('cliente_nombre', '')}"), ln=0)
+    pdf.cell(68, 4.5, _txt(f"RIF / C.I.: {rif_cli_fmt}"), ln=1, align="R")
 
     pdf.set_x(margen_izq)
-    pdf.multi_cell(ancho_util, 4.2, _txt(f"Dirección Fiscal: {cabecera.get('cliente_direccion_fiscal', '')}"))
+    pdf.cell(118, 4.5, _txt(f"Teléfono: {cabecera.get('cliente_telefono') or 'N/A'} | Condición: {cabecera.get('condicion_pago', '')}"), ln=0)
+    pdf.cell(68, 4.5, _txt(f"Tipo Venta: {cabecera.get('tipo_venta', '')} | Sucursal: {cabecera.get('sucursal') or 'No asignada'}"), ln=1, align="R")
+
+    pdf.set_x(margen_izq)
+    pdf.cell(118, 4.5, _txt(f"Período Fact.: {cabecera.get('periodo_fact', '')} | Pague Antes: {cabecera.get('pague_antes') or 'N/A'}"), ln=0)
+    pdf.cell(68, 4.5, _txt(f"Orden de Compra: {cabecera.get('nro_orden_compra') or 'N/A'} | Vendedor: {cabecera.get('vendedor') or 'N/A'}"), ln=1, align="R")
+
+    pdf.set_x(margen_izq)
+    pdf.cell(ancho_util, 4.5, _txt(f"Tipo de cambio BCV a la fecha de emisión: {_fmt_ve_num(totales['tasa_bcv'], 4)}"), ln=1)
+
+    pdf.set_x(margen_izq)
+    pdf.multi_cell(ancho_util, 4, _txt(f"Dirección Fiscal: {cabecera.get('cliente_direccion_fiscal', '')}"))
     pdf.ln(3)
 
-    # --- Tabla de Ítems ---
-    cols_w = [14, 20, 72, 26, 16, 14, 24]  # suma = 186 mm
-    headers = ["Cant.", "Código", "Descripción", "P. Unit (Bs.)", "% Desc.", "Alíc.", "Importe (Bs.)"]
-    aligns = ["R", "L", "L", "R", "R", "C", "R"]
+    # --- Tabla de Ítems (incluye Unidad) ---
+    cols_w = [13, 18, 62, 16, 25, 14, 13, 25]  # suma = 186 mm
+    headers = ["Cant.", "Código", "Concepto / Descripción", "Unid.", "P. Unit (Bs.)", "% Desc.", "Alíc.", "Importe (Bs.)"]
+    aligns = ["R", "L", "L", "C", "R", "R", "C", "R"]
 
     pdf.set_x(margen_izq)
     pdf.set_fill_color(245, 247, 250)
-    pdf.set_font("Helvetica", "B", 7.5)
+    pdf.set_font("Helvetica", "B", 7.2)
     for w, h, al in zip(cols_w, headers, aligns):
-        pdf.cell(w, 6, _txt(h), border=1, align=al, fill=True)
+        pdf.cell(w, 5.8, _txt(h), border=1, align=al, fill=True)
     pdf.ln()
 
-    pdf.set_font("Helvetica", "", 7.5)
+    pdf.set_font("Helvetica", "", 7.2)
     for ln in totales.get("lineas", []):
         pdf.set_x(margen_izq)
         fila = [
-            f"{ln['cantidad']:,.2f}",
-            str(ln["codigo_item"])[:14],
-            str(ln["descripcion"])[:46],
-            f"{ln['precio_unitario_bs']:,.2f}",
-            f"{ln['descuento_pct']:,.2f}%",
+            _fmt_ve_num(ln["cantidad"], 2),
+            str(ln["codigo_item"])[:12],
+            str(ln["descripcion"])[:42],
+            str(ln["unidad"])[:8],
+            _fmt_ve_num(ln["precio_unitario_bs"], 2),
+            f"{_fmt_ve_num(ln['descuento_pct'], 2)}%",
             f"({ln['alicuota']})",
-            f"{ln['importe_bs']:,.2f}",
+            _fmt_ve_num(ln["importe_bs"], 2),
         ]
         for w, val, al in zip(cols_w, fila, aligns):
             pdf.cell(w, 5, _txt(val), border=1, align=al)
@@ -14979,35 +15005,41 @@ def generar_pdf_factura_digital(cabecera: dict, totales: dict, rango: dict) -> b
 
     # --- Cuadro de Totales en USD y Bs. ---
     resumen = [
-        ("Sub Total", f"{totales['subtotal_divisa']:,.2f} USD", f"{totales['subtotal_bs']:,.2f} Bs."),
-        ("Exento", f"{totales['exento_divisa']:,.2f} USD", f"{totales['exento_bs']:,.2f} Bs."),
-        ("Base Imponible 16%", f"{totales['base_imponible_16_divisa']:,.2f} USD", f"{totales['base_imponible_16_bs']:,.2f} Bs."),
-        ("IVA 16%", f"{totales['iva_16_divisa']:,.2f} USD", f"{totales['iva_16_bs']:,.2f} Bs."),
-        ("IGTF 3%", f"{totales['igtf_3_divisa']:,.2f} USD", f"{totales['igtf_3_bs']:,.2f} Bs."),
-        ("TOTAL A PAGAR", f"{totales['total_divisa']:,.2f} USD", f"{totales['total_bs']:,.2f} Bs."),
+        ("Sub Total:", f"{_fmt_ve_num(totales['subtotal_divisa'], 2)} USD", f"{_fmt_ve_num(totales['subtotal_bs'], 2)} Bs."),
+        ("Exento:", f"{_fmt_ve_num(totales['exento_divisa'], 2)} USD", f"{_fmt_ve_num(totales['exento_bs'], 2)} Bs."),
+        ("Base Imponible 16,00%:", f"{_fmt_ve_num(totales['base_imponible_16_divisa'], 2)} USD", f"{_fmt_ve_num(totales['base_imponible_16_bs'], 2)} Bs."),
+        ("IVA 16,00%:", f"{_fmt_ve_num(totales['iva_16_divisa'], 2)} USD", f"{_fmt_ve_num(totales['iva_16_bs'], 2)} Bs."),
+        ("IGTF (3%):", f"{_fmt_ve_num(totales['igtf_3_divisa'], 2)} USD", f"{_fmt_ve_num(totales['igtf_3_bs'], 2)} Bs."),
+        ("Total:", f"{_fmt_ve_num(totales['total_divisa'], 2)} USD", f"{_fmt_ve_num(totales['total_bs'], 2)} Bs."),
     ]
     for etiqueta, m_div, m_bs in resumen:
-        es_total = etiqueta == "TOTAL A PAGAR"
+        es_total = etiqueta == "Total:"
         pdf.set_x(margen_izq)
-        pdf.set_font("Helvetica", "B" if es_total else "", 8)
-        pdf.cell(104, 5, "", border=0)
-        pdf.cell(38, 5, _txt(etiqueta), border=1, fill=es_total)
-        pdf.cell(22, 5, _txt(m_div), border=1, align="R", fill=es_total)
-        pdf.cell(22, 5, _txt(m_bs), border=1, align="R", fill=es_total, ln=1)
+        pdf.set_font("Helvetica", "B" if es_total else "", 7.8)
+        pdf.cell(96, 5, "", border=0)
+        pdf.cell(42, 5, _txt(etiqueta), border=1, fill=es_total)
+        pdf.cell(24, 5, _txt(m_div), border=1, align="R", fill=es_total)
+        pdf.cell(24, 5, _txt(m_bs), border=1, align="R", fill=es_total, ln=1)
 
-    pdf.ln(4)
+    pdf.ln(3.5)
 
-    # --- Pie Legal e Imprenta Digital ---
+    # --- Textos Legales y Datos de Imprenta Digital / Certificado ---
     pdf.set_x(margen_izq)
-    pdf.set_font("Helvetica", "", 7)
-    pie_legal = (
-        f"{rango.get('leyenda_legal') or 'Documento emitido conforme a la normativa fiscal vigente.'} | "
+    pdf.set_font("Helvetica", "", 6.7)
+    leyenda_usuario = rango.get("leyenda_legal") or "Documento emitido conforme a la normativa fiscal vigente del SENIAT."
+    textos_legales = (
+        f"{leyenda_usuario} "
+        "Este pago estará sujeto al cobro adicional del 3% del Impuesto a las Grandes Transacciones Financieras (IGTF), "
+        "de conformidad con la Providencia Administrativa SNAT/2022/000013 en caso de ser cancelado en divisas (no aplica en pago en Bs.). "
+        "Expresado en divisas con su equivalente en Bolívares al tipo de cambio del mercado a la fecha de emisión "
+        "(Providencia Administrativa SNAT/2011/0071, Ley del BCV, Ley y Reglamento de IVA). "
         f"Imprenta Digital: {rango.get('imprenta_digital_nombre', '')} "
-        f"(RIF: {rango.get('imprenta_digital_rif', '')}, Providencia: {rango.get('providencia_imprenta', '')}) | "
-        f"Proveedor Certificado: {rango.get('proveedor_certificado', '')} | "
-        f"Rango Control: {rango.get('rango_control_desde', '')} - {rango.get('rango_control_hasta', '')}"
+        f"(RIF: {_formatear_rif(rango.get('imprenta_digital_rif', ''))}, Providencia: {rango.get('providencia_imprenta', '')}, "
+        f"Fecha Prov.: {rango.get('fecha_providencia_imprenta') or 'N/A'}) | "
+        f"Proveedor de Certificados: {rango.get('proveedor_certificado', '')} | "
+        f"Rango Control: {rango.get('rango_control_desde', '')} hasta {rango.get('rango_control_hasta', '')}"
     )
-    pdf.multi_cell(ancho_util, 3.6, _txt(pie_legal))
+    pdf.multi_cell(ancho_util, 3.4, _txt(textos_legales))
 
     salida = pdf.output(dest="S")
     return bytes(salida) if isinstance(salida, (bytearray, bytes)) else salida.encode("latin-1")
@@ -28450,6 +28482,17 @@ MESES_ES = {
     9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE",
 }
 
+
+def _cerrar_conexion_segura(conn) -> None:
+    if not conn:
+        return
+    try:
+        if getattr(conn, "open", True):
+            conn.close()
+    except Exception:
+        pass
+
+
 if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
     db_actual = st.session_state.get("DB_ACTUAL")
     if not db_actual:
@@ -28534,6 +28577,16 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                 with c_f:
                     aplica_igtf = st.checkbox("Aplicar IGTF 3% (divisas)", value=False, key="fd_igtf")
 
+                op1, op2, op3, op4 = st.columns(4)
+                with op1:
+                    sucursal = st.text_input("Sucursal", value="No asignada", key="fd_sucursal")
+                with op2:
+                    vendedor = st.text_input("Vendedor", value="", placeholder="Nombre del vendedor", key="fd_vendedor")
+                with op3:
+                    nro_orden_compra = st.text_input("Nro. Orden de Compra", value="N/A", key="fd_oc")
+                with op4:
+                    pague_antes = st.date_input("Pague Antes", value=fecha_emision, key="fd_pague_antes")
+
                 st.markdown("#### 2. Detalle de Ítems")
                 key_df_items = f"fd_items_df_{db_actual}"
                 if key_df_items not in st.session_state:
@@ -28598,6 +28651,11 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                             "periodo_fact": periodo_fact.strip(),
                             "tasa_bcv": tasa_bcv,
                             "aplica_igtf": aplica_igtf,
+                            "sucursal": sucursal.strip() or "No asignada",
+                            "vendedor": vendedor.strip() or "N/A",
+                            "nro_orden_compra": nro_orden_compra.strip() or "N/A",
+                            "pague_antes": pague_antes,
+                            "fecha_asignacion_control": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         }
                         xml_str = generar_xml_factura(cabecera_payload, totales, rango_activo)
                         fac_id, n_doc_emitido, n_ctrl_emitido = emitir_factura_en_bd(
@@ -28663,4 +28721,4 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                 else:
                     st.info("Aún no hay facturas emitidas para esta empresa.")
             finally:
-                conn_fd.close()
+                _cerrar_conexion_segura(conn_fd)
