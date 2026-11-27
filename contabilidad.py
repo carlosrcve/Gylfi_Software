@@ -13905,7 +13905,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             except Exception as err_hbs:
                 st.error(f"❌ Error consultando `beneficios_sociales`: {err_hbs}")
 
-            # 4) Asiento Contable al final, debajo del Historial de Beneficios Sociales
+           # 4) Asiento Contable al final, debajo del Historial de Beneficios Sociales
             st.divider()
             state_key_asiento = f"bs_registrar_asiento_{emp_id_bs}"
             if state_key_asiento not in st.session_state:
@@ -13919,154 +13919,153 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                 st.session_state[state_key_asiento] = not st.session_state[state_key_asiento]
 
             if st.session_state[state_key_asiento]:
-                with st.container(border=True):
-                    st.markdown("#### 📒 Frame — Asiento Contable (`asientos_contables`)")
+                st.markdown("#### 📒 Generar y Registrar Asiento Contable")
 
-                    if not cuentas_detalle_pc:
-                        st.warning("No hay cuentas con `tipo = 'Detalle'` en `plan_cuentas`.")
-                    else:
-                        opciones_pc_detalle = {
-                            f"{c['codigo']} - {c['nombre']}": c
-                            for c in cuentas_detalle_pc
-                        }
-                        lista_cuentas_det = list(opciones_pc_detalle.keys())
+                cuentas_detalle_bs = []
+                try:
+                    conn_pc_bs = conectar_db(empresa_emp_bs)
+                    if conn_pc_bs:
+                        with conn_pc_bs.cursor() as cur_pc_bs:
+                            cur_pc_bs.execute("""
+                                SELECT codigo, nombre
+                                FROM plan_cuentas
+                                WHERE tipo = 'Detalle'
+                                ORDER BY codigo ASC
+                            """)
+                            cols_pc_bs = [desc[0] for desc in cur_pc_bs.description]
+                            cuentas_detalle_bs = [dict(zip(cols_pc_bs, fila)) for fila in cur_pc_bs.fetchall()]
+                        conn_pc_bs.close()
+                except Exception as err_pc_bs:
+                    st.error(f"❌ Error cargando plan de cuentas: {err_pc_bs}")
 
-                        c_meta1, c_meta2, c_meta3 = st.columns(3)
-                        with c_meta1:
-                            n_comprobante_bs = st.text_input(
-                                "N° Comprobante",
-                                value=f"BS-{emp_id_bs}-{date.today().strftime('%Y%m%d')}",
-                                key=f"bs_ac_comp_{emp_id_bs}"
-                            )
-                        with c_meta2:
-                            fecha_asiento_bs = st.date_input(
-                                "Fecha Asiento",
-                                value=fecha_egreso_bs,
-                                key=f"bs_ac_fecha_{emp_id_bs}"
-                            )
-                        with c_meta3:
-                            ref_asiento_bs = st.text_input(
-                                "Referencia",
-                                value=f"CI-{cedula_emp_bs}" if cedula_emp_bs else f"EMP-{emp_id_bs}",
-                                key=f"bs_ac_ref_{emp_id_bs}"
-                            )
+                opciones_pc_bs = {
+                    f"{c['codigo']} - {c['nombre']}": {"codigo": str(c["codigo"]), "nombre": str(c["nombre"])}
+                    for c in cuentas_detalle_bs
+                }
+                lista_pc_bs = list(opciones_pc_bs.keys())
 
-                        monto_prest_asiento = float(res_bs["prestaciones_sociales"] or 0.0)
+                def _idx_defecto_bs(opciones, prefijos, fallback=0):
+                    for idx, label in enumerate(opciones):
+                        if any(label.startswith(p) for p in prefijos):
+                            return idx
+                    return min(fallback, max(len(opciones) - 1, 0))
 
-                        h1, h2, h3, h4, h5 = st.columns([2.2, 1.3, 2.2, 1.1, 1.1])
-                        h1.markdown("**Prestaciones Sociales (Cuenta Detalle)**")
-                        h2.markdown("**Monto Prestaciones**")
-                        h3.markdown("**Ver / Contrapartida (Cuenta Detalle)**")
-                        h4.markdown("**Debe**")
-                        h5.markdown("**Haber**")
+                m1, m2, m3 = st.columns(3)
+                with m1:
+                    n_comprobante_bs = st.text_input(
+                        "N° Comprobante",
+                        value=f"BS-{emp_id_bs}-{date.today().strftime('%Y%m%d')}",
+                        key=f"bs_ac_comp_{emp_id_bs}"
+                    )
+                with m2:
+                    fecha_asiento_bs = st.date_input(
+                        "Fecha Asiento",
+                        value=fecha_egreso_bs,
+                        key=f"bs_ac_fecha_{emp_id_bs}"
+                    )
+                with m3:
+                    ref_asiento_bs = st.text_input(
+                        "Referencia",
+                        value=f"CI-{cedula_emp_bs}" if cedula_emp_bs else f"EMP-{emp_id_bs}",
+                        key=f"bs_ac_ref_{emp_id_bs}"
+                    )
 
-                        f1_c1, f1_c2, f1_c3, f1_c4, f1_c5 = st.columns([2.2, 1.3, 2.2, 1.1, 1.1])
-                        with f1_c1:
-                            cta_prest_label = st.selectbox(
-                                "Cuenta Prestaciones Sociales",
-                                options=lista_cuentas_det,
-                                label_visibility="collapsed",
-                                key=f"bs_ac_cta_prest_{emp_id_bs}"
-                            )
-                        with f1_c2:
-                            st.text_input(
-                                "Monto Prestaciones Sociales",
-                                value=f"{monto_prest_asiento:,.2f}",
-                                disabled=True,
-                                label_visibility="collapsed",
-                                key=f"bs_ac_monto_prest_{emp_id_bs}"
-                            )
-                        with f1_c3:
-                            cta_ver_label = st.selectbox(
-                                "Ver (Pasivo / Provisión Prestaciones)",
-                                options=lista_cuentas_det,
-                                index=min(1, len(lista_cuentas_det) - 1),
-                                label_visibility="collapsed",
-                                key=f"bs_ac_cta_ver_{emp_id_bs}"
-                            )
-                        with f1_c4:
-                            st.text_input(
-                                "Debe",
-                                value=f"{monto_prest_asiento:,.2f}",
-                                disabled=True,
-                                label_visibility="collapsed",
-                                key=f"bs_ac_debe_{emp_id_bs}"
-                            )
-                        with f1_c5:
-                            st.text_input(
-                                "Haber",
-                                value=f"{monto_prest_asiento:,.2f}",
-                                disabled=True,
-                                label_visibility="collapsed",
-                                key=f"bs_ac_haber_{emp_id_bs}"
-                            )
+                a1, a2 = st.columns(2)
+                with a1:
+                    sel_cta_prest_bs = st.selectbox(
+                        "1. Cuenta Prestaciones Sociales (Debe)",
+                        options=lista_pc_bs if lista_pc_bs else ["5.1.1.03.001 - Prestaciones Sociales"],
+                        index=_idx_defecto_bs(lista_pc_bs, ["5.1.1", "6.1.1", "5.1"], 0) if lista_pc_bs else 0,
+                        key=f"bs_ac_cta_prest_{emp_id_bs}"
+                    )
+                with a2:
+                    sel_cta_ver_bs = st.selectbox(
+                        "2. Ver / Contrapartida Prestaciones Sociales (Haber)",
+                        options=lista_pc_bs if lista_pc_bs else ["2.1.3.01.001 - Prestaciones Sociales por Pagar"],
+                        index=_idx_defecto_bs(lista_pc_bs, ["2.1.3", "2.1.2", "2.1"], 1) if lista_pc_bs else 0,
+                        key=f"bs_ac_cta_ver_{emp_id_bs}"
+                    )
 
-                        desc_asiento_bs = st.text_input(
-                            "Descripción del Asiento",
-                            value=f"Abono prestaciones sociales - {nombre_emp_bs} (C.I.: {cedula_emp_bs})".strip(),
-                            key=f"bs_ac_desc_{emp_id_bs}"
-                        )
-                        bloqueado_bs = st.checkbox(
-                            "Bloquear asiento al registrar (`bloqueado = 1`)",
-                            value=False,
-                            key=f"bs_ac_bloqueado_{emp_id_bs}"
-                        )
+                cta_prest_info = opciones_pc_bs.get(
+                    sel_cta_prest_bs,
+                    {"codigo": str(sel_cta_prest_bs).split(" - ")[0], "nombre": str(sel_cta_prest_bs)}
+                )
+                cta_ver_info = opciones_pc_bs.get(
+                    sel_cta_ver_bs,
+                    {"codigo": str(sel_cta_ver_bs).split(" - ")[0], "nombre": str(sel_cta_ver_bs)}
+                )
 
-                        if st.button(
-                            "📒 Registrar Asiento en Contabilidad",
-                            type="primary",
-                            use_container_width=True,
-                            key=f"btn_guardar_asiento_bs_{emp_id_bs}"
-                        ):
-                            try:
-                                cta_prest_obj = opciones_pc_detalle[cta_prest_label]
-                                cta_ver_obj = opciones_pc_detalle[cta_ver_label]
-                                conn_ac_bs = conectar_db(empresa_emp_bs)
-                                if not conn_ac_bs:
-                                    st.error("❌ No se pudo establecer conexión a la base de datos.")
-                                else:
-                                    sql_asiento = """
-                                        INSERT INTO asientos_contables (
-                                            n_comprobante, descripcion, fecha, plan_cuentas,
-                                            cuenta_contable, referencia, debe, haber, bloqueado
-                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                    """
-                                    bloq_val = 1 if bloqueado_bs else 0
-                                    with conn_ac_bs.cursor() as cur_ac:
-                                        cur_ac.execute(
-                                            sql_asiento,
-                                            (
-                                                n_comprobante_bs.strip(),
-                                                desc_asiento_bs.strip(),
-                                                str(fecha_asiento_bs),
-                                                cta_prest_obj["codigo"],
-                                                f"{cta_prest_obj['codigo']} - {cta_prest_obj['nombre']}",
-                                                ref_asiento_bs.strip(),
-                                                monto_prest_asiento,
-                                                0.0,
-                                                bloq_val,
-                                            ),
-                                        )
-                                        cur_ac.execute(
-                                            sql_asiento,
-                                            (
-                                                n_comprobante_bs.strip(),
-                                                desc_asiento_bs.strip(),
-                                                str(fecha_asiento_bs),
-                                                cta_ver_obj["codigo"],
-                                                f"{cta_ver_obj['codigo']} - {cta_ver_obj['nombre']}",
-                                                ref_asiento_bs.strip(),
-                                                0.0,
-                                                monto_prest_asiento,
-                                                bloq_val,
-                                            ),
-                                        )
-                                    conn_ac_bs.commit()
-                                    conn_ac_bs.close()
-                                    st.success(f"✅ Asiento `{n_comprobante_bs.strip()}` registrado en `asientos_contables`.")
-                            except Exception as err_ac_bs:
-                                st.error(f"❌ Error registrando asiento contable: {err_ac_bs}")
+                monto_prest_bs = round(float(res_bs.get("prestaciones_sociales") or 0.0), 2)
+                desc_base_bs = f"Abono prestaciones sociales - {nombre_emp_bs}".strip()
 
+                filas_asiento_bs = [
+                    {
+                        "n_comprobante": n_comprobante_bs.strip(),
+                        "descripcion": f"{desc_base_bs} (Prestaciones Sociales)",
+                        "fecha": fecha_asiento_bs,
+                        "plan_cuentas": cta_prest_info["codigo"],
+                        "cuenta_contable": cta_prest_info["nombre"],
+                        "referencia": ref_asiento_bs.strip(),
+                        "debe": monto_prest_bs,
+                        "haber": 0.00,
+                        "bloqueado": 0,
+                    },
+                    {
+                        "n_comprobante": n_comprobante_bs.strip(),
+                        "descripcion": f"{desc_base_bs} - Ver ({cta_ver_info['nombre']})",
+                        "fecha": fecha_asiento_bs,
+                        "plan_cuentas": cta_ver_info["codigo"],
+                        "cuenta_contable": cta_ver_info["nombre"],
+                        "referencia": ref_asiento_bs.strip(),
+                        "debe": 0.00,
+                        "haber": monto_prest_bs,
+                        "bloqueado": 0,
+                    },
+                ]
+
+                df_asiento_bs_preview = pd.DataFrame(filas_asiento_bs)
+                df_asiento_bs_visual = df_asiento_bs_preview.copy()
+                df_asiento_bs_visual["debe"] = df_asiento_bs_visual["debe"].apply(lambda x: f"{float(x):,.2f}")
+                df_asiento_bs_visual["haber"] = df_asiento_bs_visual["haber"].apply(lambda x: f"{float(x):,.2f}")
+                st.dataframe(df_asiento_bs_visual, use_container_width=True, hide_index=True)
+
+                lineas_bs_guardar = [
+                    fa for fa in filas_asiento_bs if (float(fa["debe"]) > 0 or float(fa["haber"]) > 0)
+                ]
+
+                if st.button(
+                    "📌 Guardar Asiento en `asientos_contables`",
+                    type="primary",
+                    use_container_width=True,
+                    key=f"btn_guardar_asiento_bs_{emp_id_bs}"
+                ):
+                    try:
+                        conn_ac_bs = conectar_db(empresa_emp_bs)
+                        if conn_ac_bs:
+                            with conn_ac_bs.cursor() as cur_ac_bs:
+                                query_ins_asiento_bs = """
+                                    INSERT INTO asientos_contables (
+                                        n_comprobante, descripcion, fecha, plan_cuentas,
+                                        cuenta_contable, referencia, debe, haber, bloqueado
+                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                """
+                                for fa in lineas_bs_guardar:
+                                    cur_ac_bs.execute(query_ins_asiento_bs, (
+                                        fa["n_comprobante"],
+                                        fa["descripcion"],
+                                        fa["fecha"],
+                                        fa["plan_cuentas"],
+                                        fa["cuenta_contable"],
+                                        fa["referencia"],
+                                        float(fa["debe"]),
+                                        float(fa["haber"]),
+                                        int(fa["bloqueado"]),
+                                    ))
+                            conn_ac_bs.commit()
+                            conn_ac_bs.close()
+                            st.success(f"✅ Asiento contable `{n_comprobante_bs.strip()}` guardado en `asientos_contables`.")
+                    except Exception as err_ac_bs:
+                        st.error(f"❌ Error guardando el asiento contable: {err_ac_bs}")
 
 
 def gestionar_sidebar():
