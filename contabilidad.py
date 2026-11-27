@@ -14888,6 +14888,37 @@ def generar_xml_factura(cabecera: dict, totales: dict, rango: dict) -> str:
     return ET.tostring(root, encoding="unicode")
 
 
+from PIL import Image, ImageDraw, ImageFont
+
+
+def generar_logo_prueba_png(ruta_salida: str = "logo_prueba.png", texto: str = "FD") -> str:
+    """Genera un logo geométrico minimalista de prueba en PNG sobre fondo blanco."""
+    size = 400
+    img = Image.new("RGB", (size, size), (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+
+    navy = (24, 48, 82)
+    slate = (90, 106, 126)
+    accent = (42, 111, 151)
+
+    # Marco y emblema geométrico
+    draw.rounded_rectangle([32, 32, size - 32, size - 32], radius=48, outline=navy, width=10)
+    draw.polygon([(95, 270), (200, 105), (305, 270)], fill=navy)
+    draw.rectangle([135, 225, 265, 275], fill=accent)
+
+    # Texto o iniciales centradas abajo
+    font = ImageFont.load_default()
+    bbox = draw.textbbox((0, 0), texto, font=font)
+    w_txt = bbox[2] - bbox[0]
+    draw.text(((size - w_txt) / 2, 305), texto, fill=slate, font=font)
+
+    img.save(ruta_salida, format="PNG")
+    return ruta_salida
+
+
+if __name__ == "__main__":
+    print("Logo generado en:", generar_logo_prueba_png("logo_prueba.png", "GYLFI"))
+
 import io
 import tempfile
 import os
@@ -14956,7 +14987,7 @@ def generar_pdf_factura_digital(cabecera: dict, totales: dict, rango: dict) -> b
         w_doc = 70
 
         # Columna 1: Logo de la empresa si existe ruta válida
-        logo_path = rango.get("logo_path") or cabecera.get("logo_path")
+        logo_path = rango.get("logo_path") or cabecera.get("logo_path") or "logo_prueba.png"
         if logo_path and os.path.isfile(str(logo_path)):
             try:
                 pdf.image(str(logo_path), x=margen_izq, y=y_top, w=w_logo - 2)
@@ -15161,7 +15192,6 @@ def generar_pdf_factura_digital(cabecera: dict, totales: dict, rango: dict) -> b
                 os.remove(qr_path)
             except Exception:
                 pass
-
 
 def emitir_factura_en_bd(conn, empresa_db: str, rango: dict, cabecera: dict, totales: dict, xml_str: str) -> tuple[int, str, str]:
     """Asigna correlativo y N° de Control, guarda cabecera + detalle y actualiza el rango."""
