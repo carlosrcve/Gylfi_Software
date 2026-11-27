@@ -28664,4 +28664,3 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                     st.info("Aún no hay facturas emitidas para esta empresa.")
             finally:
                 conn_fd.close()
-                conn_fd.close()
