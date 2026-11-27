@@ -12687,7 +12687,21 @@ def _procesar_foto_empleado(uploaded_file, max_size=(300, 300)):
     b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
     return f"data:image/jpeg;base64,{b64}"
 
-from datetime import date
+from datetime import date, timedelta
+
+
+def _sumar_meses(fecha_base: date, meses: int) -> date:
+    anio = fecha_base.year + (fecha_base.month - 1 + meses) // 12
+    mes = (fecha_base.month - 1 + meses) % 12 + 1
+    # Ajuste seguro del último día del mes
+    if mes in (1, 3, 5, 7, 8, 10, 12):
+        max_dia = 31
+    elif mes in (4, 6, 9, 11):
+        max_dia = 30
+    else:
+        bisiesto = (anio % 4 == 0 and (anio % 100 != 0 or anio % 400 == 0))
+        max_dia = 29 if bisiesto else 28
+    return date(anio, mes, min(fecha_base.day, max_dia))
 
 
 def calcular_beneficios_base(
@@ -12700,6 +12714,7 @@ def calcular_beneficios_base(
     regla_art_142: str = "literal_ab",
     dias_adicionales_anio: int = 2,
     dias_literal_c_anio: int = 30,
+    base_anual_dias: int = 365,
 ):
     f_ing = fecha_ingreso if isinstance(fecha_ingreso, date) else date.fromisoformat(str(fecha_ingreso)[:10])
     f_fin = fecha_egreso if isinstance(fecha_egreso, date) else (
@@ -12708,33 +12723,44 @@ def calcular_beneficios_base(
 
     dias_servicio = max(0, (f_fin - f_ing).days)
     meses_servicio = max(1, round(dias_servicio / 30.0)) if dias_servicio > 0 else 0
-    trimestres_servicio = max(0, dias_servicio // 90)
     anios_completos = max(0, dias_servicio // 365)
 
-    # Años adicionales Literal b (a partir del 2do año de antigüedad, tope 30 días)
+    # Los abonos trimestrales comienzan 1 mes después de la fecha de ingreso
+    fecha_inicio_trimestres = _sumar_meses(f_ing, 1)
+    dias_desde_inicio_trim = max(0, (f_fin - fecha_inicio_trimestres).days) if f_fin >= fecha_inicio_trimestres else 0
+    trimestres_servicio = dias_desde_inicio_trim // 90
+
+    # 2 días adicionales por cada año cumplido a partir del 2do año (tope 30 días)
     anios_adicionales = max(0, anios_completos - 1)
     dias_adicionales_acum = min(30, anios_adicionales * int(dias_adicionales_anio))
 
     sal_mensual = round(float(salario_mensual or 0.0), 2)
     sal_diario = round(sal_mensual / 30.0, 2)
 
-    utilidades = round(sal_diario * int(dias_utilidades_anio) * min(1.0, dias_servicio / 365.0), 2) if dias_servicio > 0 else 0.00
-    bono_vacacional = round(sal_diario * int(dias_bono_vacacional) * min(1.0, dias_servicio / 365.0), 2) if dias_servicio > 0 else 0.00
+    divisor_anual = max(1, int(base_anual_dias))
+    utilidades_diarias = round((sal_diario * int(dias_utilidades_anio)) / divisor_anual, 2)
+    bono_vacacional_diario = round((sal_diario * int(dias_bono_vacacional)) / divisor_anual, 2)
+    salario_diario_integral = round(sal_diario + utilidades_diarias + bono_vacacional_diario, 2)
+
+    utilidades = round(utilidades_diarias * dias_servicio, 2) if dias_servicio > 0 else 0.00
+    bono_vacacional = round(bono_vacacional_diario * dias_servicio, 2) if dias_servicio > 0 else 0.00
 
     if regla_art_142 == "literal_c":
-        # Literal c: cálculo sobre último salario a razón de días por año (30 días/año base + fracción proporcional)
         anios_fraccion = dias_servicio / 365.0
         dias_prest_total = round(float(dias_literal_c_anio) * anios_fraccion, 2)
         prestaciones_sociales = round(sal_diario * float(dias_literal_c_anio) * anios_fraccion, 2)
-        detalle_regla = f"Art. 142 Literal c ({dias_literal_c_anio} días/año sobre último salario × {anios_fraccion:.2f} años)"
+        detalle_regla = (
+            f"Art. 142 Literal c ({dias_literal_c_anio} días/año sobre último salario diario "
+            f"{sal_diario:,.2f} × {anios_fraccion:.2f} años)"
+        )
     else:
-        # Literal a + b: 15 días por trimestre + 2 días adicionales por año (desde el 2do año)
         dias_trimestres = trimestres_servicio * int(dias_prestaciones_trimestre)
         dias_prest_total = float(dias_trimestres + dias_adicionales_acum)
-        prestaciones_sociales = round(sal_diario * dias_prest_total, 2)
+        prestaciones_sociales = round(salario_diario_integral * dias_prest_total, 2)
         detalle_regla = (
-            f"Art. 142 Literal a+b ({trimestres_servicio} trim. × {dias_prestaciones_trimestre}d = {dias_trimestres}d "
-            f"+ {dias_adicionales_acum}d adicionales)"
+            f"Art. 142 Literal a+b (Inicio trimestres: {fecha_inicio_trimestres} | "
+            f"{trimestres_servicio} trim. × {dias_prestaciones_trimestre}d = {dias_trimestres}d "
+            f"+ {dias_adicionales_acum}d adicionales × Salario Diario Integral {salario_diario_integral:,.2f})"
         )
 
     return {
@@ -12742,16 +12768,19 @@ def calcular_beneficios_base(
         "meses_servicio": meses_servicio,
         "trimestres_servicio": trimestres_servicio,
         "anios_completos": anios_completos,
+        "fecha_inicio_trimestres": fecha_inicio_trimestres,
         "dias_adicionales_acum": dias_adicionales_acum,
         "dias_prestaciones_total": dias_prest_total,
         "salario_diario": sal_diario,
         "salario_mensual": sal_mensual,
+        "utilidades_diarias": utilidades_diarias,
+        "bono_vacacional_diario": bono_vacacional_diario,
+        "salario_diario_integral": salario_diario_integral,
         "utilidades": utilidades,
         "bono_vacacional": bono_vacacional,
         "prestaciones_sociales": prestaciones_sociales,
         "detalle_regla": detalle_regla,
     }
-
 
 def guardar_beneficio_social(conn, db_actual: str, datos: dict):
     with conn.cursor() as cur:
@@ -13552,7 +13581,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
 
 
     with beneficio_socia:
-        st.markdown("### 📊 Beneficios Sociales")
+        st.markdown("### 💼 Prestaciones Sociales")
         st.markdown("Calcula y registra utilidades, bono vacacional y prestaciones sociales en `beneficios_sociales`.")
 
         empleados_bs = []
@@ -13575,27 +13604,17 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
         if not empleados_bs:
             st.info(f"No hay trabajadores activos registrados para `{db_actual}`.")
         else:
+            # 1) Seleccionar empleado primero
             opciones_emp_bs = {
                 f"{e['nombre_completo']} ({e.get('cedula', '')})": e
                 for e in empleados_bs
             }
             emp_bs_label = st.selectbox(
-                "Trabajador",
+                "1. Seleccionar Trabajador",
                 options=list(opciones_emp_bs.keys()),
                 key="bs_sel_empleado"
             )
             emp_bs = opciones_emp_bs[emp_bs_label]
-
-            modo_art_142 = st.radio(
-                "Método de cálculo de Prestaciones Sociales (Art. 142 LOTTT)",
-                options=[
-                    "Art. 142 Literal A y B — Abono trimestral (15 días/trim.) + 2 días adicionales/año",
-                    "Art. 142 Literal C — Cálculo por último salario (30 días/año)",
-                ],
-                key="bs_radio_art142"
-            )
-            es_literal_c = modo_art_142.startswith("Art. 142 Literal C")
-            regla_codigo = "literal_c" if es_literal_c else "literal_ab"
 
             fecha_ing_raw = emp_bs.get("fecha_ingreso")
             if isinstance(fecha_ing_raw, date):
@@ -13608,99 +13627,158 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             else:
                 fecha_ing_default = date.today()
 
-            c_f1, c_f2, c_f3 = st.columns(3)
-            with c_f1:
-                fecha_ingreso_bs = st.date_input("Fecha de Ingreso", value=fecha_ing_default, key="bs_fecha_ing")
-            with c_f2:
-                tiene_egreso = st.checkbox(
-                    "Registrar fecha de egreso",
-                    value=es_literal_c,
-                    key="bs_tiene_egreso"
-                )
-            with c_f3:
-                fecha_egreso_bs = st.date_input(
-                    "Fecha de Egreso",
-                    value=date.today(),
-                    disabled=not tiene_egreso,
-                    key="bs_fecha_egr"
-                )
-
-            c_s1, c_p1, c_p2, c_p3 = st.columns(4)
-            with c_s1:
-                label_sal = "Último Salario Mensual" if es_literal_c else "Salario Mensual"
-                sal_mensual_bs = st.number_input(
-                    label_sal,
-                    min_value=0.0,
-                    value=float(emp_bs.get("salario_base") or 0.0),
-                    format="%.2f",
-                    key="bs_sal_mensual"
-                )
-            with c_p1:
-                dias_util_bs = st.number_input("Días Utilidades / Año", min_value=0, value=30, step=1, key="bs_dias_util")
-            with c_p2:
-                dias_bono_bs = st.number_input("Días Bono Vacacional", min_value=0, value=15, step=1, key="bs_dias_bono")
-            with c_p3:
-                if es_literal_c:
-                    dias_prest_param = st.number_input(
-                        "Días Prestaciones / Año (Lit. C)",
-                        min_value=0,
-                        value=30,
-                        step=1,
-                        key="bs_dias_lit_c"
-                    )
-                else:
-                    dias_prest_param = st.number_input(
-                        "Días Prestaciones / Trim. (Lit. A)",
-                        min_value=0,
-                        value=15,
-                        step=1,
-                        key="bs_dias_prest"
-                    )
-
-            res_bs = calcular_beneficios_base(
-                fecha_ingreso=fecha_ingreso_bs,
-                salario_mensual=sal_mensual_bs,
-                fecha_egreso=fecha_egreso_bs if tiene_egreso else None,
-                dias_utilidades_anio=int(dias_util_bs),
-                dias_bono_vacacional=int(dias_bono_bs),
-                dias_prestaciones_trimestre=15 if es_literal_c else int(dias_prest_param),
-                regla_art_142=regla_codigo,
-                dias_adicionales_anio=2,
-                dias_literal_c_anio=int(dias_prest_param) if es_literal_c else 30,
+            modo_art_142 = st.radio(
+                "2. Seleccionar Régimen de Cálculo (Art. 142 LOTTT)",
+                options=[
+                    "Art. 142 Literal A y B — Abono trimestral (15 días/trim.) + 2 días adicionales/año",
+                    "Art. 142 Literal C — Cálculo por último salario (30 días/año)",
+                ],
+                key="bs_radio_art142"
             )
+            es_literal_c = modo_art_142.startswith("Art. 142 Literal C")
 
-            m_bs1, m_bs2, m_bs3, m_bs4 = st.columns(4)
-            m_bs1.metric("Salario Diario", f"{res_bs['salario_diario']:,.2f}")
-            m_bs2.metric("Utilidades", f"{res_bs['utilidades']:,.2f}")
-            m_bs3.metric("Bono Vacacional", f"{res_bs['bono_vacacional']:,.2f}")
-            m_bs4.metric("Prestaciones Sociales", f"{res_bs['prestaciones_sociales']:,.2f}")
+            # 2) Frame distinto según la opción elegida en st.radio
+            if not es_literal_c:
+                with st.container(border=True):
+                    st.markdown("#### 🧾 Frame — Art. 142 Literal A y B (Salario Diario Integral y Abonos Trimestrales)")
+                    f_a1, f_a2, f_a3 = st.columns(3)
+                    with f_a1:
+                        fecha_ingreso_bs = st.date_input("Fecha de Ingreso", value=fecha_ing_default, key="bs_ab_fecha_ing")
+                    with f_a2:
+                        tiene_egreso = st.checkbox("Definir fecha de corte / egreso", value=False, key="bs_ab_tiene_egr")
+                    with f_a3:
+                        fecha_egreso_bs = st.date_input(
+                            "Fecha de Corte / Egreso",
+                            value=date.today(),
+                            disabled=not tiene_egreso,
+                            key="bs_ab_fecha_egr"
+                        )
 
-            st.caption(
-                f"**{res_bs['detalle_regla']}** — Antigüedad: **{res_bs['dias_servicio']} días** "
-                f"(~{res_bs['meses_servicio']} meses / {res_bs['trimestres_servicio']} trimestres / {res_bs['anios_completos']} años)"
-            )
+                    p_a1, p_a2, p_a3, p_a4 = st.columns(4)
+                    with p_a1:
+                        sal_mensual_bs = st.number_input(
+                            "Salario Mensual",
+                            min_value=0.0,
+                            value=float(emp_bs.get("salario_base") or 0.0),
+                            format="%.2f",
+                            key="bs_ab_sal_mensual"
+                        )
+                    with p_a2:
+                        dias_util_bs = st.number_input("Días Utilidades / Año", min_value=0, value=30, step=1, key="bs_ab_dias_util")
+                    with p_a3:
+                        dias_bono_bs = st.number_input("Días Bono Vacacional / Año", min_value=0, value=15, step=1, key="bs_ab_dias_bono")
+                    with p_a4:
+                        dias_prest_bs = st.number_input("Días Prestaciones / Trim.", min_value=0, value=15, step=1, key="bs_ab_dias_prest")
 
+                    res_bs = calcular_beneficios_base(
+                        fecha_ingreso=fecha_ingreso_bs,
+                        salario_mensual=sal_mensual_bs,
+                        fecha_egreso=fecha_egreso_bs if tiene_egreso else None,
+                        dias_utilidades_anio=int(dias_util_bs),
+                        dias_bono_vacacional=int(dias_bono_bs),
+                        dias_prestaciones_trimestre=int(dias_prest_bs),
+                        regla_art_142="literal_ab",
+                        dias_adicionales_anio=2,
+                        base_anual_dias=365,
+                    )
+
+                    st.markdown("**Componentes Diarios y Salario Diario Integral**")
+                    d1, d2, d3, d4 = st.columns(4)
+                    d1.metric("Salario Mensual", f"{res_bs['salario_mensual']:,.2f}")
+                    d2.metric("Salario Diario", f"{res_bs['salario_diario']:,.2f}")
+                    d3.metric("Utilidades Diarias", f"{res_bs['utilidades_diarias']:,.2f}")
+                    d4.metric("Bono Vacacional Diario", f"{res_bs['bono_vacacional_diario']:,.2f}")
+
+                    st.info(
+                        f"**Salario Diario Integral:** `{res_bs['salario_diario_integral']:,.2f}` "
+                        f"(`{res_bs['salario_diario']:,.2f}` + `{res_bs['utilidades_diarias']:,.2f}` + `{res_bs['bono_vacacional_diario']:,.2f}`) | "
+                        f"**Inicio de abonos trimestrales (1 mes después del ingreso):** `{res_bs['fecha_inicio_trimestres']}` | "
+                        f"**Trimestres acumulados:** `{res_bs['trimestres_servicio']}` | "
+                        f"**Días adicionales (2d/año):** `{res_bs['dias_adicionales_acum']}`"
+                    )
+
+                    r1, r2, r3 = st.columns(3)
+                    r1.metric("Utilidades Acumuladas", f"{res_bs['utilidades']:,.2f}")
+                    r2.metric("Bono Vacacional Acumulado", f"{res_bs['bono_vacacional']:,.2f}")
+                    r3.metric("Abono Prestaciones Sociales (Art. 142 A+B)", f"{res_bs['prestaciones_sociales']:,.2f}")
+
+            else:
+                with st.container(border=True):
+                    st.markdown("#### 📌 Frame — Art. 142 Literal C (Cálculo por Último Salario)")
+                    f_c1, f_c2, f_c3 = st.columns(3)
+                    with f_c1:
+                        fecha_ingreso_bs = st.date_input("Fecha de Ingreso", value=fecha_ing_default, key="bs_c_fecha_ing")
+                    with f_c2:
+                        tiene_egreso = st.checkbox("Registrar fecha de egreso / corte", value=True, key="bs_c_tiene_egr")
+                    with f_c3:
+                        fecha_egreso_bs = st.date_input(
+                            "Fecha de Egreso / Corte",
+                            value=date.today(),
+                            disabled=not tiene_egreso,
+                            key="bs_c_fecha_egr"
+                        )
+
+                    p_c1, p_c2, p_c3, p_c4 = st.columns(4)
+                    with p_c1:
+                        sal_mensual_bs = st.number_input(
+                            "Último Salario Mensual",
+                            min_value=0.0,
+                            value=float(emp_bs.get("salario_base") or 0.0),
+                            format="%.2f",
+                            key="bs_c_sal_mensual"
+                        )
+                    with p_c2:
+                        dias_literal_c_bs = st.number_input(
+                            "Días Prestaciones / Año (Lit. C)",
+                            min_value=0,
+                            value=30,
+                            step=1,
+                            key="bs_c_dias_anio"
+                        )
+                    with p_c3:
+                        dias_util_bs = st.number_input("Días Utilidades / Año", min_value=0, value=30, step=1, key="bs_c_dias_util")
+                    with p_c4:
+                        dias_bono_bs = st.number_input("Días Bono Vacacional / Año", min_value=0, value=15, step=1, key="bs_c_dias_bono")
+
+                    res_bs = calcular_beneficios_base(
+                        fecha_ingreso=fecha_ingreso_bs,
+                        salario_mensual=sal_mensual_bs,
+                        fecha_egreso=fecha_egreso_bs if tiene_egreso else None,
+                        dias_utilidades_anio=int(dias_util_bs),
+                        dias_bono_vacacional=int(dias_bono_bs),
+                        dias_prestaciones_trimestre=15,
+                        regla_art_142="literal_c",
+                        dias_literal_c_anio=int(dias_literal_c_bs),
+                        base_anual_dias=365,
+                    )
+
+                    r_c1, r_c2, r_c3, r_c4 = st.columns(4)
+                    r_c1.metric("Último Salario Diario", f"{res_bs['salario_diario']:,.2f}")
+                    r_c2.metric("Utilidades", f"{res_bs['utilidades']:,.2f}")
+                    r_c3.metric("Bono Vacacional", f"{res_bs['bono_vacacional']:,.2f}")
+                    r_c4.metric("Prestaciones Sociales (Art. 142 C)", f"{res_bs['prestaciones_sociales']:,.2f}")
+
+            st.caption(res_bs["detalle_regla"])
             obs_bs = st.text_input("Observaciones", value="", key="bs_obs")
 
             if st.button("💾 Guardar Beneficios Sociales", type="primary", use_container_width=True, key="btn_guardar_bs"):
                 try:
                     conn_save_bs = conectar_db(db_actual)
                     if conn_save_bs:
-                        obs_final = obs_bs.strip()
-                        tag_regla = "[Lit. C - Último Salario]" if es_literal_c else "[Lit. A+B - Trimestral/Adic.]"
-                        obs_con_regla = f"{tag_regla} {obs_final}".strip()
+                        tag_regla = "[Lit. C - Último Salario]" if es_literal_c else "[Lit. A+B - Salario Diario Integral]"
+                        obs_final = f"{tag_regla} {obs_bs.strip()}".strip()
 
                         datos_guardar = {
                             "empleado_id": emp_bs["id"],
                             "nombre_empleado": emp_bs["nombre_completo"],
                             "fecha_ingreso": fecha_ingreso_bs,
                             "fecha_egreso": fecha_egreso_bs if tiene_egreso else None,
-                            "salario_diario": res_bs["salario_diario"],
+                            "salario_diario": res_bs["salario_diario_integral"] if not es_literal_c else res_bs["salario_diario"],
                             "salario_mensual": res_bs["salario_mensual"],
                             "utilidades": res_bs["utilidades"],
                             "bono_vacacional": res_bs["bono_vacacional"],
                             "prestaciones_sociales": res_bs["prestaciones_sociales"],
-                            "observaciones": obs_con_regla,
+                            "observaciones": obs_final,
                         }
                         guardar_beneficio_social(conn_save_bs, str(db_actual), datos_guardar)
                         conn_save_bs.close()
