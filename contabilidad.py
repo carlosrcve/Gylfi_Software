@@ -13770,8 +13770,11 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
 
             if st.button("💾 Guardar Beneficios Sociales", type="primary", use_container_width=True, key="btn_guardar_bs"):
                 try:
-                    conn_save_bs = conectar_db(db_actual)
-                    if conn_save_bs:
+                    emp_guardar = str(db_actual).strip()
+                    conn_save_bs = conectar_db(emp_guardar)
+                    if not conn_save_bs:
+                        st.error("❌ No se pudo establecer conexión a la base de datos.")
+                    else:
                         tag_regla = "[Lit. C - Último Salario]" if es_literal_c else "[Lit. A+B - Salario Diario Integral]"
                         obs_final = f"{tag_regla} {obs_bs.strip()}".strip()
 
@@ -13787,9 +13790,10 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             "prestaciones_sociales": res_bs["prestaciones_sociales"],
                             "observaciones": obs_final,
                         }
-                        guardar_beneficio_social(conn_save_bs, str(db_actual), datos_guardar)
+                        guardar_beneficio_social(conn_save_bs, emp_guardar, datos_guardar)
+                        conn_save_bs.commit()
                         conn_save_bs.close()
-                        st.success(f"✅ Beneficios sociales guardados para **{emp_bs['nombre_completo']}**.")
+                        st.success(f"✅ Guardado en `{emp_guardar}` para **{emp_bs['nombre_completo']}**.")
                         st.rerun()
                 except Exception as err_save_bs:
                     st.error(f"❌ Error al guardar en `beneficios_sociales`: {err_save_bs}")
