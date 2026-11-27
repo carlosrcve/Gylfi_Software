@@ -12820,11 +12820,13 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
     st.markdown("## 👥 Módulo de Nómina")
     st.caption(f"Empresa activa: **{db_actual}**")
 
-    tab_calc, tab_emp, tab_hist,beneficio_socia = st.tabs([
+    tab_calc, tab_emp, tab_hist, beneficio_socia, mod_beneficio_socia = st.tabs([
         "🧮 Procesar Nómina y Asiento",
         "🧑‍💼 Trabajadores",
         "📄 Recibos Emitidos",
-        "💼 Prestaciones Sociales"
+        "💼 Prestaciones Sociales",
+        "💼 Modificar/Eliminar"
+
     ])
 
     with tab_calc:
@@ -14116,6 +14118,210 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     except Exception as err_ac_bs:
                         st.error(f"❌ Error guardando el asiento contable: {err_ac_bs}")
 
+    with mod_beneficio_socia:
+        st.divider()
+        st.markdown("### 🗂️ Tabla de Gestión: Modificar y Eliminar (`beneficios_sociales`)")
+
+        emp_tabla_bs = str(empresa_emp_bs if "empresa_emp_bs" in locals() else db_actual).strip()
+        registros_bs_tabla = []
+
+        try:
+            conn_tbl_bs = conectar_db(emp_tabla_bs)
+            if conn_tbl_bs:
+                with conn_tbl_bs.cursor() as cur_tbl:
+                    cur_tbl.execute("""
+                        SELECT id, empresa_db, empleado_id, nombre_empleado,
+                               fecha_ingreso, fecha_egreso, salario_diario, salario_mensual,
+                               utilidades, bono_vacacional, prestaciones_sociales,
+                               observaciones, creado_en
+                        FROM beneficios_sociales
+                        WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                        ORDER BY id DESC
+                    """, (emp_tabla_bs,))
+                    cols_tbl = [desc[0] for desc in cur_tbl.description]
+                    registros_bs_tabla = [dict(zip(cols_tbl, fila)) for fila in cur_tbl.fetchall()]
+                conn_tbl_bs.close()
+        except Exception as err_tbl_bs:
+            st.error(f"❌ Error cargando tabla de gestión `beneficios_sociales`: {err_tbl_bs}")
+
+        if not registros_bs_tabla:
+            st.info(f"No hay registros en `beneficios_sociales` para `{emp_tabla_bs}`.")
+        else:
+            df_base_bs = pd.DataFrame(registros_bs_tabla)
+
+            def _parse_fecha_bs(val):
+                if val is None or (isinstance(val, float) and pd.isna(val)):
+                    return None
+                s = str(val).strip()
+                if s in ("", "None", "NaT", "0000-00-00", "0000-00-00 00:00:00"):
+                    return None
+                if isinstance(val, date) and not hasattr(val, "hour"):
+                    return val
+                if hasattr(val, "date"):
+                    return val.date()
+                try:
+                    return date.fromisoformat(s[:10])
+                except ValueError:
+                    return None
+
+            df_base_bs["fecha_ingreso"] = df_base_bs["fecha_ingreso"].apply(_parse_fecha_bs)
+            df_base_bs["fecha_egreso"] = df_base_bs["fecha_egreso"].apply(_parse_fecha_bs)
+            df_base_bs["creado_en"] = df_base_bs["creado_en"].apply(
+                lambda v: str(v)[:19] if v is not None and str(v).strip() not in ("", "None", "NaT") else "—"
+            )
+            df_base_bs["observaciones"] = df_base_bs["observaciones"].fillna("").astype(str)
+
+            for col_dec in [
+                "salario_diario",
+                "salario_mensual",
+                "utilidades",
+                "bono_vacacional",
+                "prestaciones_sociales",
+            ]:
+                df_base_bs[col_dec] = pd.to_numeric(df_base_bs[col_dec], errors="coerce").fillna(0.0).round(2)
+
+            df_tabla_editada = st.data_editor(
+                df_base_bs,
+                use_container_width=True,
+                hide_index=True,
+                num_rows="fixed",
+                key=f"tabla_crud_bs_{emp_tabla_bs}",
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", disabled=True),
+                    "empresa_db": st.column_config.TextColumn("Empresa DB", disabled=True),
+                    "empleado_id": st.column_config.NumberColumn("Empleado ID"),
+                    "nombre_empleado": st.column_config.TextColumn("Nombre Empleado"),
+                    "fecha_ingreso": st.column_config.DateColumn("Fecha Ingreso", format="YYYY-MM-DD"),
+                    "fecha_egreso": st.column_config.DateColumn("Fecha Egreso", format="YYYY-MM-DD"),
+                    "salario_diario": st.column_config.NumberColumn("Salario Diario", format="%.2f", min_value=0.0),
+                    "salario_mensual": st.column_config.NumberColumn("Salario Mensual", format="%.2f", min_value=0.0),
+                    "utilidades": st.column_config.NumberColumn("Utilidades", format="%.2f", min_value=0.0),
+                    "bono_vacacional": st.column_config.NumberColumn("Bono Vacacional", format="%.2f", min_value=0.0),
+                    "prestaciones_sociales": st.column_config.NumberColumn("Prestaciones Sociales", format="%.2f", min_value=0.0),
+                    "observaciones": st.column_config.TextColumn("Observaciones"),
+                    "creado_en": st.column_config.TextColumn("Creado En", disabled=True),
+                },
+            )
+
+            col_upd, col_del = st.columns(2)
+
+            with col_upd:
+                if st.button(
+                    "✏️ Guardar Modificaciones de la Tabla",
+                    type="primary",
+                    use_container_width=True,
+                    key=f"btn_guardar_mod_bs_{emp_tabla_bs}",
+                ):
+                    try:
+                        actualizados = 0
+                        conn_mod_bs = conectar_db(emp_tabla_bs)
+                        if not conn_mod_bs:
+                            st.error("❌ No se pudo conectar a la base de datos.")
+                        else:
+                            sql_mod_bs = """
+                                UPDATE beneficios_sociales
+                                SET empleado_id = %s,
+                                    nombre_empleado = %s,
+                                    fecha_ingreso = %s,
+                                    fecha_egreso = %s,
+                                    salario_diario = %s,
+                                    salario_mensual = %s,
+                                    utilidades = %s,
+                                    bono_vacacional = %s,
+                                    prestaciones_sociales = %s,
+                                    observaciones = %s
+                                WHERE id = %s AND LOWER(TRIM(empresa_db)) = LOWER(%s)
+                            """
+                            with conn_mod_bs.cursor() as cur_mod:
+                                for _, fila_new in df_tabla_editada.iterrows():
+                                    id_reg = int(fila_new["id"])
+                                    fila_old = df_base_bs.loc[df_base_bs["id"] == id_reg].iloc[0]
+
+                                    hubo_cambio = (
+                                        int(fila_new["empleado_id"]) != int(fila_old["empleado_id"])
+                                        or str(fila_new["nombre_empleado"]) != str(fila_old["nombre_empleado"])
+                                        or fila_new["fecha_ingreso"] != fila_old["fecha_ingreso"]
+                                        or fila_new["fecha_egreso"] != fila_old["fecha_egreso"]
+                                        or round(float(fila_new["salario_diario"]), 2) != round(float(fila_old["salario_diario"]), 2)
+                                        or round(float(fila_new["salario_mensual"]), 2) != round(float(fila_old["salario_mensual"]), 2)
+                                        or round(float(fila_new["utilidades"]), 2) != round(float(fila_old["utilidades"]), 2)
+                                        or round(float(fila_new["bono_vacacional"]), 2) != round(float(fila_old["bono_vacacional"]), 2)
+                                        or round(float(fila_new["prestaciones_sociales"]), 2) != round(float(fila_old["prestaciones_sociales"]), 2)
+                                        or str(fila_new["observaciones"]) != str(fila_old["observaciones"])
+                                    )
+
+                                    if hubo_cambio:
+                                        f_ing_val = _parse_fecha_bs(fila_new["fecha_ingreso"]) or date.today()
+                                        f_egr_val = _parse_fecha_bs(fila_new["fecha_egreso"])
+                                        cur_mod.execute(
+                                            sql_mod_bs,
+                                            (
+                                                int(fila_new["empleado_id"]),
+                                                str(fila_new["nombre_empleado"]).strip(),
+                                                f_ing_val,
+                                                f_egr_val,
+                                                round(float(fila_new["salario_diario"]), 2),
+                                                round(float(fila_new["salario_mensual"]), 2),
+                                                round(float(fila_new["utilidades"]), 2),
+                                                round(float(fila_new["bono_vacacional"]), 2),
+                                                round(float(fila_new["prestaciones_sociales"]), 2),
+                                                str(fila_new["observaciones"]).strip(),
+                                                id_reg,
+                                                emp_tabla_bs,
+                                            ),
+                                        )
+                                        actualizados += 1
+
+                            conn_mod_bs.commit()
+                            conn_mod_bs.close()
+                            if actualizados > 0:
+                                st.success(f"✅ {actualizados} registro(s) actualizado(s) en `beneficios_sociales`.")
+                                st.rerun()
+                            else:
+                                st.info("No hay cambios pendientes por guardar.")
+                    except Exception as err_mod_bs:
+                        st.error(f"❌ Error al actualizar `beneficios_sociales`: {err_mod_bs}")
+
+            with col_del:
+                opciones_borrar_bs = {
+                    f"#{int(r['id'])} | {r['nombre_empleado']} | Prest.: {float(r['prestaciones_sociales']):,.2f}": int(r["id"])
+                    for _, r in df_base_bs.iterrows()
+                }
+                sel_borrar_label = st.selectbox(
+                    "Registro a eliminar",
+                    options=list(opciones_borrar_bs.keys()),
+                    label_visibility="collapsed",
+                    key=f"sel_borrar_bs_{emp_tabla_bs}",
+                )
+                confirmar_borrar_bs = st.checkbox(
+                    "Confirmar eliminación",
+                    key=f"chk_borrar_bs_{emp_tabla_bs}",
+                )
+                if st.button(
+                    "🗑️ Eliminar Registro",
+                    use_container_width=True,
+                    key=f"btn_borrar_bs_{emp_tabla_bs}",
+                ):
+                    if not confirmar_borrar_bs:
+                        st.warning("⚠️ Marca **Confirmar eliminación** para borrar el registro.")
+                    else:
+                        try:
+                            id_borrar = opciones_borrar_bs[sel_borrar_label]
+                            conn_bor_bs = conectar_db(emp_tabla_bs)
+                            if not conn_bor_bs:
+                                st.error("❌ No se pudo conectar a la base de datos.")
+                            else:
+                                with conn_bor_bs.cursor() as cur_bor:
+                                    cur_bor.execute(
+                                        "DELETE FROM beneficios_sociales WHERE id = %s AND LOWER(TRIM(empresa_db)) = LOWER(%s)",
+                                        (id_borrar, emp_tabla_bs),
+                                    )
+                                conn_bor_bs.commit()
+                                conn_bor_bs.close()
+                                st.success(f"✅ Registro #{id_borrar} eliminado de `beneficios_sociales`.")
+                                st.rerun()
+                        except Exception as err_bor_bs:
+                            st.error(f"❌ Error al eliminar registro: {err_bor_bs}")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
