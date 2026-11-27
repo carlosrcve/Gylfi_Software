@@ -13640,6 +13640,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     "Art. 142 Literal A y B — Abono trimestral (15 días/trim.) + 2 días adicionales/año",
                     "Art. 142 Literal C — Cálculo por último salario (30 días/año)",
                 ],
+                horizontal=True,
                 key="bs_radio_art142"
             )
             es_literal_c = modo_art_142.startswith("Art. 142 Literal C")
