@@ -13612,16 +13612,24 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             st.info(f"No hay trabajadores activos registrados para `{db_actual}`.")
         else:
             # 1) Seleccionar empleado primero
+            # 1) Seleccionar empleado desde nomina_empleados
             opciones_emp_bs = {
-                f"{e['nombre_completo']} ({e.get('cedula', '')})": e
+                f"{e['nombre_completo']} — C.I.: {e.get('cedula', '')} ({e.get('empresa_db', db_actual)})": e
                 for e in empleados_bs
             }
             emp_bs_label = st.selectbox(
-                "1. Seleccionar Trabajador",
+                "1. Seleccionar Trabajador (desde nomina_empleados)",
                 options=list(opciones_emp_bs.keys()),
                 key="bs_sel_empleado"
             )
             emp_bs = opciones_emp_bs[emp_bs_label]
+
+            emp_id_bs = emp_bs["id"]
+            empresa_emp_bs = str(emp_bs.get("empresa_db") or db_actual).strip()
+            cedula_emp_bs = str(emp_bs.get("cedula") or "").strip()
+            nombre_emp_bs = str(emp_bs.get("nombre_completo") or "").strip()
+            cargo_emp_bs = str(emp_bs.get("cargo") or "General").strip()
+            salario_base_emp_bs = float(emp_bs.get("salario_base") or 0.0)
 
             fecha_ing_raw = emp_bs.get("fecha_ingreso")
             if isinstance(fecha_ing_raw, date):
@@ -13633,6 +13641,12 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     fecha_ing_default = date.today()
             else:
                 fecha_ing_default = date.today()
+
+            st.caption(
+                f"**Empresa:** `{empresa_emp_bs}` | **Cédula:** `{cedula_emp_bs}` | "
+                f"**Trabajador:** `{nombre_emp_bs}` | **Cargo:** `{cargo_emp_bs}` | "
+                f"**Fecha Ingreso (BD):** `{fecha_ing_default}` | **Salario Base (BD):** `{salario_base_emp_bs:,.2f}`"
+            )
 
             modo_art_142 = st.radio(
                 "2. Seleccionar Régimen de Cálculo (Art. 142 LOTTT)",
@@ -13651,36 +13665,56 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     st.markdown("#### 🧾 Frame — Art. 142 Literal A y B (Salario Diario Integral y Abonos Trimestrales)")
                     f_a1, f_a2 = st.columns(2)
                     with f_a1:
-                        fecha_ingreso_bs = st.date_input("Fecha de Ingreso", value=fecha_ing_default, key="bs_ab_fecha_ing")
+                        fecha_ingreso_bs = st.date_input(
+                            "Fecha de Ingreso",
+                            value=fecha_ing_default,
+                            key=f"bs_ab_fecha_ing_{emp_id_bs}"
+                        )
                     with f_a2:
-                        fecha_egreso_bs = st.date_input("Fecha de Egreso (Manual)", value=date.today(), key="bs_ab_fecha_egr_manual")
-
-                    usar_fecha_egreso_bs = st.checkbox(
-                        "Aplicar fecha de egreso manual al cálculo y guardar",
-                        value=False,
-                        key="bs_ab_usar_egr_manual"
-                    )
+                        fecha_egreso_bs = st.date_input(
+                            "Fecha de Egreso (Manual)",
+                            value=date.today(),
+                            key=f"bs_ab_fecha_egr_manual_{emp_id_bs}"
+                        )
 
                     p_a1, p_a2, p_a3, p_a4 = st.columns(4)
                     with p_a1:
                         sal_mensual_bs = st.number_input(
                             "Salario Mensual",
                             min_value=0.0,
-                            value=float(emp_bs.get("salario_base") or 0.0),
+                            value=salario_base_emp_bs,
                             format="%.2f",
-                            key="bs_ab_sal_mensual"
+                            key=f"bs_ab_sal_mensual_{emp_id_bs}"
                         )
                     with p_a2:
-                        dias_util_bs = st.number_input("Días Utilidades / Año", min_value=0, value=30, step=1, key="bs_ab_dias_util")
+                        dias_util_bs = st.number_input(
+                            "Días Utilidades / Año",
+                            min_value=0,
+                            value=30,
+                            step=1,
+                            key=f"bs_ab_dias_util_{emp_id_bs}"
+                        )
                     with p_a3:
-                        dias_bono_bs = st.number_input("Días Bono Vacacional / Año", min_value=0, value=15, step=1, key="bs_ab_dias_bono")
+                        dias_bono_bs = st.number_input(
+                            "Días Bono Vacacional / Año",
+                            min_value=0,
+                            value=15,
+                            step=1,
+                            key=f"bs_ab_dias_bono_{emp_id_bs}"
+                        )
                     with p_a4:
-                        dias_prest_bs = st.number_input("Días Prestaciones / Trim.", min_value=0, value=15, step=1, key="bs_ab_dias_prest")
+                        dias_prest_bs = st.number_input(
+                            "Días Prestaciones / Trim.",
+                            min_value=0,
+                            value=15,
+                            step=1,
+                            key=f"bs_ab_dias_prest_{emp_id_bs}"
+                        )
 
                     res_bs = calcular_beneficios_base(
                         fecha_ingreso=fecha_ingreso_bs,
                         salario_mensual=sal_mensual_bs,
-                        fecha_egreso=fecha_egreso_bs if usar_fecha_egreso_bs else None,
+                        fecha_egreso=fecha_egreso_bs,
                         dias_utilidades_anio=int(dias_util_bs),
                         dias_bono_vacacional=int(dias_bono_bs),
                         dias_prestaciones_trimestre=int(dias_prest_bs),
@@ -13714,24 +13748,26 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     st.markdown("#### 📌 Frame — Art. 142 Literal C (Cálculo por Último Salario)")
                     f_c1, f_c2 = st.columns(2)
                     with f_c1:
-                        fecha_ingreso_bs = st.date_input("Fecha de Ingreso", value=fecha_ing_default, key="bs_c_fecha_ing")
+                        fecha_ingreso_bs = st.date_input(
+                            "Fecha de Ingreso",
+                            value=fecha_ing_default,
+                            key=f"bs_c_fecha_ing_{emp_id_bs}"
+                        )
                     with f_c2:
-                        fecha_egreso_bs = st.date_input("Fecha de Egreso (Manual)", value=date.today(), key="bs_c_fecha_egr_manual")
-
-                    usar_fecha_egreso_bs = st.checkbox(
-                        "Aplicar fecha de egreso manual al cálculo y guardar",
-                        value=True,
-                        key="bs_c_usar_egr_manual"
-                    )
+                        fecha_egreso_bs = st.date_input(
+                            "Fecha de Egreso (Manual)",
+                            value=date.today(),
+                            key=f"bs_c_fecha_egr_manual_{emp_id_bs}"
+                        )
 
                     p_c1, p_c2, p_c3, p_c4 = st.columns(4)
                     with p_c1:
                         sal_mensual_bs = st.number_input(
                             "Último Salario Mensual",
                             min_value=0.0,
-                            value=float(emp_bs.get("salario_base") or 0.0),
+                            value=salario_base_emp_bs,
                             format="%.2f",
-                            key="bs_c_sal_mensual"
+                            key=f"bs_c_sal_mensual_{emp_id_bs}"
                         )
                     with p_c2:
                         dias_literal_c_bs = st.number_input(
@@ -13739,17 +13775,29 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             min_value=0,
                             value=30,
                             step=1,
-                            key="bs_c_dias_anio"
+                            key=f"bs_c_dias_anio_{emp_id_bs}"
                         )
                     with p_c3:
-                        dias_util_bs = st.number_input("Días Utilidades / Año", min_value=0, value=30, step=1, key="bs_c_dias_util")
+                        dias_util_bs = st.number_input(
+                            "Días Utilidades / Año",
+                            min_value=0,
+                            value=30,
+                            step=1,
+                            key=f"bs_c_dias_util_{emp_id_bs}"
+                        )
                     with p_c4:
-                        dias_bono_bs = st.number_input("Días Bono Vacacional / Año", min_value=0, value=15, step=1, key="bs_c_dias_bono")
+                        dias_bono_bs = st.number_input(
+                            "Días Bono Vacacional / Año",
+                            min_value=0,
+                            value=15,
+                            step=1,
+                            key=f"bs_c_dias_bono_{emp_id_bs}"
+                        )
 
                     res_bs = calcular_beneficios_base(
                         fecha_ingreso=fecha_ingreso_bs,
                         salario_mensual=sal_mensual_bs,
-                        fecha_egreso=fecha_egreso_bs if usar_fecha_egreso_bs else None,
+                        fecha_egreso=fecha_egreso_bs,
                         dias_utilidades_anio=int(dias_util_bs),
                         dias_bono_vacacional=int(dias_bono_bs),
                         dias_prestaciones_trimestre=15,
@@ -13765,23 +13813,28 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     r_c4.metric("Prestaciones Sociales (Art. 142 C)", f"{res_bs['prestaciones_sociales']:,.2f}")
 
             st.caption(res_bs["detalle_regla"])
-            obs_bs = st.text_input("Observaciones", value="", key="bs_obs")
+            obs_bs = st.text_input("Observaciones", value="", key=f"bs_obs_{emp_id_bs}")
 
             if st.button("💾 Guardar Beneficios Sociales", type="primary", use_container_width=True, key="btn_guardar_bs"):
                 try:
-                    emp_guardar = str(db_actual).strip()
+                    emp_guardar = empresa_emp_bs
                     conn_save_bs = conectar_db(emp_guardar)
                     if not conn_save_bs:
                         st.error("❌ No se pudo establecer conexión a la base de datos.")
                     else:
                         tag_regla = "[Lit. C - Último Salario]" if es_literal_c else "[Lit. A+B - Salario Diario Integral]"
-                        obs_final = f"{tag_regla} {obs_bs.strip()}".strip()
+                        obs_partes = [tag_regla]
+                        if cedula_emp_bs:
+                            obs_partes.append(f"C.I.: {cedula_emp_bs}")
+                        if obs_bs.strip():
+                            obs_partes.append(obs_bs.strip())
+                        obs_final = " | ".join(obs_partes)
 
                         datos_guardar = {
-                            "empleado_id": emp_bs["id"],
-                            "nombre_empleado": emp_bs["nombre_completo"],
+                            "empleado_id": emp_id_bs,
+                            "nombre_empleado": nombre_emp_bs,
                             "fecha_ingreso": fecha_ingreso_bs,
-                            "fecha_egreso": fecha_egreso_bs,  # <-- toma directamente la fecha manual elegida
+                            "fecha_egreso": fecha_egreso_bs,
                             "salario_diario": res_bs["salario_diario_integral"] if not es_literal_c else res_bs["salario_diario"],
                             "salario_mensual": res_bs["salario_mensual"],
                             "utilidades": res_bs["utilidades"],
@@ -13792,7 +13845,8 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                         guardar_beneficio_social(conn_save_bs, emp_guardar, datos_guardar)
                         conn_save_bs.commit()
                         conn_save_bs.close()
-                        st.success(f"✅ Guardado en `{emp_guardar}` para **{emp_bs['nombre_completo']}**.")
+                        st.success(f"✅ Guardado en `{emp_guardar}` para **{nombre_emp_bs}** (C.I.: `{cedula_emp_bs}`).")
+                        st.rerun()
                 except Exception as err_save_bs:
                     st.error(f"❌ Error al guardar en `beneficios_sociales`: {err_save_bs}")
         st.divider()
