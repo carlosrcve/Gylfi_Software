@@ -13739,13 +13739,14 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     d4.metric("Bono Vacacional Diario", f"{res_bs['bono_vacacional_diario']:,.2f}")
                     d5.metric("Salario Diario Integral", f"{res_bs['salario_diario_integral']:,.2f}")
 
-                    abono_trimestral_bs = round(float(res_bs["salario_diario_integral"] or 0.0) * int(dias_prest_bs), 2)
+                    sdi_val = float(res_bs["salario_diario_integral"] or 0.0)
+                    dias_trim_val = int(dias_prest_bs)
+                    abono_trimestral_bs = round(sdi_val * dias_trim_val, 2)
 
                     st.info(
-                        f"**Salario Diario Integral:** `{res_bs['salario_diario_integral']:,.2f}` "
-                        f"(`{res_bs['salario_diario']:,.2f}` + `{res_bs['utilidades_diarias']:,.2f}` + `{res_bs['bono_vacacional_diario']:,.2f}`) | "
-                        f"**Abono Trimestral ({int(dias_prest_bs)} días):** `{abono_trimestral_bs:,.2f}` | "
-                        f"**Inicio de abonos trimestrales (1 mes después del ingreso):** `{res_bs['fecha_inicio_trimestres']}` | "
+                        f"**Cálculo Abono Trimestral:** `{sdi_val:,.2f}` (Salario Diario Integral) × `{dias_trim_val}` días = **`{abono_trimestral_bs:,.2f}`** | "
+                        f"**SDI:** `{res_bs['salario_diario']:,.2f}` + `{res_bs['utilidades_diarias']:,.2f}` + `{res_bs['bono_vacacional_diario']:,.2f}` | "
+                        f"**Inicio abonos (1 mes después del ingreso):** `{res_bs['fecha_inicio_trimestres']}` | "
                         f"**Trimestres acumulados:** `{res_bs['trimestres_servicio']}` | "
                         f"**Días adicionales (2d/año):** `{res_bs['dias_adicionales_acum']}`"
                     )
@@ -13753,7 +13754,11 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     r1, r2, r3, r4 = st.columns(4)
                     r1.metric("Utilidades Acumuladas", f"{res_bs['utilidades']:,.2f}")
                     r2.metric("Bono Vacacional Acumulado", f"{res_bs['bono_vacacional']:,.2f}")
-                    r3.metric(f"Abono Trimestral ({int(dias_prest_bs)} días)", f"{abono_trimestral_bs:,.2f}")
+                    r3.metric(
+                        f"Abono Trimestral ({dias_trim_val} días)",
+                        f"{abono_trimestral_bs:,.2f}",
+                        delta=f"{sdi_val:,.2f} × {dias_trim_val}d"
+                    )
                     r4.metric("Total Prestaciones Acumuladas (Art. 142 A+B)", f"{res_bs['prestaciones_sociales']:,.2f}")
 
             else:
