@@ -13781,7 +13781,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             "empleado_id": emp_bs["id"],
                             "nombre_empleado": emp_bs["nombre_completo"],
                             "fecha_ingreso": fecha_ingreso_bs,
-                            "fecha_egreso": fecha_egreso_bs if tiene_egreso else None,
+                            "fecha_egreso": fecha_egreso_bs if usar_fecha_egreso_bs else None,
                             "salario_diario": res_bs["salario_diario_integral"] if not es_literal_c else res_bs["salario_diario"],
                             "salario_mensual": res_bs["salario_mensual"],
                             "utilidades": res_bs["utilidades"],
