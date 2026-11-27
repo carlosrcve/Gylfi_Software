@@ -1387,36 +1387,35 @@ def render_tab_produccion(conn, df_prod, tasa_bcv_hoy):
     else:
         st.info("💡 Registre insumos y productos terminados para habilitar producción.")
 
+import time as py_time
+
 TIEMPO_INACTIVITY_MAX = 15 * 60  # 15 minutos totales
 TIEMPO_AVISO_PREVIO = 60        # Avisar cuando falten 60 segundos
 
+
 def verificar_inactividad():
     if 'logueado' in st.session_state and st.session_state['logueado']:
-        tiempo_actual = time.time()
+        tiempo_actual = py_time.time()
         ultimo_tiempo = st.session_state.get('ultimo_tiempo_activo', tiempo_actual)
-        
-        # Calculamos cuánto tiempo ha pasado sin interactuar
+
         inactivo_por = tiempo_actual - ultimo_tiempo
         tiempo_restante = TIEMPO_INACTIVITY_MAX - inactivo_por
-        
+
         if inactivo_por > TIEMPO_INACTIVITY_MAX:
-            # Si pasó el límite, limpiamos toda la sesión y forzamos el cierre
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.warning("⚠️ Su sesión ha expirado por inactividad.")
-            time.sleep(2.0)
+            py_time.sleep(2.0)
             st.rerun()
-            
+
         elif tiempo_restante <= TIEMPO_AVISO_PREVIO:
-            # Si está en los últimos segundos, le advertimos en pantalla
             segundos_cd = int(tiempo_restante)
-            st.warning(f"⚠️ **Advertencia de inactividad:** Su sesión se cerrará en **{segundos_cd} segundos** por falta de uso. Haga clic en cualquier parte o interactúe para continuar.")
-            
-            # Actualizamos el cronómetro con la acción actual si el usuario hace algo,
-            # pero mantenemos el aviso visible en esta recarga.
+            st.warning(
+                f"⚠️ **Advertencia de inactividad:** Su sesión se cerrará en **{segundos_cd} segundos** "
+                "por falta de uso. Haga clic en cualquier parte o interactúe para continuar."
+            )
             st.session_state['ultimo_tiempo_activo'] = tiempo_actual
         else:
-            # Actualizamos el cronómetro normalmente con la acción actual
             st.session_state['ultimo_tiempo_activo'] = tiempo_actual
 
 def play_success_sound():
