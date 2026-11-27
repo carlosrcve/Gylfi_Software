@@ -28698,11 +28698,18 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
 
                 
                 #### 4. Facturas Emitidas
+                from datetime import datetime
                 from decimal import Decimal, ROUND_HALF_UP
 
 
-                def _r2_ve(val) -> Decimal:
-                    return Decimal(str(val or "0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                def _formatear_rif(rif_raw: str) -> str:
+                    """Normaliza RIF/C.I. a formato con guion antes del dígito verificador si aplica (ej. J-405133520)."""
+                    s = "".join(ch for ch in str(rif_raw or "").upper().strip() if ch.isalnum() or ch == "-")
+                    if not s or "-" in s:
+                        return s
+                    if len(s) >= 2 and s[0].isalpha() and s[1:].isdigit():
+                        return f"{s[0]}-{s[1:]}"
+                    return s
 
 
                 def _fmt_ve_num(val, decimales: int = 2) -> str:
@@ -28714,6 +28721,20 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                     if decimales == 0:
                         return entero_ve
                     return f"{entero_ve},{partes[1]}"
+
+
+                def _hora_12h_am_pm(hora_str: str) -> str:
+                    """Convierte HH:MM:SS a formato 12h con a.m./p.m. cuando es posible."""
+                    raw = str(hora_str or "").strip()
+                    for fmt in ("%H:%M:%S", "%H:%M"):
+                        try:
+                            dt_h = datetime.strptime(raw, fmt)
+                            sufijo = "a.m." if dt_h.hour < 12 else "p.m."
+                            hora_12 = dt_h.strftime("%I:%M:%S") if fmt == "%H:%M:%S" else dt_h.strftime("%I:%M")
+                            return f"{hora_12} {sufijo}"
+                        except ValueError:
+                            continue
+                    return raw
 
 
                 st.divider()
