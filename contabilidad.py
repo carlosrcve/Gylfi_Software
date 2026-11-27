@@ -13391,7 +13391,6 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                                 conn_u.commit()
                                 conn_u.close()
                                 st.success(f"✅ Datos de **{edit_nom.strip()}** actualizados.")
-                                st.rerun()
                         except Exception as err_u:
                             st.error(f"❌ Error al actualizar trabajador: {err_u}")
 
@@ -13682,7 +13681,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                         )
                     with f_a2:
                         fecha_egreso_bs = st.date_input(
-                            "Fecha de Egreso (Manual)",
+                            "Fecha Abono Trimestral",
                             value=date.today(),
                             key=f"bs_ab_fecha_egr_manual_{emp_id_bs}"
                         )
