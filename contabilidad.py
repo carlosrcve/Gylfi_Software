@@ -13586,7 +13586,6 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
         else:
             st.info("No hay recibos de nómina registrados todavía.")
 
-
     with beneficio_socia:
         st.markdown("### 💼 Prestaciones Sociales")
         st.markdown("Calcula y registra utilidades, bono vacacional y prestaciones sociales en `beneficios_sociales`.")
@@ -13824,7 +13823,90 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             st.caption(res_bs["detalle_regla"])
             obs_bs = st.text_input("Observaciones", value="", key=f"bs_obs_{emp_id_bs}")
 
-            # 3) Botón para activar el registro del abono trimestral en contabilidad
+            if st.button("💾 Guardar Beneficios Sociales", type="primary", use_container_width=True, key="btn_guardar_bs"):
+                try:
+                    emp_guardar = empresa_emp_bs
+                    conn_save_bs = conectar_db(emp_guardar)
+                    if not conn_save_bs:
+                        st.error("❌ No se pudo establecer conexión a la base de datos.")
+                    else:
+                        tag_regla = "[Lit. C - Último Salario]" if es_literal_c else "[Lit. A+B - Salario Diario Integral]"
+                        obs_partes = [tag_regla]
+                        if cedula_emp_bs:
+                            obs_partes.append(f"C.I.: {cedula_emp_bs}")
+                        if obs_bs.strip():
+                            obs_partes.append(obs_bs.strip())
+                        obs_final = " | ".join(obs_partes)
+
+                        datos_guardar = {
+                            "empleado_id": emp_id_bs,
+                            "nombre_empleado": nombre_emp_bs,
+                            "fecha_ingreso": fecha_ingreso_bs,
+                            "fecha_egreso": fecha_egreso_bs,
+                            "salario_diario": res_bs["salario_diario_integral"] if not es_literal_c else res_bs["salario_diario"],
+                            "salario_mensual": res_bs["salario_mensual"],
+                            "utilidades": res_bs["utilidades"],
+                            "bono_vacacional": res_bs["bono_vacacional"],
+                            "prestaciones_sociales": res_bs["prestaciones_sociales"],
+                            "observaciones": obs_final,
+                        }
+                        guardar_beneficio_social(conn_save_bs, emp_guardar, datos_guardar)
+                        conn_save_bs.commit()
+                        conn_save_bs.close()
+                        st.success(f"✅ Guardado en `{emp_guardar}` para **{nombre_emp_bs}** (C.I.: `{cedula_emp_bs}`).")
+                        st.rerun()
+                except Exception as err_save_bs:
+                    st.error(f"❌ Error al guardar en `beneficios_sociales`: {err_save_bs}")
+
+            # 3) Historial de Beneficios Sociales
+            st.divider()
+            st.markdown("#### 📋 Historial de Beneficios Sociales")
+            try:
+                emp_key_bs = str(db_actual).strip()
+                conn_hist_bs = conectar_db(db_actual)
+                if conn_hist_bs:
+                    with conn_hist_bs.cursor() as cur_hbs:
+                        cur_hbs.execute("""
+                            SELECT id, nombre_empleado, fecha_ingreso, fecha_egreso,
+                                   salario_diario, salario_mensual, utilidades,
+                                   bono_vacacional, prestaciones_sociales, observaciones, creado_en
+                            FROM beneficios_sociales
+                            WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                            ORDER BY id DESC
+                            LIMIT 200
+                        """, (emp_key_bs,))
+                        cols_hbs = [desc[0] for desc in cur_hbs.description]
+                        filas_hbs = [dict(zip(cols_hbs, fila)) for fila in cur_hbs.fetchall()]
+                    conn_hist_bs.close()
+
+                    if filas_hbs:
+                        df_hbs = pd.DataFrame(filas_hbs)
+
+                        def _fmt_fecha(val, vacio="Activo"):
+                            if val is None or (isinstance(val, float) and pd.isna(val)):
+                                return vacio
+                            s = str(val).strip()
+                            if s in ("", "None", "NaT", "0000-00-00", "0000-00-00 00:00:00"):
+                                return vacio
+                            if hasattr(val, "strftime"):
+                                return val.strftime("%Y-%m-%d")
+                            return s[:10]
+
+                        if "fecha_ingreso" in df_hbs.columns:
+                            df_hbs["fecha_ingreso"] = df_hbs["fecha_ingreso"].apply(lambda v: _fmt_fecha(v, "—"))
+                        if "fecha_egreso" in df_hbs.columns:
+                            df_hbs["fecha_egreso"] = df_hbs["fecha_egreso"].apply(lambda v: _fmt_fecha(v, "Activo"))
+                        if "creado_en" in df_hbs.columns:
+                            df_hbs["creado_en"] = df_hbs["creado_en"].apply(lambda v: _fmt_fecha(v, "—"))
+
+                        st.dataframe(df_hbs, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Aún no hay cálculos guardados en `beneficios_sociales` para esta empresa.")
+            except Exception as err_hbs:
+                st.error(f"❌ Error consultando `beneficios_sociales`: {err_hbs}")
+
+            # 4) Asiento Contable al final, debajo del Historial de Beneficios Sociales
+            st.divider()
             state_key_asiento = f"bs_registrar_asiento_{emp_id_bs}"
             if state_key_asiento not in st.session_state:
                 st.session_state[state_key_asiento] = False
@@ -13836,10 +13918,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             ):
                 st.session_state[state_key_asiento] = not st.session_state[state_key_asiento]
 
-            registrar_asiento_bs = st.session_state[state_key_asiento]
-            datos_asiento_bs = None
-
-            if registrar_asiento_bs:
+            if st.session_state[state_key_asiento]:
                 with st.container(border=True):
                     st.markdown("#### 📒 Frame — Asiento Contable (`asientos_contables`)")
 
@@ -13874,7 +13953,6 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
 
                         monto_prest_asiento = float(res_bs["prestaciones_sociales"] or 0.0)
 
-                        # Encabezados de la tabla del asiento contable
                         h1, h2, h3, h4, h5 = st.columns([2.2, 1.3, 2.2, 1.1, 1.1])
                         h1.markdown("**Prestaciones Sociales (Cuenta Detalle)**")
                         h2.markdown("**Monto Prestaciones**")
@@ -13882,7 +13960,6 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                         h4.markdown("**Debe**")
                         h5.markdown("**Haber**")
 
-                        # Fila 1: Prestaciones Sociales (Debe) con selectbox desde plan_cuentas (tipo = 'Detalle')
                         f1_c1, f1_c2, f1_c3, f1_c4, f1_c5 = st.columns([2.2, 1.3, 2.2, 1.1, 1.1])
                         with f1_c1:
                             cta_prest_label = st.selectbox(
@@ -13935,143 +14012,60 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             key=f"bs_ac_bloqueado_{emp_id_bs}"
                         )
 
-                        cta_prest_obj = opciones_pc_detalle[cta_prest_label]
-                        cta_ver_obj = opciones_pc_detalle[cta_ver_label]
-
-                        datos_asiento_bs = {
-                            "n_comprobante": n_comprobante_bs.strip(),
-                            "descripcion": desc_asiento_bs.strip(),
-                            "fecha": fecha_asiento_bs,
-                            "referencia": ref_asiento_bs.strip(),
-                            "monto": monto_prest_asiento,
-                            "bloqueado": 1 if bloqueado_bs else 0,
-                            "cuenta_debe_codigo": cta_prest_obj["codigo"],
-                            "cuenta_debe_nombre": f"{cta_prest_obj['codigo']} - {cta_prest_obj['nombre']}",
-                            "cuenta_haber_codigo": cta_ver_obj["codigo"],
-                            "cuenta_haber_nombre": f"{cta_ver_obj['codigo']} - {cta_ver_obj['nombre']}",
-                        }
-
-            if st.button("💾 Guardar Beneficios Sociales", type="primary", use_container_width=True, key="btn_guardar_bs"):
-                try:
-                    emp_guardar = empresa_emp_bs
-                    conn_save_bs = conectar_db(emp_guardar)
-                    if not conn_save_bs:
-                        st.error("❌ No se pudo establecer conexión a la base de datos.")
-                    else:
-                        tag_regla = "[Lit. C - Último Salario]" if es_literal_c else "[Lit. A+B - Salario Diario Integral]"
-                        obs_partes = [tag_regla]
-                        if cedula_emp_bs:
-                            obs_partes.append(f"C.I.: {cedula_emp_bs}")
-                        if obs_bs.strip():
-                            obs_partes.append(obs_bs.strip())
-                        obs_final = " | ".join(obs_partes)
-
-                        datos_guardar = {
-                            "empleado_id": emp_id_bs,
-                            "nombre_empleado": nombre_emp_bs,
-                            "fecha_ingreso": fecha_ingreso_bs,
-                            "fecha_egreso": fecha_egreso_bs,
-                            "salario_diario": res_bs["salario_diario_integral"] if not es_literal_c else res_bs["salario_diario"],
-                            "salario_mensual": res_bs["salario_mensual"],
-                            "utilidades": res_bs["utilidades"],
-                            "bono_vacacional": res_bs["bono_vacacional"],
-                            "prestaciones_sociales": res_bs["prestaciones_sociales"],
-                            "observaciones": obs_final,
-                        }
-                        guardar_beneficio_social(conn_save_bs, emp_guardar, datos_guardar)
-
-                        if registrar_asiento_bs and datos_asiento_bs:
-                            sql_asiento = """
-                                INSERT INTO asientos_contables (
-                                    n_comprobante, descripcion, fecha, plan_cuentas,
-                                    cuenta_contable, referencia, debe, haber, bloqueado
-                                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                            """
-                            with conn_save_bs.cursor() as cur_ac:
-                                # Línea 1: Prestaciones Sociales (Debe)
-                                cur_ac.execute(
-                                    sql_asiento,
-                                    (
-                                        datos_asiento_bs["n_comprobante"],
-                                        datos_asiento_bs["descripcion"],
-                                        str(datos_asiento_bs["fecha"]),
-                                        datos_asiento_bs["cuenta_debe_codigo"],
-                                        datos_asiento_bs["cuenta_debe_nombre"],
-                                        datos_asiento_bs["referencia"],
-                                        datos_asiento_bs["monto"],
-                                        0.0,
-                                        datos_asiento_bs["bloqueado"],
-                                    ),
-                                )
-                                # Línea 2: Ver / Contrapartida (Haber)
-                                cur_ac.execute(
-                                    sql_asiento,
-                                    (
-                                        datos_asiento_bs["n_comprobante"],
-                                        datos_asiento_bs["descripcion"],
-                                        str(datos_asiento_bs["fecha"]),
-                                        datos_asiento_bs["cuenta_haber_codigo"],
-                                        datos_asiento_bs["cuenta_haber_nombre"],
-                                        datos_asiento_bs["referencia"],
-                                        0.0,
-                                        datos_asiento_bs["monto"],
-                                        datos_asiento_bs["bloqueado"],
-                                    ),
-                                )
-
-                        conn_save_bs.commit()
-                        conn_save_bs.close()
-                        msg_ac = f" y asiento `{datos_asiento_bs['n_comprobante']}`" if (registrar_asiento_bs and datos_asiento_bs) else ""
-                        st.success(f"✅ Guardado en `{emp_guardar}` para **{nombre_emp_bs}** (C.I.: `{cedula_emp_bs}`){msg_ac}.")
-                        st.rerun()
-                except Exception as err_save_bs:
-                    st.error(f"❌ Error al guardar en `beneficios_sociales`: {err_save_bs}")
-
-        st.divider()
-        st.markdown("#### 📋 Historial de Beneficios Sociales")
-        try:
-            emp_key_bs = str(db_actual).strip()
-            conn_hist_bs = conectar_db(db_actual)
-            if conn_hist_bs:
-                with conn_hist_bs.cursor() as cur_hbs:
-                    cur_hbs.execute("""
-                        SELECT id, nombre_empleado, fecha_ingreso, fecha_egreso,
-                               salario_diario, salario_mensual, utilidades,
-                               bono_vacacional, prestaciones_sociales, observaciones, creado_en
-                        FROM beneficios_sociales
-                        WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
-                        ORDER BY id DESC
-                        LIMIT 200
-                    """, (emp_key_bs,))
-                    cols_hbs = [desc[0] for desc in cur_hbs.description]
-                    filas_hbs = [dict(zip(cols_hbs, fila)) for fila in cur_hbs.fetchall()]
-                conn_hist_bs.close()
-
-                if filas_hbs:
-                    df_hbs = pd.DataFrame(filas_hbs)
-
-                    def _fmt_fecha(val, vacio="Activo"):
-                        if val is None or (isinstance(val, float) and pd.isna(val)):
-                            return vacio
-                        s = str(val).strip()
-                        if s in ("", "None", "NaT", "0000-00-00", "0000-00-00 00:00:00"):
-                            return vacio
-                        if hasattr(val, "strftime"):
-                            return val.strftime("%Y-%m-%d")
-                        return s[:10]
-
-                    if "fecha_ingreso" in df_hbs.columns:
-                        df_hbs["fecha_ingreso"] = df_hbs["fecha_ingreso"].apply(lambda v: _fmt_fecha(v, "—"))
-                    if "fecha_egreso" in df_hbs.columns:
-                        df_hbs["fecha_egreso"] = df_hbs["fecha_egreso"].apply(lambda v: _fmt_fecha(v, "Activo"))
-                    if "creado_en" in df_hbs.columns:
-                        df_hbs["creado_en"] = df_hbs["creado_en"].apply(lambda v: _fmt_fecha(v, "—"))
-
-                    st.dataframe(df_hbs, use_container_width=True, hide_index=True)
-                else:
-                    st.info("Aún no hay cálculos guardados en `beneficios_sociales` para esta empresa.")
-        except Exception as err_hbs:
-            st.error(f"❌ Error consultando `beneficios_sociales`: {err_hbs}")
+                        if st.button(
+                            "📒 Registrar Asiento en Contabilidad",
+                            type="primary",
+                            use_container_width=True,
+                            key=f"btn_guardar_asiento_bs_{emp_id_bs}"
+                        ):
+                            try:
+                                cta_prest_obj = opciones_pc_detalle[cta_prest_label]
+                                cta_ver_obj = opciones_pc_detalle[cta_ver_label]
+                                conn_ac_bs = conectar_db(empresa_emp_bs)
+                                if not conn_ac_bs:
+                                    st.error("❌ No se pudo establecer conexión a la base de datos.")
+                                else:
+                                    sql_asiento = """
+                                        INSERT INTO asientos_contables (
+                                            n_comprobante, descripcion, fecha, plan_cuentas,
+                                            cuenta_contable, referencia, debe, haber, bloqueado
+                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    """
+                                    bloq_val = 1 if bloqueado_bs else 0
+                                    with conn_ac_bs.cursor() as cur_ac:
+                                        cur_ac.execute(
+                                            sql_asiento,
+                                            (
+                                                n_comprobante_bs.strip(),
+                                                desc_asiento_bs.strip(),
+                                                str(fecha_asiento_bs),
+                                                cta_prest_obj["codigo"],
+                                                f"{cta_prest_obj['codigo']} - {cta_prest_obj['nombre']}",
+                                                ref_asiento_bs.strip(),
+                                                monto_prest_asiento,
+                                                0.0,
+                                                bloq_val,
+                                            ),
+                                        )
+                                        cur_ac.execute(
+                                            sql_asiento,
+                                            (
+                                                n_comprobante_bs.strip(),
+                                                desc_asiento_bs.strip(),
+                                                str(fecha_asiento_bs),
+                                                cta_ver_obj["codigo"],
+                                                f"{cta_ver_obj['codigo']} - {cta_ver_obj['nombre']}",
+                                                ref_asiento_bs.strip(),
+                                                0.0,
+                                                monto_prest_asiento,
+                                                bloq_val,
+                                            ),
+                                        )
+                                    conn_ac_bs.commit()
+                                    conn_ac_bs.close()
+                                    st.success(f"✅ Asiento `{n_comprobante_bs.strip()}` registrado en `asientos_contables`.")
+                            except Exception as err_ac_bs:
+                                st.error(f"❌ Error registrando asiento contable: {err_ac_bs}")
 
 
 
