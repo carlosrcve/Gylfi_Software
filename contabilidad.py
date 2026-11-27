@@ -13841,20 +13841,28 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             st.caption(res_bs["detalle_regla"])
             obs_bs = st.text_input("Observaciones", value="", key=f"bs_obs_{emp_id_bs}")
 
-            if st.button("💾 Guardar Beneficios Sociales", type="primary", use_container_width=True, key="btn_guardar_bs"):
+           if st.button("💾 Guardar Beneficios Sociales", type="primary", use_container_width=True, key="btn_guardar_bs"):
                 try:
                     emp_guardar = empresa_emp_bs
                     conn_save_bs = conectar_db(emp_guardar)
                     if not conn_save_bs:
                         st.error("❌ No se pudo establecer conexión a la base de datos.")
                     else:
-                        tag_regla = "[Lit. C - Último Salario]" if es_literal_c else "[Lit. A+B - Salario Diario Integral]"
+                        tag_regla = "[Lit. C - Último Salario]" if es_literal_c else "[Lit. A+B - Abono Trimestral]"
                         obs_partes = [tag_regla]
                         if cedula_emp_bs:
                             obs_partes.append(f"C.I.: {cedula_emp_bs}")
+                        if not es_literal_c:
+                            obs_partes.append(f"Abono trim. ({dias_trim_val}d): {abono_trimestral_bs:,.2f}")
                         if obs_bs.strip():
                             obs_partes.append(obs_bs.strip())
                         obs_final = " | ".join(obs_partes)
+
+                        prest_a_guardar = (
+                            res_bs["prestaciones_sociales"]
+                            if es_literal_c
+                            else abono_trimestral_bs
+                        )
 
                         datos_guardar = {
                             "empleado_id": emp_id_bs,
@@ -13865,7 +13873,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             "salario_mensual": res_bs["salario_mensual"],
                             "utilidades": res_bs["utilidades"],
                             "bono_vacacional": res_bs["bono_vacacional"],
-                            "prestaciones_sociales": res_bs["prestaciones_sociales"],
+                            "prestaciones_sociales": prest_a_guardar,
                             "observaciones": obs_final,
                         }
                         guardar_beneficio_social(conn_save_bs, emp_guardar, datos_guardar)
