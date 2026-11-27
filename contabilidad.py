@@ -12787,6 +12787,15 @@ from datetime import date
 
 def guardar_beneficio_social(conn, db_actual: str, datos: dict):
     fecha_egr_sql = str(datos["fecha_egreso"]) if datos.get("fecha_egreso") else None
+    sql = """
+        INSERT INTO beneficios_sociales (
+            empresa_db, empleado_id, nombre_empleado,
+            fecha_ingreso, fecha_egreso,
+            salario_diario, salario_mensual,
+            utilidades, bono_vacacional, prestaciones_sociales,
+            observaciones
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """
     params = (
         str(db_actual),
         int(datos["empleado_id"]),
@@ -12800,29 +12809,9 @@ def guardar_beneficio_social(conn, db_actual: str, datos: dict):
         float(datos["prestaciones_sociales"]),
         datos.get("observaciones") or "",
     )
-    sql = """
-        INSERT INTO beneficios_sociales (
-            empresa_db, empleado_id, nombre_empleado,
-            fecha_ingreso, fecha_egreso,
-            salario_diario, salario_mensual,
-            utilidades, bono_vacacional, prestaciones_sociales,
-            observaciones
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """
     with conn.cursor() as cur:
-        try:
-            cur.execute(sql, params)
-        except Exception as err:
-            # Si la tabla existente tiene fecha_egreso NOT NULL, usa fecha de corte/hoy como respaldo
-            if "1048" in str(err) and "fecha_egreso" in str(err):
-                fecha_fallback = str(date.today())
-                params_fallback = (
-                    params[0], params[1], params[2], params[3], fecha_fallback,
-                    params[5], params[6], params[7], params[8], params[9], params[10]
-                )
-                cur.execute(sql, params_fallback)
-            else:
-                raise
+        cur.execute(sql, params)
+    conn.commit()
 
 def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict_bancos_detalle=None):
     lista_bancos_detalle = lista_bancos_detalle or []
