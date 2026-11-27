@@ -14054,25 +14054,37 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
 
 
             def _monto_asiento_bs(res_dict: dict, empresa_db: str, cedula_ref: str = "") -> tuple[float, str]:
-                # 1. Claves explícitas en session_state
+                # 1. Priorizar Abono Trimestral (15 días) directo en session_state
                 for clave, origen in [
-                    (f"bs_monto_asiento_{empresa_db}", "session_state:bs_monto_asiento"),
                     ("ultimo_abono_trimestral_bs", "session_state:ultimo_abono_trimestral_bs"),
                     ("abono_trimestral_bs", "session_state:abono_trimestral_bs"),
+                    (f"bs_abono_trimestral_{empresa_db}", "session_state:bs_abono_trimestral"),
+                ]:
+                    v = _a_float_monto_bs(st.session_state.get(clave))
+                    if v > 0.0:
+                        return v, origen
+
+                # 2. Calcular Abono Trimestral (SDI x días por trimestre) si existe res_bs
+                if isinstance(res_dict, dict):
+                    abono_dict = _a_float_monto_bs(res_dict.get("abono_trimestral"))
+                    if abono_dict > 0.0:
+                        return abono_dict, "res_bs.abono_trimestral"
+
+                    sdi_dict = _a_float_monto_bs(res_dict.get("salario_diario_integral"))
+                    if sdi_dict > 0.0:
+                        dias_trim = int(_a_float_monto_bs(locals().get("dias_prest_bs")) or 15)
+                        return round(sdi_dict * dias_trim, 2), f"res_bs.SDI x {dias_trim} días"
+
+                # 3. Claves secundarias de prestaciones sociales en session_state
+                for clave, origen in [
+                    (f"bs_monto_asiento_{empresa_db}", "session_state:bs_monto_asiento"),
                     ("prestaciones_sociales", "session_state:prestaciones_sociales"),
                 ]:
                     v = _a_float_monto_bs(st.session_state.get(clave))
                     if v > 0.0:
                         return v, origen
 
-                # 2. Diccionario res_bs si está disponible
-                if isinstance(res_dict, dict):
-                    for k in ("prestaciones_sociales", "abono_trimestral", "salario_diario_integral"):
-                        v = _a_float_monto_bs(res_dict.get(k))
-                        if v > 0.0:
-                            return v, f"res_bs.{k}"
-
-                # 3. Consultar columna prestaciones_sociales en beneficios_sociales
+                # 4. Respaldo en tabla beneficios_sociales
                 try:
                     conn_ps = conectar_db(empresa_db)
                     if conn_ps:
