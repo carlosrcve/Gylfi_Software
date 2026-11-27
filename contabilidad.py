@@ -13931,6 +13931,30 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                                 return val.strftime("%Y-%m-%d")
                             return s[:10]
 
+                        def _fmt_monto_hist(val) -> str:
+                            if val is None or (isinstance(val, float) and pd.isna(val)):
+                                return "0.00"
+                            if isinstance(val, (int, float, np.number)):
+                                return f"{float(val):,.2f}"
+                            s = str(val).replace(",", "").strip()
+                            if s in ("", "None", "nan", "NaN"):
+                                return "0.00"
+                            try:
+                                return f"{float(s):,.2f}"
+                            except ValueError:
+                                return "0.00"
+
+                        cols_montos_hist = [
+                            "salario_diario",
+                            "salario_mensual",
+                            "utilidades",
+                            "bono_vacacional",
+                            "prestaciones_sociales",
+                        ]
+                        for col_m in cols_montos_hist:
+                            if col_m in df_hbs.columns:
+                                df_hbs[col_m] = df_hbs[col_m].apply(_fmt_monto_hist)
+
                         if "fecha_ingreso" in df_hbs.columns:
                             df_hbs["fecha_ingreso"] = df_hbs["fecha_ingreso"].apply(lambda v: _fmt_fecha(v, "—"))
                         if "fecha_egreso" in df_hbs.columns:
