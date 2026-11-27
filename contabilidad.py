@@ -13794,7 +13794,6 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                         conn_save_bs.commit()
                         conn_save_bs.close()
                         st.success(f"✅ Guardado en `{emp_guardar}` para **{emp_bs['nombre_completo']}**.")
-                        st.rerun()
                 except Exception as err_save_bs:
                     st.error(f"❌ Error al guardar en `beneficios_sociales`: {err_save_bs}")
         st.divider()
