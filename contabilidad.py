@@ -12695,10 +12695,11 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
     st.markdown("## 👥 Módulo de Nómina")
     st.caption(f"Empresa activa: **{db_actual}**")
 
-    tab_calc, tab_emp, tab_hist = st.tabs([
+    tab_calc, tab_emp, tab_hist,beneficio_socia = st.tabs([
         "🧮 Procesar Nómina y Asiento",
         "🧑‍💼 Trabajadores",
-        "📄 Recibos Emitidos"
+        "📄 Recibos Emitidos",
+        "📄 Prestaciones Sociales"
     ])
 
     with tab_calc:
@@ -13459,6 +13460,223 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     st.error(f"❌ Error eliminando el recibo: {err_d}")
         else:
             st.info("No hay recibos de nómina registrados todavía.")
+
+
+    with beneficio_socia:
+        st.markdown("### 📊 Beneficios Sociales")
+        st.markdown("Calcula y registra utilidades, bono vacacional y prestaciones sociales en `beneficios_sociales`.")
+
+        empleados_bs = []
+        try:
+            conn_bs = conectar_db(db_actual)
+            if conn_bs:
+                with conn_bs.cursor() as cur_bs:
+                    cur_bs.execute("""
+                        SELECT *
+                        FROM nomina_empleados
+                        WHERE empresa_db = %s AND (activo = 1 OR activo IS NULL)
+                        ORDER BY nombre_completo ASC
+                    """, (str(db_actual),))
+                    cols_bs = [desc[0] for desc in cur_bs.description]
+                    empleados_bs = [dict(zip(cols_bs, fila)) for fila in cur_bs.fetchall()]
+                conn_bs.close()
+        except Exception as err_bs:
+            st.error(f"❌ Error cargando trabajadores para beneficios sociales: {err_bs}")
+
+        if not empleados_bs:
+            st.info(f"No hay trabajadores activos registrados para `{db_actual}`.")
+        else:
+            opciones_emp_bs = {
+                f"{e['nombre_completo']} ({e.get('cedula', '')})": e
+                for e in empleados_bs
+            }
+            emp_bs_label = st.selectbox(
+                "Trabajador",
+                options=list(opciones_emp_bs.keys()),
+                key="bs_sel_empleado"
+            )
+            emp_bs = opciones_emp_bs[emp_bs_label]
+
+            fecha_ing_raw = emp_bs.get("fecha_ingreso")
+            if isinstance(fecha_ing_raw, date):
+                fecha_ing_default = fecha_ing_raw
+            elif fecha_ing_raw:
+                try:
+                    fecha_ing_default = date.fromisoformat(str(fecha_ing_raw)[:10])
+                except ValueError:
+                    fecha_ing_default = date.today()
+            else:
+                fecha_ing_default = date.today()
+
+            c_f1, c_f2, c_f3 = st.columns(3)
+            with c_f1:
+                fecha_ingreso_bs = st.date_input("Fecha de Ingreso", value=fecha_ing_default, key="bs_fecha_ing")
+            with c_f2:
+                tiene_egreso = st.checkbox("Registrar fecha de egreso", value=False, key="bs_tiene_egreso")
+            with c_f3:
+                fecha_egreso_bs = st.date_input(
+                    "Fecha de Egreso",
+                    value=date.today(),
+                    disabled=not tiene_egreso,
+                    key="bs_fecha_egr"
+                )
+
+            c_s1, c_p1, c_p2, c_p3 = st.columns(4)
+            with c_s1:
+                sal_mensual_bs = st.number_input(
+                    "Salario Mensual",
+                    min_value=0.0,
+                    value=float(emp_bs.get("salario_base") or 0.0),
+                    format="%.2f",
+                    key="bs_sal_mensual"
+                )
+            with c_p1:
+                dias_util_bs = st.number_input("Días Utilidades / Año", min_value=0, value=30, step=1, key="bs_dias_util")
+            with c_p2:
+                dias_bono_bs = st.number_input("Días Bono Vacacional", min_value=0, value=15, step=1, key="bs_dias_bono")
+            with c_p3:
+                dias_prest_bs = st.number_input("Días Prestaciones / Trim.", min_value=0, value=15, step=1, key="bs_dias_prest")
+
+            res_bs = calcular_beneficios_base(
+                fecha_ingreso=fecha_ingreso_bs,
+                salario_mensual=sal_mensual_bs,
+                fecha_egreso=fecha_egreso_bs if tiene_egreso else None,
+                dias_utilidades_anio=int(dias_util_bs),
+                dias_bono_vacacional=int(dias_bono_bs),
+                dias_prestaciones_trimestre=int(dias_prest_bs),
+            )
+
+            m_bs1, m_bs2, m_bs3, m_bs4 = st.columns(4)
+            m_bs1.metric("Salario Diario", f"{res_bs['salario_diario']:,.2f}")
+            m_bs2.metric("Utilidades", f"{res_bs['utilidades']:,.2f}")
+            m_bs3.metric("Bono Vacacional", f"{res_bs['bono_vacacional']:,.2f}")
+            m_bs4.metric("Prestaciones Sociales", f"{res_bs['prestaciones_sociales']:,.2f}")
+
+            st.caption(
+                f"Tiempo de servicio: **{res_bs['dias_servicio']} días** "
+                f"(~{res_bs['meses_servicio']} meses / {res_bs['trimestres_servicio']} trimestres)"
+            )
+
+            obs_bs = st.text_input("Observaciones", value="", key="bs_obs")
+
+            if st.button("💾 Guardar Beneficios Sociales", type="primary", use_container_width=True, key="btn_guardar_bs"):
+                try:
+                    conn_save_bs = conectar_db(db_actual)
+                    if conn_save_bs:
+                        datos_guardar = {
+                            "empleado_id": emp_bs["id"],
+                            "nombre_empleado": emp_bs["nombre_completo"],
+                            "fecha_ingreso": fecha_ingreso_bs,
+                            "fecha_egreso": fecha_egreso_bs if tiene_egreso else None,
+                            "salario_diario": res_bs["salario_diario"],
+                            "salario_mensual": res_bs["salario_mensual"],
+                            "utilidades": res_bs["utilidades"],
+                            "bono_vacacional": res_bs["bono_vacacional"],
+                            "prestaciones_sociales": res_bs["prestaciones_sociales"],
+                            "observaciones": obs_bs.strip(),
+                        }
+                        guardar_beneficio_social(conn_save_bs, str(db_actual), datos_guardar)
+                        conn_save_bs.close()
+                        st.success(f"✅ Beneficios sociales guardados para **{emp_bs['nombre_completo']}**.")
+                        st.rerun()
+                except Exception as err_save_bs:
+                    st.error(f"❌ Error al guardar en `beneficios_sociales`: {err_save_bs}")
+
+        st.divider()
+        st.markdown("#### 📋 Historial de Beneficios Sociales")
+        try:
+            conn_hist_bs = conectar_db(db_actual)
+            if conn_hist_bs:
+                with conn_hist_bs.cursor() as cur_hbs:
+                    cur_hbs.execute("""
+                        SELECT id, nombre_empleado, fecha_ingreso, fecha_egreso,
+                               salario_diario, salario_mensual, utilidades,
+                               bono_vacacional, prestaciones_sociales, observaciones, creado_en
+                        FROM beneficios_sociales
+                        WHERE empresa_db = %s
+                        ORDER BY id DESC
+                        LIMIT 200
+                    """, (str(db_actual),))
+                    cols_hbs = [desc[0] for desc in cur_hbs.description]
+                    filas_hbs = [dict(zip(cols_hbs, fila)) for fila in cur_hbs.fetchall()]
+                conn_hist_bs.close()
+
+                if filas_hbs:
+                    df_hbs = pd.DataFrame(filas_hbs)
+                    for col_num in ["salario_diario", "salario_mensual", "utilidades", "bono_vacacional", "prestaciones_sociales"]:
+                        if col_num in df_hbs.columns:
+                            df_hbs[col_num] = df_hbs[col_num].apply(lambda x: f"{float(x or 0.0):,.2f}")
+                    st.dataframe(df_hbs, use_container_width=True, hide_index=True)
+                else:
+                    st.info("Aún no hay cálculos guardados en `beneficios_sociales` para esta empresa.")
+        except Exception as err_hbs:
+            st.error(f"❌ Error consultando `beneficios_sociales`: {err_hbs}")
+
+
+from datetime import date
+
+def calcular_beneficios_base(
+    fecha_ingreso: date,
+    salario_mensual: float,
+    fecha_egreso: date | None = None,
+    dias_utilidades_anio: int = 30,
+    dias_bono_vacacional: int = 15,
+    dias_prestaciones_trimestre: int = 15,
+):
+    f_ing = fecha_ingreso if isinstance(fecha_ingreso, date) else date.fromisoformat(str(fecha_ingreso)[:10])
+    f_fin = fecha_egreso if isinstance(fecha_egreso, date) else (
+        date.fromisoformat(str(fecha_egreso)[:10]) if fecha_egreso else date.today()
+    )
+
+    dias_servicio = max(0, (f_fin - f_ing).days)
+    meses_servicio = max(1, round(dias_servicio / 30.0)) if dias_servicio > 0 else 0
+    trimestres_servicio = max(0, dias_servicio // 90)
+
+    sal_mensual = round(float(salario_mensual or 0.0), 2)
+    sal_diario = round(sal_mensual / 30.0, 2)
+
+    # Estimaciones base proporcionales / por antigüedad (ajustables según tus reglas)
+    utilidades = round(sal_diario * dias_utilidades_anio * min(1.0, dias_servicio / 365.0), 2) if dias_servicio > 0 else 0.00
+    bono_vacacional = round(sal_diario * dias_bono_vacacional * min(1.0, dias_servicio / 365.0), 2) if dias_servicio > 0 else 0.00
+    prestaciones_sociales = round(sal_diario * dias_prestaciones_trimestre * trimestres_servicio, 2)
+
+    return {
+        "dias_servicio": dias_servicio,
+        "meses_servicio": meses_servicio,
+        "trimestres_servicio": trimestres_servicio,
+        "salario_diario": sal_diario,
+        "salario_mensual": sal_mensual,
+        "utilidades": utilidades,
+        "bono_vacacional": bono_vacacional,
+        "prestaciones_sociales": prestaciones_sociales,
+    }
+
+
+def guardar_beneficio_social(conn, db_actual: str, datos: dict):
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO beneficios_sociales (
+                empresa_db, empleado_id, nombre_empleado,
+                fecha_ingreso, fecha_egreso,
+                salario_diario, salario_mensual,
+                utilidades, bono_vacacional, prestaciones_sociales,
+                observaciones
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            str(db_actual),
+            int(datos["empleado_id"]),
+            str(datos["nombre_empleado"]),
+            str(datos["fecha_ingreso"]),
+            str(datos["fecha_egreso"]) if datos.get("fecha_egreso") else None,
+            float(datos["salario_diario"]),
+            float(datos["salario_mensual"]),
+            float(datos["utilidades"]),
+            float(datos["bono_vacacional"]),
+            float(datos["prestaciones_sociales"]),
+            datos.get("observaciones") or "",
+        ))
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
