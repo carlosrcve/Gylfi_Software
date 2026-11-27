@@ -13743,12 +13743,21 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     dias_trim_val = int(dias_prest_bs or 15)
                     abono_trimestral_bs = round(sdi_val * dias_trim_val, 2)
 
-                    st.info(
-                        f"**Abono Trimestral ({dias_trim_val} días):** `{sdi_val:,.2f}` × `{dias_trim_val}` = **`{abono_trimestral_bs:,.2f}`** | "
-                        f"**SDI:** `{res_bs['salario_diario']:,.2f}` + `{res_bs['utilidades_diarias']:,.2f}` + `{res_bs['bono_vacacional_diario']:,.2f}` | "
-                        f"**Inicio abonos (1 mes después del ingreso):** `{res_bs['fecha_inicio_trimestres']}` | "
-                        f"**Trimestres acumulados:** `{res_bs['trimestres_servicio']}` | "
-                        f"**Días adicionales (2d/año):** `{res_bs['dias_adicionales_acum']}`"
+                    b1, b2 = st.columns(2)
+                    b1.metric(
+                        f"Abono Trimestral ({dias_trim_val} días)",
+                        f"{abono_trimestral_bs:,.2f}",
+                        delta=f"{sdi_val:,.2f} × {dias_trim_val} días"
+                    )
+                    b2.metric(
+                        "Trimestres Acumulados / Días Adic.",
+                        f"{res_bs['trimestres_servicio']} trim.",
+                        delta=f"+{res_bs['dias_adicionales_acum']} días (2d/año)"
+                    )
+
+                    st.caption(
+                        f"**SDI:** `{res_bs['salario_diario']:,.2f}` + `{res_bs['utilidades_diarias']:,.2f}` + `{res_bs['bono_vacacional_diario']:,.2f}` = `{sdi_val:,.2f}` | "
+                        f"**Inicio abonos (1 mes después del ingreso):** `{res_bs['fecha_inicio_trimestres']}`"
                     )
 
                     r1, r2, r3, r4 = st.columns(4)
@@ -13760,7 +13769,6 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                         delta=f"{sdi_val:,.2f} × {dias_trim_val}"
                     )
                     r4.metric("Total Prestaciones Acumuladas (Art. 142 A+B)", f"{res_bs['prestaciones_sociales']:,.2f}")
-
             else:
                 with st.container(border=True):
                     st.markdown("#### 📌 Frame — Art. 142 Literal C (Cálculo por Último Salario)")
