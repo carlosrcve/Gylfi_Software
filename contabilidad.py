@@ -13794,13 +13794,17 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     dias_trim_val = int(dias_prest_bs or 15)
                     abono_trimestral_bs = round(sdi_val * dias_trim_val, 2)
 
-                    trimestres_calc = int(res_bs.get("trimestres_servicio") or 0)
+                    trimestres_orig_bs = int(res_bs.get("trimestres_servicio") or 0)
                     dias_adic_calc = int(res_bs.get("dias_adicionales_acum") or 0)
 
                     prest_orig_bs = round(float(res_bs.get("prestaciones_sociales") or 0.0), 2)
                     total_prest_acum_bs = prest_orig_bs
+                    trimestres_calc = trimestres_orig_bs
+
                     if total_prest_acum_bs == 0.0 and abono_trimestral_bs > 0.0:
                         total_prest_acum_bs = abono_trimestral_bs
+                        if trimestres_calc == 0:
+                            trimestres_calc = 1
 
                     b1, b2 = st.columns(2)
                     b1.metric(
