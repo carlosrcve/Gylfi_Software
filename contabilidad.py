@@ -13801,23 +13801,6 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             if conn_hist_bs:
                 with conn_hist_bs.cursor() as cur_hbs:
                     cur_hbs.execute("""
-                        CREATE TABLE IF NOT EXISTS beneficios_sociales (
-                            id INT AUTO_INCREMENT PRIMARY KEY,
-                            empresa_db VARCHAR(100) NOT NULL,
-                            empleado_id INT NOT NULL,
-                            nombre_empleado VARCHAR(180) NOT NULL,
-                            fecha_ingreso DATE NOT NULL,
-                            fecha_egreso DATE NULL,
-                            salario_diario DECIMAL(14,2) NOT NULL DEFAULT 0.00,
-                            salario_mensual DECIMAL(14,2) NOT NULL DEFAULT 0.00,
-                            utilidades DECIMAL(14,2) NOT NULL DEFAULT 0.00,
-                            bono_vacacional DECIMAL(14,2) NOT NULL DEFAULT 0.00,
-                            prestaciones_sociales DECIMAL(14,2) NOT NULL DEFAULT 0.00,
-                            observaciones TEXT,
-                            creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
-                        )
-                    """)
-                    cur_hbs.execute("""
                         SELECT id, nombre_empleado, fecha_ingreso, fecha_egreso,
                                salario_diario, salario_mensual, utilidades,
                                bono_vacacional, prestaciones_sociales, observaciones, creado_en
@@ -13840,7 +13823,6 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     st.info("Aún no hay cálculos guardados en `beneficios_sociales` para esta empresa.")
         except Exception as err_hbs:
             st.error(f"❌ Error consultando `beneficios_sociales`: {err_hbs}")
-
 
 
 
