@@ -13649,18 +13649,17 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             if not es_literal_c:
                 with st.container(border=True):
                     st.markdown("#### 🧾 Frame — Art. 142 Literal A y B (Salario Diario Integral y Abonos Trimestrales)")
-                    f_a1, f_a2, f_a3 = st.columns(3)
+                    f_a1, f_a2 = st.columns(2)
                     with f_a1:
                         fecha_ingreso_bs = st.date_input("Fecha de Ingreso", value=fecha_ing_default, key="bs_ab_fecha_ing")
                     with f_a2:
-                        tiene_egreso = st.checkbox("Definir fecha de corte / egreso", value=False, key="bs_ab_tiene_egr")
-                    with f_a3:
-                        fecha_egreso_bs = st.date_input(
-                            "Fecha de Corte / Egreso",
-                            value=date.today(),
-                            disabled=not tiene_egreso,
-                            key="bs_ab_fecha_egr"
-                        )
+                        fecha_egreso_bs = st.date_input("Fecha de Egreso (Manual)", value=date.today(), key="bs_ab_fecha_egr_manual")
+
+                    usar_fecha_egreso_bs = st.checkbox(
+                        "Aplicar fecha de egreso manual al cálculo y guardar",
+                        value=False,
+                        key="bs_ab_usar_egr_manual"
+                    )
 
                     p_a1, p_a2, p_a3, p_a4 = st.columns(4)
                     with p_a1:
@@ -13681,7 +13680,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     res_bs = calcular_beneficios_base(
                         fecha_ingreso=fecha_ingreso_bs,
                         salario_mensual=sal_mensual_bs,
-                        fecha_egreso=fecha_egreso_bs if tiene_egreso else None,
+                        fecha_egreso=fecha_egreso_bs if usar_fecha_egreso_bs else None,
                         dias_utilidades_anio=int(dias_util_bs),
                         dias_bono_vacacional=int(dias_bono_bs),
                         dias_prestaciones_trimestre=int(dias_prest_bs),
@@ -13713,18 +13712,17 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             else:
                 with st.container(border=True):
                     st.markdown("#### 📌 Frame — Art. 142 Literal C (Cálculo por Último Salario)")
-                    f_c1, f_c2, f_c3 = st.columns(3)
+                    f_c1, f_c2 = st.columns(2)
                     with f_c1:
                         fecha_ingreso_bs = st.date_input("Fecha de Ingreso", value=fecha_ing_default, key="bs_c_fecha_ing")
                     with f_c2:
-                        tiene_egreso = st.checkbox("Registrar fecha de egreso / corte", value=True, key="bs_c_tiene_egr")
-                    with f_c3:
-                        fecha_egreso_bs = st.date_input(
-                            "Fecha de Egreso / Corte",
-                            value=date.today(),
-                            disabled=not tiene_egreso,
-                            key="bs_c_fecha_egr"
-                        )
+                        fecha_egreso_bs = st.date_input("Fecha de Egreso (Manual)", value=date.today(), key="bs_c_fecha_egr_manual")
+
+                    usar_fecha_egreso_bs = st.checkbox(
+                        "Aplicar fecha de egreso manual al cálculo y guardar",
+                        value=True,
+                        key="bs_c_usar_egr_manual"
+                    )
 
                     p_c1, p_c2, p_c3, p_c4 = st.columns(4)
                     with p_c1:
@@ -13751,7 +13749,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     res_bs = calcular_beneficios_base(
                         fecha_ingreso=fecha_ingreso_bs,
                         salario_mensual=sal_mensual_bs,
-                        fecha_egreso=fecha_egreso_bs if tiene_egreso else None,
+                        fecha_egreso=fecha_egreso_bs if usar_fecha_egreso_bs else None,
                         dias_utilidades_anio=int(dias_util_bs),
                         dias_bono_vacacional=int(dias_bono_bs),
                         dias_prestaciones_trimestre=15,
