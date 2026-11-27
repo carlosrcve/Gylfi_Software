@@ -13841,7 +13841,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             st.caption(res_bs["detalle_regla"])
             obs_bs = st.text_input("Observaciones", value="", key=f"bs_obs_{emp_id_bs}")
 
-           if st.button("💾 Guardar Beneficios Sociales", type="primary", use_container_width=True, key="btn_guardar_bs"):
+            if st.button("💾 Guardar Beneficios Sociales", type="primary", use_container_width=True, key="btn_guardar_bs"):
                 try:
                     emp_guardar = empresa_emp_bs
                     conn_save_bs = conectar_db(emp_guardar)
