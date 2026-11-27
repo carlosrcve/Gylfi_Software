@@ -28701,8 +28701,7 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                 with conn_fd.cursor() as cur_hist:
                     cur_hist.execute(
                         """
-                        SELECT id, n_documento, n_control, fecha_emision, cliente_rif,
-                               cliente_nombre, condicion_pago, total_bs, total_divisa, estado
+                        SELECT *
                         FROM facturas_cabecera
                         WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
                         ORDER BY id DESC
@@ -28714,11 +28713,83 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                     filas_f = [dict(zip(cols_f, r)) for r in cur_hist.fetchall()]
 
                 if filas_f:
-                    df_fac = pd.DataFrame(filas_f)
-                    df_fac["total_bs"] = df_fac["total_bs"].apply(lambda x: f"{float(x or 0):,.2f}")
-                    df_fac["total_divisa"] = df_fac["total_divisa"].apply(lambda x: f"{float(x or 0):,.2f}")
+                    resumen_cols = [
+                        "id", "n_documento", "n_control", "fecha_emision",
+                        "cliente_rif", "cliente_nombre", "condicion_pago",
+                        "total_bs", "total_divisa", "estado",
+                    ]
+                    df_fac = pd.DataFrame([
+                        {k: fila.get(k) for k in resumen_cols}
+                        for fila in filas_f
+                    ])
+                    df_fac["total_bs"] = df_fac["total_bs"].apply(lambda x: _fmt_ve_num(x, 2))
+                    df_fac["total_divisa"] = df_fac["total_divisa"].apply(lambda x: _fmt_ve_num(x, 2))
                     st.dataframe(df_fac, use_container_width=True, hide_index=True)
+
+                    st.markdown("##### 🖨️ Reimprimir o Exportar Factura del Historial")
+                    mapa_facturas = {
+                        f"Doc {f['n_documento']} | Control {f['n_control']} | {f['fecha_emision']} — {f['cliente_nombre']} ({_fmt_ve_num(f['total_bs'], 2)} Bs.)": f
+                        for f in filas_f
+                    }
+                    opcion_fac_sel = st.selectbox(
+                        "Selecciona una factura emitida para generar su PDF y XML:",
+                        options=list(mapa_facturas.keys()),
+                        key=f"fd_sel_reimprimir_{db_actual}",
+                    )
+                    fac_sel = mapa_facturas[opcion_fac_sel]
+
+                    with conn_fd.cursor() as cur_det:
+                        cur_det.execute(
+                            """
+                            SELECT codigo_item, descripcion, unidad, cantidad,
+                                   precio_unitario_bs, descuento_pct, alicuota
+                            FROM facturas_detalle
+                            WHERE factura_id = %s
+                            ORDER BY renglon ASC, id ASC
+                            """,
+                            (fac_sel["id"],),
+                        )
+                        cols_d = [d[0] for d in cur_det.description]
+                        lineas_bd = [dict(zip(cols_d, r)) for r in cur_det.fetchall()]
+
+                    rango_fac = rango_activo
+                    if fac_sel.get("rango_fiscal_id"):
+                        with conn_fd.cursor() as cur_rg:
+                            cur_rg.execute(
+                                "SELECT * FROM control_rangos_fiscales WHERE id = %s",
+                                (fac_sel["rango_fiscal_id"],),
+                            )
+                            cols_rg = [d[0] for d in cur_rg.description]
+                            row_rg = cur_rg.fetchone()
+                            if row_rg:
+                                rango_fac = dict(zip(cols_rg, row_rg))
+
+                    totales_reimp = calcular_totales_factura(
+                        lineas_bd,
+                        tasa_bcv=float(fac_sel.get("tasa_bcv") or 1),
+                        aplica_igtf=bool(fac_sel.get("aplica_igtf")),
+                    )
+                    pdf_reimp = generar_pdf_factura_digital(fac_sel, totales_reimp, rango_fac)
+                    xml_reimp = fac_sel.get("xml_generado") or generar_xml_factura(fac_sel, totales_reimp, rango_fac)
+
+                    r_dl1, r_dl2 = st.columns(2)
+                    with r_dl1:
+                        st.download_button(
+                            label=f"📄 Imprimir / Descargar PDF ({fac_sel['n_documento']})",
+                            data=pdf_reimp,
+                            file_name=f"factura_{fac_sel['n_documento']}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                            key=f"btn_reimp_pdf_{db_actual}_{fac_sel['id']}",
+                        )
+                    with r_dl2:
+                        st.download_button(
+                            label=f"🧾 Descargar XML ({fac_sel['n_documento']})",
+                            data=xml_reimp.encode("utf-8"),
+                            file_name=f"factura_{fac_sel['n_documento']}.xml",
+                            mime="application/xml",
+                            use_container_width=True,
+                            key=f"btn_reimp_xml_{db_actual}_{fac_sel['id']}",
+                        )
                 else:
                     st.info("Aún no hay facturas emitidas para esta empresa.")
-            finally:
-                _cerrar_conexion_segura(conn_fd)
