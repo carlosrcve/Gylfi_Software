@@ -13671,648 +13671,701 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
         if not empleados_bs:
             st.info(f"No hay trabajadores activos registrados para `{db_actual}`.")
         else:
-            # 1) Seleccionar empleado desde nomina_empleados
-            opciones_emp_bs = {
-                f"{e['nombre_completo']} — C.I.: {e.get('cedula', '')} ({e.get('empresa_db', db_actual)})": e
-                for e in empleados_bs
-            }
-            emp_bs_label = st.selectbox(
-                "1. Seleccionar Trabajador (desde nomina_empleados)",
-                options=list(opciones_emp_bs.keys()),
-                key="bs_sel_empleado"
-            )
-            emp_bs = opciones_emp_bs[emp_bs_label]
+            # Control en sesión y en BD de empleados ya registrados con asiento de abono trimestral
+            clave_registrados_bs = f"bs_empleados_asiento_registrados_{db_actual}"
+            if clave_registrados_bs not in st.session_state:
+                st.session_state[clave_registrados_bs] = set()
 
-            emp_id_bs = emp_bs["id"]
-            empresa_emp_bs = str(emp_bs.get("empresa_db") or db_actual).strip()
-            cedula_emp_bs = str(emp_bs.get("cedula") or "").strip()
-            nombre_emp_bs = str(emp_bs.get("nombre_completo") or "").strip()
-            cargo_emp_bs = str(emp_bs.get("cargo") or "General").strip()
-            salario_base_emp_bs = float(emp_bs.get("salario_base") or 0.0)
-
-            fecha_ing_raw = emp_bs.get("fecha_ingreso")
-            if isinstance(fecha_ing_raw, date):
-                fecha_ing_default = fecha_ing_raw
-            elif fecha_ing_raw:
-                try:
-                    fecha_ing_default = date.fromisoformat(str(fecha_ing_raw)[:10])
-                except ValueError:
-                    fecha_ing_default = date.today()
-            else:
-                fecha_ing_default = date.today()
-
-            st.caption(
-                f"**Empresa:** `{empresa_emp_bs}` | **Cédula:** `{cedula_emp_bs}` | "
-                f"**Trabajador:** `{nombre_emp_bs}` | **Cargo:** `{cargo_emp_bs}` | "
-                f"**Fecha Ingreso (BD):** `{fecha_ing_default}` | **Salario Base (BD):** `{salario_base_emp_bs:,.2f}`"
-            )
-
-            modo_art_142 = st.radio(
-                "2. Seleccionar Régimen de Cálculo (Art. 142 LOTTT)",
-                options=[
-                    "Art. 142 Literal A y B — Abono trimestral (15 días/trim.) + 2 días adicionales/año",
-                    "Art. 142 Literal C — Cálculo por último salario (30 días/año)",
-                ],
-                horizontal=True,
-                key="bs_radio_art142"
-            )
-            es_literal_c = modo_art_142.startswith("Art. 142 Literal C")
-
-            # 2) Frame distinto según la opción elegida en st.radio
-            if not es_literal_c:
-                with st.container(border=True):
-                    st.markdown("#### 🧾 Frame — Art. 142 Literal A y B (Salario Diario Integral y Abonos Trimestrales)")
-                    f_a1, f_a2 = st.columns(2)
-                    with f_a1:
-                        fecha_ingreso_bs = st.date_input(
-                            "Fecha de Ingreso",
-                            value=fecha_ing_default,
-                            key=f"bs_ab_fecha_ing_{emp_id_bs}"
-                        )
-                    with f_a2:
-                        fecha_egreso_bs = st.date_input(
-                            "Fecha Abono Trimestral",
-                            value=date.today(),
-                            key=f"bs_ab_fecha_egr_manual_{emp_id_bs}"
-                        )
-
-                    p_a1, p_a2, p_a3, p_a4 = st.columns(4)
-                    with p_a1:
-                        sal_mensual_bs = st.number_input(
-                            "Salario Mensual",
-                            min_value=0.0,
-                            value=salario_base_emp_bs,
-                            format="%.2f",
-                            key=f"bs_ab_sal_mensual_{emp_id_bs}"
-                        )
-                    with p_a2:
-                        dias_util_bs = st.number_input(
-                            "Días Utilidades / Año",
-                            min_value=0,
-                            value=30,
-                            step=1,
-                            key=f"bs_ab_dias_util_{emp_id_bs}"
-                        )
-                    with p_a3:
-                        dias_bono_bs = st.number_input(
-                            "Días Bono Vacacional / Año",
-                            min_value=0,
-                            value=15,
-                            step=1,
-                            key=f"bs_ab_dias_bono_{emp_id_bs}"
-                        )
-                    with p_a4:
-                        dias_prest_bs = st.number_input(
-                            "Días Prestaciones / Trim.",
-                            min_value=0,
-                            value=15,
-                            step=1,
-                            key=f"bs_ab_dias_prest_{emp_id_bs}"
-                        )
-
-                    res_bs = calcular_beneficios_base(
-                        fecha_ingreso=fecha_ingreso_bs,
-                        salario_mensual=sal_mensual_bs,
-                        fecha_egreso=fecha_egreso_bs,
-                        dias_utilidades_anio=int(dias_util_bs),
-                        dias_bono_vacacional=int(dias_bono_bs),
-                        dias_prestaciones_trimestre=int(dias_prest_bs),
-                        regla_art_142="literal_ab",
-                        dias_adicionales_anio=2,
-                        base_anual_dias=365,
-                    )
-
-                    st.markdown("**Componentes Diarios y Salario Diario Integral**")
-                    d1, d2, d3, d4, d5 = st.columns(5)
-                    d1.metric("Salario Mensual", f"{res_bs['salario_mensual']:,.2f}")
-                    d2.metric("Salario Diario", f"{res_bs['salario_diario']:,.2f}")
-                    d3.metric("Utilidades Diarias", f"{res_bs['utilidades_diarias']:,.2f}")
-                    d4.metric("Bono Vacacional Diario", f"{res_bs['bono_vacacional_diario']:,.2f}")
-                    d5.metric("Salario Diario Integral", f"{res_bs['salario_diario_integral']:,.2f}")
-
-                    sdi_val = round(float(res_bs["salario_diario_integral"] or 0.0), 2)
-                    dias_trim_val = int(dias_prest_bs or 15)
-                    abono_trimestral_bs = round(sdi_val * dias_trim_val, 2)
-
-                    trimestres_orig_bs = int(res_bs.get("trimestres_servicio") or 0)
-                    dias_adic_calc = int(res_bs.get("dias_adicionales_acum") or 0)
-
-                    prest_orig_bs = round(float(res_bs.get("prestaciones_sociales") or 0.0), 2)
-                    total_prest_acum_bs = prest_orig_bs
-                    trimestres_calc = trimestres_orig_bs
-
-                    if total_prest_acum_bs == 0.0 and abono_trimestral_bs > 0.0:
-                        total_prest_acum_bs = abono_trimestral_bs
-                        if trimestres_calc == 0:
-                            trimestres_calc = 1
-
-                    b1, b2 = st.columns(2)
-                    b1.metric(
-                        f"Abono Trimestral ({dias_trim_val} días)",
-                        f"{abono_trimestral_bs:,.2f}",
-                        delta=f"{sdi_val:,.2f} × {dias_trim_val} días"
-                    )
-                    b2.metric(
-                        "Trimestres Acumulados / Días Adic.",
-                        f"{trimestres_calc} trim.",
-                        delta=f"+{dias_adic_calc} días (2d/año)"
-                    )
-
-                    st.caption(
-                        f"**SDI:** `{res_bs['salario_diario']:,.2f}` + `{res_bs['utilidades_diarias']:,.2f}` + `{res_bs['bono_vacacional_diario']:,.2f}` = `{sdi_val:,.2f}` | "
-                        f"**Inicio abonos (1 mes después del ingreso):** `{res_bs['fecha_inicio_trimestres']}`"
-                    )
-
-                    r1, r2, r3, r4 = st.columns(4)
-                    r1.metric("Utilidades Acumuladas", f"{res_bs['utilidades']:,.2f}")
-                    r2.metric("Bono Vacacional Acumulado", f"{res_bs['bono_vacacional']:,.2f}")
-                    r3.metric(
-                        f"Abono Trimestral ({dias_trim_val} días)",
-                        f"{abono_trimestral_bs:,.2f}",
-                        delta=f"{sdi_val:,.2f} × {dias_trim_val}"
-                    )
-                    r4.metric(
-                        "Total Prestaciones Acumuladas (Art. 142 A+B)",
-                        f"{total_prest_acum_bs:,.2f}",
-                        delta="1er abono trimestral" if prest_orig_bs == 0.0 and abono_trimestral_bs > 0.0 else None,
-                    )
-            else:
-                with st.container(border=True):
-                    st.markdown("#### 📌 Frame — Art. 142 Literal C (Cálculo por Último Salario)")
-                    f_c1, f_c2 = st.columns(2)
-                    with f_c1:
-                        fecha_ingreso_bs = st.date_input(
-                            "Fecha de Ingreso",
-                            value=fecha_ing_default,
-                            key=f"bs_c_fecha_ing_{emp_id_bs}"
-                        )
-                    with f_c2:
-                        fecha_egreso_bs = st.date_input(
-                            "Fecha de Egreso (Manual)",
-                            value=date.today(),
-                            key=f"bs_c_fecha_egr_manual_{emp_id_bs}"
-                        )
-
-                    p_c1, p_c2, p_c3, p_c4 = st.columns(4)
-                    with p_c1:
-                        sal_mensual_bs = st.number_input(
-                            "Último Salario Mensual",
-                            min_value=0.0,
-                            value=salario_base_emp_bs,
-                            format="%.2f",
-                            key=f"bs_c_sal_mensual_{emp_id_bs}"
-                        )
-                    with p_c2:
-                        dias_literal_c_bs = st.number_input(
-                            "Días Prestaciones / Año (Lit. C)",
-                            min_value=0,
-                            value=30,
-                            step=1,
-                            key=f"bs_c_dias_anio_{emp_id_bs}"
-                        )
-                    with p_c3:
-                        dias_util_bs = st.number_input(
-                            "Días Utilidades / Año",
-                            min_value=0,
-                            value=30,
-                            step=1,
-                            key=f"bs_c_dias_util_{emp_id_bs}"
-                        )
-                    with p_c4:
-                        dias_bono_bs = st.number_input(
-                            "Días Bono Vacacional / Año",
-                            min_value=0,
-                            value=15,
-                            step=1,
-                            key=f"bs_c_dias_bono_{emp_id_bs}"
-                        )
-
-                    res_bs = calcular_beneficios_base(
-                        fecha_ingreso=fecha_ingreso_bs,
-                        salario_mensual=sal_mensual_bs,
-                        fecha_egreso=fecha_egreso_bs,
-                        dias_utilidades_anio=int(dias_util_bs),
-                        dias_bono_vacacional=int(dias_bono_bs),
-                        dias_prestaciones_trimestre=15,
-                        regla_art_142="literal_c",
-                        dias_literal_c_anio=int(dias_literal_c_bs),
-                        base_anual_dias=365,
-                    )
-
-                    r_c1, r_c2, r_c3, r_c4 = st.columns(4)
-                    r_c1.metric("Último Salario Diario", f"{res_bs['salario_diario']:,.2f}")
-                    r_c2.metric("Utilidades", f"{res_bs['utilidades']:,.2f}")
-                    r_c3.metric("Bono Vacacional", f"{res_bs['bono_vacacional']:,.2f}")
-                    r_c4.metric("Prestaciones Sociales (Art. 142 C)", f"{res_bs['prestaciones_sociales']:,.2f}")
-
-            st.caption(res_bs["detalle_regla"])
-            obs_bs = st.text_input("Observaciones", value="", key=f"bs_obs_{emp_id_bs}")
-
-            if st.button("💾 Guardar Beneficios Sociales", type="primary", use_container_width=True, key="btn_guardar_bs"):
-                try:
-                    emp_guardar = empresa_emp_bs
-                    conn_save_bs = conectar_db(emp_guardar)
-                    if not conn_save_bs:
-                        st.error("❌ No se pudo establecer conexión a la base de datos.")
-                    else:
-                        tag_regla = "[Lit. C - Último Salario]" if es_literal_c else "[Lit. A+B - Abono Trimestral]"
-                        obs_partes = [tag_regla]
-                        if cedula_emp_bs:
-                            obs_partes.append(f"C.I.: {cedula_emp_bs}")
-                        if not es_literal_c:
-                            obs_partes.append(f"Abono trim. ({dias_trim_val}d): {abono_trimestral_bs:,.2f}")
-                        if obs_bs.strip():
-                            obs_partes.append(obs_bs.strip())
-                        obs_final = " | ".join(obs_partes)
-
-                        prest_a_guardar = (
-                            res_bs["prestaciones_sociales"]
-                            if es_literal_c
-                            else abono_trimestral_bs
-                        )
-
-                        datos_guardar = {
-                            "empleado_id": emp_id_bs,
-                            "nombre_empleado": nombre_emp_bs,
-                            "fecha_ingreso": fecha_ingreso_bs,
-                            "fecha_egreso": fecha_egreso_bs,
-                            "salario_diario": res_bs["salario_diario_integral"] if not es_literal_c else res_bs["salario_diario"],
-                            "salario_mensual": res_bs["salario_mensual"],
-                            "utilidades": res_bs["utilidades"],
-                            "bono_vacacional": res_bs["bono_vacacional"],
-                            "prestaciones_sociales": prest_a_guardar,
-                            "observaciones": obs_final,
-                        }
-                        guardar_beneficio_social(conn_save_bs, emp_guardar, datos_guardar)
-                        conn_save_bs.commit()
-                        conn_save_bs.close()
-                        st.success(f"✅ Guardado en `{emp_guardar}` para **{nombre_emp_bs}** (C.I.: `{cedula_emp_bs}`).")
-                        st.rerun()
-                except Exception as err_save_bs:
-                    st.error(f"❌ Error al guardar en `beneficios_sociales`: {err_save_bs}")
-
-            # 3) Historial de Beneficios Sociales
-            st.divider()
-            st.markdown("#### 📋 Historial de Beneficios Sociales")
+            ids_registrados_bd = set()
+            cedulas_registradas_bd = set()
             try:
-                emp_key_bs = str(db_actual).strip()
-                conn_hist_bs = conectar_db(db_actual)
-                if conn_hist_bs:
-                    with conn_hist_bs.cursor() as cur_hbs:
-                        cur_hbs.execute("""
-                            SELECT id, nombre_empleado, fecha_ingreso, fecha_egreso,
-                                   salario_diario, salario_mensual, utilidades,
-                                   bono_vacacional, prestaciones_sociales, observaciones, creado_en
-                            FROM beneficios_sociales
-                            WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
-                            ORDER BY id DESC
-                            LIMIT 200
-                        """, (emp_key_bs,))
-                        cols_hbs = [desc[0] for desc in cur_hbs.description]
-                        filas_hbs = [dict(zip(cols_hbs, fila)) for fila in cur_hbs.fetchall()]
-                    conn_hist_bs.close()
-
-                    if filas_hbs:
-                        df_hbs = pd.DataFrame(filas_hbs)
-
-                        def _fmt_fecha(val, vacio="Activo"):
-                            if val is None or (isinstance(val, float) and pd.isna(val)):
-                                return vacio
-                            s = str(val).strip()
-                            if s in ("", "None", "NaT", "0000-00-00", "0000-00-00 00:00:00"):
-                                return vacio
-                            if hasattr(val, "strftime"):
-                                return val.strftime("%Y-%m-%d")
-                            return s[:10]
-
-                        def _fmt_monto_hist(val) -> str:
-                            if val is None or (isinstance(val, float) and pd.isna(val)):
-                                return "0.00"
-                            if isinstance(val, (int, float, np.number)):
-                                return f"{float(val):,.2f}"
-                            s = str(val).replace(",", "").strip()
-                            if s in ("", "None", "nan", "NaN"):
-                                return "0.00"
-                            try:
-                                return f"{float(s):,.2f}"
-                            except ValueError:
-                                return "0.00"
-
-                        cols_montos_hist = [
-                            "salario_diario",
-                            "salario_mensual",
-                            "utilidades",
-                            "bono_vacacional",
-                            "prestaciones_sociales",
-                        ]
-                        for col_m in cols_montos_hist:
-                            if col_m in df_hbs.columns:
-                                df_hbs[col_m] = df_hbs[col_m].apply(_fmt_monto_hist)
-
-                        if "fecha_ingreso" in df_hbs.columns:
-                            df_hbs["fecha_ingreso"] = df_hbs["fecha_ingreso"].apply(lambda v: _fmt_fecha(v, "—"))
-                        if "fecha_egreso" in df_hbs.columns:
-                            df_hbs["fecha_egreso"] = df_hbs["fecha_egreso"].apply(lambda v: _fmt_fecha(v, "Activo"))
-                        if "creado_en" in df_hbs.columns:
-                            df_hbs["creado_en"] = df_hbs["creado_en"].apply(lambda v: _fmt_fecha(v, "—"))
-
-                        st.dataframe(df_hbs, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("Aún no hay cálculos guardados en `beneficios_sociales` para esta empresa.")
-            except Exception as err_hbs:
-                st.error(f"❌ Error consultando `beneficios_sociales`: {err_hbs}")
-
-            # 4) Asiento Contable al final, debajo del Historial de Beneficios Sociales
-            def _trimestre_texto_bs(fecha_val) -> str:
-                f_obj = fecha_val
-                if isinstance(f_obj, str):
+                conn_chk_bs = conectar_db(db_actual)
+                if conn_chk_bs:
                     try:
-                        f_obj = date.fromisoformat(f_obj[:10])
-                    except ValueError:
-                        f_obj = date.today()
-                elif hasattr(f_obj, "date"):
-                    f_obj = f_obj.date()
-
-                mes = getattr(f_obj, "month", date.today().month)
-                if mes <= 3:
-                    return "primer"
-                if mes <= 6:
-                    return "segundo"
-                if mes <= 9:
-                    return "tercero"
-                return "cuarto"
-
-
-            def _a_float_monto_bs(val) -> float:
-                if val is None or (isinstance(val, float) and pd.isna(val)):
-                    return 0.0
-                if isinstance(val, (int, float, np.number)):
-                    return round(float(val), 2)
-                s = str(val).replace(",", "").strip()
-                if not s or s.lower() in ("none", "nan"):
-                    return 0.0
-                try:
-                    return round(float(s), 2)
-                except ValueError:
-                    return 0.0
-
-
-            def _monto_asiento_bs(res_dict: dict, empresa_db: str, cedula_ref: str = "") -> tuple[float, str]:
-                # 1. Priorizar Abono Trimestral (15 días) directo en session_state
-                for clave, origen in [
-                    ("ultimo_abono_trimestral_bs", "session_state:ultimo_abono_trimestral_bs"),
-                    ("abono_trimestral_bs", "session_state:abono_trimestral_bs"),
-                    (f"bs_abono_trimestral_{empresa_db}", "session_state:bs_abono_trimestral"),
-                ]:
-                    v = _a_float_monto_bs(st.session_state.get(clave))
-                    if v > 0.0:
-                        return v, origen
-
-                # 2. Calcular Abono Trimestral (SDI x días por trimestre) si existe res_bs
-                if isinstance(res_dict, dict):
-                    abono_dict = _a_float_monto_bs(res_dict.get("abono_trimestral"))
-                    if abono_dict > 0.0:
-                        return abono_dict, "res_bs.abono_trimestral"
-
-                    sdi_dict = _a_float_monto_bs(res_dict.get("salario_diario_integral"))
-                    if sdi_dict > 0.0:
-                        dias_trim = int(_a_float_monto_bs(locals().get("dias_prest_bs")) or 15)
-                        return round(sdi_dict * dias_trim, 2), f"res_bs.SDI x {dias_trim} días"
-
-                # 3. Claves secundarias de prestaciones sociales en session_state
-                for clave, origen in [
-                    (f"bs_monto_asiento_{empresa_db}", "session_state:bs_monto_asiento"),
-                    ("prestaciones_sociales", "session_state:prestaciones_sociales"),
-                ]:
-                    v = _a_float_monto_bs(st.session_state.get(clave))
-                    if v > 0.0:
-                        return v, origen
-
-                # 4. Respaldo en tabla beneficios_sociales
-                try:
-                    conn_ps = conectar_db(empresa_db)
-                    if conn_ps:
-                        try:
-                            with conn_ps.cursor() as cur_ps:
-                                ced_limpia = (
-                                    str(cedula_ref or "")
-                                    .replace("CI-", "")
-                                    .replace("V-", "")
-                                    .replace("E-", "")
-                                    .strip()
+                        with conn_chk_bs.cursor() as cur_chk:
+                            cur_chk.execute("""
+                                SELECT DISTINCT referencia
+                                FROM asientos_contables
+                                WHERE (
+                                    n_comprobante LIKE 'BS-%%'
+                                    OR LOWER(descripcion) LIKE '%%abonos trimestrales%%'
                                 )
-                                if ced_limpia:
+                            """)
+                            for (ref_val,) in cur_chk.fetchall():
+                                r = str(ref_val or "").strip()
+                                if r.startswith("EMP-"):
+                                    ids_registrados_bd.add(r.replace("EMP-", "").strip())
+                                elif r.startswith("CI-"):
+                                    cedulas_registradas_bd.add(r.replace("CI-", "").strip())
+                                elif r:
+                                    cedulas_registradas_bd.add(r)
+                    finally:
+                        conn_chk_bs.close()
+            except Exception:
+                pass
+
+            mostrar_ya_registrados = st.checkbox(
+                "Mostrar también trabajadores con asiento trimestral ya registrado",
+                value=False,
+                key="bs_chk_mostrar_registrados"
+            )
+
+            empleados_pendientes_bs = []
+            for e in empleados_bs:
+                eid_str = str(e.get("id", "")).strip()
+                ced_str = str(e.get("cedula", "")).strip()
+                ya_procesado = (
+                    eid_str in st.session_state[clave_registrados_bs]
+                    or eid_str in ids_registrados_bd
+                    or (ced_str and ced_str in cedulas_registradas_bd)
+                )
+                if mostrar_ya_registrados or not ya_procesado:
+                    empleados_pendientes_bs.append(e)
+
+            if not empleados_pendientes_bs:
+                st.success("✅ Todos los trabajadores de este listado ya tienen su asiento de abono trimestral registrado.")
+            else:
+                # 1) Seleccionar empleado desde nomina_empleados
+                opciones_emp_bs = {
+                    f"{e['nombre_completo']} — C.I.: {e.get('cedula', '')} ({e.get('empresa_db', db_actual)})": e
+                    for e in empleados_pendientes_bs
+                }
+                emp_bs_label = st.selectbox(
+                    "1. Seleccionar Trabajador (desde nomina_empleados)",
+                    options=list(opciones_emp_bs.keys()),
+                    key="bs_sel_empleado"
+                )
+                emp_bs = opciones_emp_bs[emp_bs_label]
+
+                emp_id_bs = emp_bs["id"]
+                empresa_emp_bs = str(emp_bs.get("empresa_db") or db_actual).strip()
+                cedula_emp_bs = str(emp_bs.get("cedula") or "").strip()
+                nombre_emp_bs = str(emp_bs.get("nombre_completo") or "").strip()
+                cargo_emp_bs = str(emp_bs.get("cargo") or "General").strip()
+                salario_base_emp_bs = float(emp_bs.get("salario_base") or 0.0)
+
+                fecha_ing_raw = emp_bs.get("fecha_ingreso")
+                if isinstance(fecha_ing_raw, date):
+                    fecha_ing_default = fecha_ing_raw
+                elif fecha_ing_raw:
+                    try:
+                        fecha_ing_default = date.fromisoformat(str(fecha_ing_raw)[:10])
+                    except ValueError:
+                        fecha_ing_default = date.today()
+                else:
+                    fecha_ing_default = date.today()
+
+                st.caption(
+                    f"**Empresa:** `{empresa_emp_bs}` | **Cédula:** `{cedula_emp_bs}` | "
+                    f"**Trabajador:** `{nombre_emp_bs}` | **Cargo:** `{cargo_emp_bs}` | "
+                    f"**Fecha Ingreso (BD):** `{fecha_ing_default}` | **Salario Base (BD):** `{salario_base_emp_bs:,.2f}`"
+                )
+
+                modo_art_142 = st.radio(
+                    "2. Seleccionar Régimen de Cálculo (Art. 142 LOTTT)",
+                    options=[
+                        "Art. 142 Literal A y B — Abono trimestral (15 días/trim.) + 2 días adicionales/año",
+                        "Art. 142 Literal C — Cálculo por último salario (30 días/año)",
+                    ],
+                    horizontal=True,
+                    key="bs_radio_art142"
+                )
+                es_literal_c = modo_art_142.startswith("Art. 142 Literal C")
+
+                # 2) Frame distinto según la opción elegida en st.radio
+                if not es_literal_c:
+                    with st.container(border=True):
+                        st.markdown("#### 🧾 Frame — Art. 142 Literal A y B (Salario Diario Integral y Abonos Trimestrales)")
+                        f_a1, f_a2 = st.columns(2)
+                        with f_a1:
+                            fecha_ingreso_bs = st.date_input(
+                                "Fecha de Ingreso",
+                                value=fecha_ing_default,
+                                key=f"bs_ab_fecha_ing_{emp_id_bs}"
+                            )
+                        with f_a2:
+                            fecha_egreso_bs = st.date_input(
+                                "Fecha Abono Trimestral",
+                                value=date.today(),
+                                key=f"bs_ab_fecha_egr_manual_{emp_id_bs}"
+                            )
+
+                        p_a1, p_a2, p_a3, p_a4 = st.columns(4)
+                        with p_a1:
+                            sal_mensual_bs = st.number_input(
+                                "Salario Mensual",
+                                min_value=0.0,
+                                value=salario_base_emp_bs,
+                                format="%.2f",
+                                key=f"bs_ab_sal_mensual_{emp_id_bs}"
+                            )
+                        with p_a2:
+                            dias_util_bs = st.number_input(
+                                "Días Utilidades / Año",
+                                min_value=0,
+                                value=30,
+                                step=1,
+                                key=f"bs_ab_dias_util_{emp_id_bs}"
+                            )
+                        with p_a3:
+                            dias_bono_bs = st.number_input(
+                                "Días Bono Vacacional / Año",
+                                min_value=0,
+                                value=15,
+                                step=1,
+                                key=f"bs_ab_dias_bono_{emp_id_bs}"
+                            )
+                        with p_a4:
+                            dias_prest_bs = st.number_input(
+                                "Días Prestaciones / Trim.",
+                                min_value=0,
+                                value=15,
+                                step=1,
+                                key=f"bs_ab_dias_prest_{emp_id_bs}"
+                            )
+
+                        res_bs = calcular_beneficios_base(
+                            fecha_ingreso=fecha_ingreso_bs,
+                            salario_mensual=sal_mensual_bs,
+                            fecha_egreso=fecha_egreso_bs,
+                            dias_utilidades_anio=int(dias_util_bs),
+                            dias_bono_vacacional=int(dias_bono_bs),
+                            dias_prestaciones_trimestre=int(dias_prest_bs),
+                            regla_art_142="literal_ab",
+                            dias_adicionales_anio=2,
+                            base_anual_dias=365,
+                        )
+
+                        st.markdown("**Componentes Diarios y Salario Diario Integral**")
+                        d1, d2, d3, d4, d5 = st.columns(5)
+                        d1.metric("Salario Mensual", f"{res_bs['salario_mensual']:,.2f}")
+                        d2.metric("Salario Diario", f"{res_bs['salario_diario']:,.2f}")
+                        d3.metric("Utilidades Diarias", f"{res_bs['utilidades_diarias']:,.2f}")
+                        d4.metric("Bono Vacacional Diario", f"{res_bs['bono_vacacional_diario']:,.2f}")
+                        d5.metric("Salario Diario Integral", f"{res_bs['salario_diario_integral']:,.2f}")
+
+                        sdi_val = round(float(res_bs["salario_diario_integral"] or 0.0), 2)
+                        dias_trim_val = int(dias_prest_bs or 15)
+                        abono_trimestral_bs = round(sdi_val * dias_trim_val, 2)
+
+                        trimestres_orig_bs = int(res_bs.get("trimestres_servicio") or 0)
+                        dias_adic_calc = int(res_bs.get("dias_adicionales_acum") or 0)
+
+                        prest_orig_bs = round(float(res_bs.get("prestaciones_sociales") or 0.0), 2)
+                        total_prest_acum_bs = prest_orig_bs
+                        trimestres_calc = trimestres_orig_bs
+
+                        if total_prest_acum_bs == 0.0 and abono_trimestral_bs > 0.0:
+                            total_prest_acum_bs = abono_trimestral_bs
+                            if trimestres_calc == 0:
+                                trimestres_calc = 1
+
+                        st.session_state["ultimo_abono_trimestral_bs"] = abono_trimestral_bs
+                        st.session_state[f"bs_abono_trimestral_{empresa_emp_bs}"] = abono_trimestral_bs
+                        st.session_state[f"bs_monto_asiento_{empresa_emp_bs}"] = total_prest_acum_bs
+
+                        b1, b2 = st.columns(2)
+                        b1.metric(
+                            f"Abono Trimestral ({dias_trim_val} días)",
+                            f"{abono_trimestral_bs:,.2f}",
+                            delta=f"{sdi_val:,.2f} × {dias_trim_val} días"
+                        )
+                        b2.metric(
+                            "Trimestres Acumulados / Días Adic.",
+                            f"{trimestres_calc} trim.",
+                            delta=f"+{dias_adic_calc} días (2d/año)"
+                        )
+
+                        st.caption(
+                            f"**SDI:** `{res_bs['salario_diario']:,.2f}` + `{res_bs['utilidades_diarias']:,.2f}` + `{res_bs['bono_vacacional_diario']:,.2f}` = `{sdi_val:,.2f}` | "
+                            f"**Inicio abonos (1 mes después del ingreso):** `{res_bs['fecha_inicio_trimestres']}`"
+                        )
+
+                        r1, r2, r3, r4 = st.columns(4)
+                        r1.metric("Utilidades Acumuladas", f"{res_bs['utilidades']:,.2f}")
+                        r2.metric("Bono Vacacional Acumulado", f"{res_bs['bono_vacacional']:,.2f}")
+                        r3.metric(
+                            f"Abono Trimestral ({dias_trim_val} días)",
+                            f"{abono_trimestral_bs:,.2f}",
+                            delta=f"{sdi_val:,.2f} × {dias_trim_val}"
+                        )
+                        r4.metric(
+                            "Total Prestaciones Acumuladas (Art. 142 A+B)",
+                            f"{total_prest_acum_bs:,.2f}",
+                            delta="1er abono trimestral" if prest_orig_bs == 0.0 and abono_trimestral_bs > 0.0 else None,
+                        )
+                else:
+                    with st.container(border=True):
+                        st.markdown("#### 📌 Frame — Art. 142 Literal C (Cálculo por Último Salario)")
+                        f_c1, f_c2 = st.columns(2)
+                        with f_c1:
+                            fecha_ingreso_bs = st.date_input(
+                                "Fecha de Ingreso",
+                                value=fecha_ing_default,
+                                key=f"bs_c_fecha_ing_{emp_id_bs}"
+                            )
+                        with f_c2:
+                            fecha_egreso_bs = st.date_input(
+                                "Fecha de Egreso (Manual)",
+                                value=date.today(),
+                                key=f"bs_c_fecha_egr_manual_{emp_id_bs}"
+                            )
+
+                        p_c1, p_c2, p_c3, p_c4 = st.columns(4)
+                        with p_c1:
+                            sal_mensual_bs = st.number_input(
+                                "Último Salario Mensual",
+                                min_value=0.0,
+                                value=salario_base_emp_bs,
+                                format="%.2f",
+                                key=f"bs_c_sal_mensual_{emp_id_bs}"
+                            )
+                        with p_c2:
+                            dias_literal_c_bs = st.number_input(
+                                "Días Prestaciones / Año (Lit. C)",
+                                min_value=0,
+                                value=30,
+                                step=1,
+                                key=f"bs_c_dias_anio_{emp_id_bs}"
+                            )
+                        with p_c3:
+                            dias_util_bs = st.number_input(
+                                "Días Utilidades / Año",
+                                min_value=0,
+                                value=30,
+                                step=1,
+                                key=f"bs_c_dias_util_{emp_id_bs}"
+                            )
+                        with p_c4:
+                            dias_bono_bs = st.number_input(
+                                "Días Bono Vacacional / Año",
+                                min_value=0,
+                                value=15,
+                                step=1,
+                                key=f"bs_c_dias_bono_{emp_id_bs}"
+                            )
+
+                        res_bs = calcular_beneficios_base(
+                            fecha_ingreso=fecha_ingreso_bs,
+                            salario_mensual=sal_mensual_bs,
+                            fecha_egreso=fecha_egreso_bs,
+                            dias_utilidades_anio=int(dias_util_bs),
+                            dias_bono_vacacional=int(dias_bono_bs),
+                            dias_prestaciones_trimestre=15,
+                            regla_art_142="literal_c",
+                            dias_literal_c_anio=int(dias_literal_c_bs),
+                            base_anual_dias=365,
+                        )
+
+                        r_c1, r_c2, r_c3, r_c4 = st.columns(4)
+                        r_c1.metric("Último Salario Diario", f"{res_bs['salario_diario']:,.2f}")
+                        r_c2.metric("Utilidades", f"{res_bs['utilidades']:,.2f}")
+                        r_c3.metric("Bono Vacacional", f"{res_bs['bono_vacacional']:,.2f}")
+                        r_c4.metric("Prestaciones Sociales (Art. 142 C)", f"{res_bs['prestaciones_sociales']:,.2f}")
+
+                st.caption(res_bs["detalle_regla"])
+                obs_bs = st.text_input("Observaciones", value="", key=f"bs_obs_{emp_id_bs}")
+
+                if st.button("💾 Guardar Beneficios Sociales", type="primary", use_container_width=True, key="btn_guardar_bs"):
+                    try:
+                        emp_guardar = empresa_emp_bs
+                        conn_save_bs = conectar_db(emp_guardar)
+                        if not conn_save_bs:
+                            st.error("❌ No se pudo establecer conexión a la base de datos.")
+                        else:
+                            tag_regla = "[Lit. C - Último Salario]" if es_literal_c else "[Lit. A+B - Abono Trimestral]"
+                            obs_partes = [tag_regla]
+                            if cedula_emp_bs:
+                                obs_partes.append(f"C.I.: {cedula_emp_bs}")
+                            if not es_literal_c:
+                                obs_partes.append(f"Abono trim. ({dias_trim_val}d): {abono_trimestral_bs:,.2f}")
+                            if obs_bs.strip():
+                                obs_partes.append(obs_bs.strip())
+                            obs_final = " | ".join(obs_partes)
+
+                            prest_a_guardar = (
+                                res_bs["prestaciones_sociales"]
+                                if es_literal_c
+                                else abono_trimestral_bs
+                            )
+
+                            datos_guardar = {
+                                "empleado_id": emp_id_bs,
+                                "nombre_empleado": nombre_emp_bs,
+                                "fecha_ingreso": fecha_ingreso_bs,
+                                "fecha_egreso": fecha_egreso_bs,
+                                "salario_diario": res_bs["salario_diario_integral"] if not es_literal_c else res_bs["salario_diario"],
+                                "salario_mensual": res_bs["salario_mensual"],
+                                "utilidades": res_bs["utilidades"],
+                                "bono_vacacional": res_bs["bono_vacacional"],
+                                "prestaciones_sociales": prest_a_guardar,
+                                "observaciones": obs_final,
+                            }
+                            guardar_beneficio_social(conn_save_bs, emp_guardar, datos_guardar)
+                            conn_save_bs.commit()
+                            conn_save_bs.close()
+                            st.success(f"✅ Guardado en `{emp_guardar}` para **{nombre_emp_bs}** (C.I.: `{cedula_emp_bs}`).")
+                            st.rerun()
+                    except Exception as err_save_bs:
+                        st.error(f"❌ Error al guardar en `beneficios_sociales`: {err_save_bs}")
+
+                # 3) Historial de Beneficios Sociales
+                st.divider()
+                st.markdown("#### 📋 Historial de Beneficios Sociales")
+                try:
+                    emp_key_bs = str(db_actual).strip()
+                    conn_hist_bs = conectar_db(db_actual)
+                    if conn_hist_bs:
+                        with conn_hist_bs.cursor() as cur_hbs:
+                            cur_hbs.execute("""
+                                SELECT id, nombre_empleado, fecha_ingreso, fecha_egreso,
+                                       salario_diario, salario_mensual, utilidades,
+                                       bono_vacacional, prestaciones_sociales, observaciones, creado_en
+                                FROM beneficios_sociales
+                                WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                                ORDER BY id DESC
+                                LIMIT 200
+                            """, (emp_key_bs,))
+                            cols_hbs = [desc[0] for desc in cur_hbs.description]
+                            filas_hbs = [dict(zip(cols_hbs, fila)) for fila in cur_hbs.fetchall()]
+                        conn_hist_bs.close()
+
+                        if filas_hbs:
+                            df_hbs = pd.DataFrame(filas_hbs)
+
+                            def _fmt_fecha(val, vacio="Activo"):
+                                if val is None or (isinstance(val, float) and pd.isna(val)):
+                                    return vacio
+                                s = str(val).strip()
+                                if s in ("", "None", "NaT", "0000-00-00", "0000-00-00 00:00:00"):
+                                    return vacio
+                                if hasattr(val, "strftime"):
+                                    return val.strftime("%Y-%m-%d")
+                                return s[:10]
+
+                            def _fmt_monto_hist(val) -> str:
+                                if val is None or (isinstance(val, float) and pd.isna(val)):
+                                    return "0.00"
+                                if isinstance(val, (int, float, np.number)):
+                                    return f"{float(val):,.2f}"
+                                s = str(val).replace(",", "").strip()
+                                if s in ("", "None", "nan", "NaN"):
+                                    return "0.00"
+                                try:
+                                    return f"{float(s):,.2f}"
+                                except ValueError:
+                                    return "0.00"
+
+                            cols_montos_hist = [
+                                "salario_diario",
+                                "salario_mensual",
+                                "utilidades",
+                                "bono_vacacional",
+                                "prestaciones_sociales",
+                            ]
+                            for col_m in cols_montos_hist:
+                                if col_m in df_hbs.columns:
+                                    df_hbs[col_m] = df_hbs[col_m].apply(_fmt_monto_hist)
+
+                            if "fecha_ingreso" in df_hbs.columns:
+                                df_hbs["fecha_ingreso"] = df_hbs["fecha_ingreso"].apply(lambda v: _fmt_fecha(v, "—"))
+                            if "fecha_egreso" in df_hbs.columns:
+                                df_hbs["fecha_egreso"] = df_hbs["fecha_egreso"].apply(lambda v: _fmt_fecha(v, "Activo"))
+                            if "creado_en" in df_hbs.columns:
+                                df_hbs["creado_en"] = df_hbs["creado_en"].apply(lambda v: _fmt_fecha(v, "—"))
+
+                            st.dataframe(df_hbs, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("Aún no hay cálculos guardados en `beneficios_sociales` para esta empresa.")
+                except Exception as err_hbs:
+                    st.error(f"❌ Error consultando `beneficios_sociales`: {err_hbs}")
+
+                # 4) Asiento Contable al final, debajo del Historial de Beneficios Sociales
+                def _trimestre_texto_bs(fecha_val) -> str:
+                    f_obj = fecha_val
+                    if isinstance(f_obj, str):
+                        try:
+                            f_obj = date.fromisoformat(f_obj[:10])
+                        except ValueError:
+                            f_obj = date.today()
+                    elif hasattr(f_obj, "date"):
+                        f_obj = f_obj.date()
+
+                    mes = getattr(f_obj, "month", date.today().month)
+                    if mes <= 3:
+                        return "primer"
+                    if mes <= 6:
+                        return "segundo"
+                    if mes <= 9:
+                        return "tercero"
+                    return "cuarto"
+
+                def _a_float_monto_bs(val) -> float:
+                    if val is None or (isinstance(val, float) and pd.isna(val)):
+                        return 0.0
+                    if isinstance(val, (int, float, np.number)):
+                        return round(float(val), 2)
+                    s = str(val).replace(",", "").strip()
+                    if not s or s.lower() in ("none", "nan"):
+                        return 0.0
+                    try:
+                        return round(float(s), 2)
+                    except ValueError:
+                        return 0.0
+
+                def _monto_asiento_bs(res_dict: dict, empresa_db: str, cedula_ref: str = "") -> tuple[float, str]:
+                    for clave, origen in [
+                        ("ultimo_abono_trimestral_bs", "session_state:ultimo_abono_trimestral_bs"),
+                        ("abono_trimestral_bs", "session_state:abono_trimestral_bs"),
+                        (f"bs_abono_trimestral_{empresa_db}", "session_state:bs_abono_trimestral"),
+                    ]:
+                        v = _a_float_monto_bs(st.session_state.get(clave))
+                        if v > 0.0:
+                            return v, origen
+
+                    if isinstance(res_dict, dict):
+                        abono_dict = _a_float_monto_bs(res_dict.get("abono_trimestral"))
+                        if abono_dict > 0.0:
+                            return abono_dict, "res_bs.abono_trimestral"
+
+                        sdi_dict = _a_float_monto_bs(res_dict.get("salario_diario_integral"))
+                        if sdi_dict > 0.0:
+                            dias_trim = int(_a_float_monto_bs(locals().get("dias_prest_bs")) or 15)
+                            return round(sdi_dict * dias_trim, 2), f"res_bs.SDI x {dias_trim} días"
+
+                    for clave, origen in [
+                        (f"bs_monto_asiento_{empresa_db}", "session_state:bs_monto_asiento"),
+                        ("prestaciones_sociales", "session_state:prestaciones_sociales"),
+                    ]:
+                        v = _a_float_monto_bs(st.session_state.get(clave))
+                        if v > 0.0:
+                            return v, origen
+
+                    try:
+                        conn_ps = conectar_db(empresa_db)
+                        if conn_ps:
+                            try:
+                                with conn_ps.cursor() as cur_ps:
+                                    ced_limpia = (
+                                        str(cedula_ref or "")
+                                        .replace("CI-", "")
+                                        .replace("V-", "")
+                                        .replace("E-", "")
+                                        .strip()
+                                    )
+                                    if ced_limpia:
+                                        cur_ps.execute(
+                                            """
+                                            SELECT prestaciones_sociales
+                                            FROM beneficios_sociales
+                                            WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                                              AND (
+                                                  CAST(empleado_id AS CHAR) = %s
+                                                  OR observaciones LIKE %s
+                                                  OR nombre_empleado LIKE %s
+                                              )
+                                            ORDER BY id DESC
+                                            LIMIT 1
+                                            """,
+                                            (empresa_db, ced_limpia, f"%{ced_limpia}%", f"%{ced_limpia}%"),
+                                        )
+                                        row_c = cur_ps.fetchone()
+                                        if row_c and _a_float_monto_bs(row_c[0]) > 0.0:
+                                            return _a_float_monto_bs(row_c[0]), "bd:beneficios_sociales(cedula)"
+
                                     cur_ps.execute(
                                         """
                                         SELECT prestaciones_sociales
                                         FROM beneficios_sociales
                                         WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
-                                          AND (
-                                              CAST(empleado_id AS CHAR) = %s
-                                              OR observaciones LIKE %s
-                                              OR nombre_empleado LIKE %s
-                                          )
                                         ORDER BY id DESC
                                         LIMIT 1
                                         """,
-                                        (empresa_db, ced_limpia, f"%{ced_limpia}%", f"%{ced_limpia}%"),
+                                        (empresa_db,),
                                     )
-                                    row_c = cur_ps.fetchone()
-                                    if row_c and _a_float_monto_bs(row_c[0]) > 0.0:
-                                        return _a_float_monto_bs(row_c[0]), "bd:beneficios_sociales(cedula)"
+                                    row_u = cur_ps.fetchone()
+                                    if row_u and _a_float_monto_bs(row_u[0]) > 0.0:
+                                        return _a_float_monto_bs(row_u[0]), "bd:beneficios_sociales(ultimo)"
+                            finally:
+                                conn_ps.close()
+                    except Exception:
+                        pass
 
-                                cur_ps.execute(
-                                    """
-                                    SELECT prestaciones_sociales
-                                    FROM beneficios_sociales
-                                    WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
-                                    ORDER BY id DESC
-                                    LIMIT 1
-                                    """,
-                                    (empresa_db,),
-                                )
-                                row_u = cur_ps.fetchone()
-                                if row_u and _a_float_monto_bs(row_u[0]) > 0.0:
-                                    return _a_float_monto_bs(row_u[0]), "bd:beneficios_sociales(ultimo)"
-                        finally:
-                            conn_ps.close()
-                except Exception:
-                    pass
+                    return 0.0, "no_encontrado (0.00)"
 
-                return 0.0, "no_encontrado (0.00)"
-
-
-            st.divider()
-            state_key_asiento = f"bs_registrar_asiento_{emp_id_bs}"
-            if state_key_asiento not in st.session_state:
-                st.session_state[state_key_asiento] = False
-
-            if st.button(
-                "🧾 ¿Desea registrar el abono trimestral en contabilidad?",
-                key=f"btn_toggle_asiento_{emp_id_bs}",
-                use_container_width=True
-            ):
-                st.session_state[state_key_asiento] = not st.session_state[state_key_asiento]
-
-            if st.session_state[state_key_asiento]:
-                st.markdown("#### 📒 Generar y Registrar Asiento Contable Abono Trimestral")
-
-                cuentas_detalle_bs = []
-                try:
-                    conn_pc_bs = conectar_db(empresa_emp_bs)
-                    if conn_pc_bs:
-                        with conn_pc_bs.cursor() as cur_pc_bs:
-                            cur_pc_bs.execute("""
-                                SELECT codigo, nombre
-                                FROM plan_cuentas
-                                WHERE tipo = 'Detalle'
-                                ORDER BY codigo ASC
-                            """)
-                            cols_pc_bs = [desc[0] for desc in cur_pc_bs.description]
-                            cuentas_detalle_bs = [dict(zip(cols_pc_bs, fila)) for fila in cur_pc_bs.fetchall()]
-                        conn_pc_bs.close()
-                except Exception as err_pc_bs:
-                    st.error(f"❌ Error cargando plan de cuentas: {err_pc_bs}")
-
-                opciones_pc_bs = {
-                    f"{c['codigo']} - {c['nombre']}": {"codigo": str(c["codigo"]), "nombre": str(c["nombre"])}
-                    for c in cuentas_detalle_bs
-                }
-                lista_pc_bs = list(opciones_pc_bs.keys())
-
-                def _idx_defecto_bs(opciones, prefijos, fallback=0):
-                    for idx, label in enumerate(opciones):
-                        if any(label.startswith(p) for p in prefijos):
-                            return idx
-                    return min(fallback, max(len(opciones) - 1, 0))
-
-                m1, m2, m3 = st.columns(3)
-                with m1:
-                    n_comprobante_bs = st.text_input(
-                        "N° Comprobante",
-                        value=f"BS-{emp_id_bs}-{date.today().strftime('%Y%m%d')}",
-                        key=f"bs_ac_comp_{emp_id_bs}"
-                    )
-                with m2:
-                    fecha_asiento_bs = st.date_input(
-                        "Fecha Asiento",
-                        value=fecha_egreso_bs,
-                        key=f"bs_ac_fecha_{emp_id_bs}"
-                    )
-                with m3:
-                    ref_asiento_bs = st.text_input(
-                        "Referencia",
-                        value=f"CI-{cedula_emp_bs}" if cedula_emp_bs else f"EMP-{emp_id_bs}",
-                        key=f"bs_ac_ref_{emp_id_bs}"
-                    )
-
-                a1, a2 = st.columns(2)
-                with a1:
-                    sel_cta_prest_bs = st.selectbox(
-                        "1. Cuenta Prestaciones Sociales (Debe)",
-                        options=lista_pc_bs if lista_pc_bs else ["5.1.1.03.001 - Prestaciones Sociales"],
-                        index=_idx_defecto_bs(lista_pc_bs, ["5.1.1", "6.1.1", "5.1"], 0) if lista_pc_bs else 0,
-                        key=f"bs_ac_cta_prest_{emp_id_bs}"
-                    )
-                with a2:
-                    sel_cta_ver_bs = st.selectbox(
-                        "2. Ver / Contrapartida Prestaciones Sociales (Haber)",
-                        options=lista_pc_bs if lista_pc_bs else ["2.1.3.01.001 - Prestaciones Sociales por Pagar"],
-                        index=_idx_defecto_bs(lista_pc_bs, ["2.1.3", "2.1.2", "2.1"], 1) if lista_pc_bs else 0,
-                        key=f"bs_ac_cta_ver_{emp_id_bs}"
-                    )
-
-                cta_prest_info = opciones_pc_bs.get(
-                    sel_cta_prest_bs,
-                    {"codigo": str(sel_cta_prest_bs).split(" - ")[0], "nombre": str(sel_cta_prest_bs)}
-                )
-                cta_ver_info = opciones_pc_bs.get(
-                    sel_cta_ver_bs,
-                    {"codigo": str(sel_cta_ver_bs).split(" - ")[0], "nombre": str(sel_cta_ver_bs)}
-                )
-
-                monto_prest_bs, origen_monto_bs = _monto_asiento_bs(
-                    res_bs if "res_bs" in locals() else {},
-                    empresa_emp_bs,
-                    cedula_emp_bs if "cedula_emp_bs" in locals() else ref_asiento_bs,
-                )
-                st.caption(f"Monto abono trimestral detectado: **{monto_prest_bs:,.2f}** (`{origen_monto_bs}`)")
-
-                trimestre_bs = _trimestre_texto_bs(fecha_asiento_bs)
-                desc_trimestre_bs = (
-                    f"Abonos trimestrales correspondientes a las prestaciones sociales de los empleados "
-                    f"del {trimestre_bs} trimestre ({nombre_emp_bs})".strip()
-                )
-
-                filas_asiento_bs = [
-                    {
-                        "n_comprobante": n_comprobante_bs.strip(),
-                        "descripcion": desc_trimestre_bs,
-                        "fecha": fecha_asiento_bs,
-                        "plan_cuentas": cta_prest_info["codigo"],
-                        "cuenta_contable": cta_prest_info["nombre"],
-                        "referencia": ref_asiento_bs.strip(),
-                        "debe": monto_prest_bs,
-                        "haber": 0.00,
-                        "bloqueado": 0,
-                    },
-                    {
-                        "n_comprobante": n_comprobante_bs.strip(),
-                        "descripcion": desc_trimestre_bs,
-                        "fecha": fecha_asiento_bs,
-                        "plan_cuentas": cta_ver_info["codigo"],
-                        "cuenta_contable": cta_ver_info["nombre"],
-                        "referencia": ref_asiento_bs.strip(),
-                        "debe": 0.00,
-                        "haber": monto_prest_bs,
-                        "bloqueado": 0,
-                    },
-                ]
-
-                df_asiento_bs_preview = pd.DataFrame(filas_asiento_bs)
-                df_asiento_bs_visual = df_asiento_bs_preview.copy()
-                df_asiento_bs_visual["debe"] = df_asiento_bs_visual["debe"].apply(lambda x: f"{float(x):,.2f}")
-                df_asiento_bs_visual["haber"] = df_asiento_bs_visual["haber"].apply(lambda x: f"{float(x):,.2f}")
-                st.dataframe(df_asiento_bs_visual, use_container_width=True, hide_index=True)
-
-                lineas_bs_guardar = [
-                    fa for fa in filas_asiento_bs if (float(fa["debe"]) > 0 or float(fa["haber"]) > 0)
-                ]
+                st.divider()
+                state_key_asiento = f"bs_registrar_asiento_{emp_id_bs}"
+                if state_key_asiento not in st.session_state:
+                    st.session_state[state_key_asiento] = False
 
                 if st.button(
-                    "📌 Guardar Asiento en `asientos_contables`",
-                    type="primary",
-                    use_container_width=True,
-                    key=f"btn_guardar_asiento_bs_{emp_id_bs}"
+                    "🧾 ¿Desea registrar el abono trimestral en contabilidad?",
+                    key=f"btn_toggle_asiento_{emp_id_bs}",
+                    use_container_width=True
                 ):
-                    try:
-                        conn_ac_bs = conectar_db(empresa_emp_bs)
-                        if conn_ac_bs:
-                            with conn_ac_bs.cursor() as cur_ac_bs:
-                                query_ins_asiento_bs = """
-                                    INSERT INTO asientos_contables (
-                                        n_comprobante, descripcion, fecha, plan_cuentas,
-                                        cuenta_contable, referencia, debe, haber, bloqueado
-                                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                """
-                                for fa in lineas_bs_guardar:
-                                    cur_ac_bs.execute(query_ins_asiento_bs, (
-                                        fa["n_comprobante"],
-                                        fa["descripcion"],
-                                        fa["fecha"],
-                                        fa["plan_cuentas"],
-                                        fa["cuenta_contable"],
-                                        fa["referencia"],
-                                        float(fa["debe"]),
-                                        float(fa["haber"]),
-                                        int(fa["bloqueado"]),
-                                    ))
-                            conn_ac_bs.commit()
-                            conn_ac_bs.close()
-                            st.success(f"✅ Asiento contable `{n_comprobante_bs.strip()}` guardado en `asientos_contables`.")
-                    except Exception as err_ac_bs:
-                        st.error(f"❌ Error guardando el asiento contable: {err_ac_bs}")
+                    st.session_state[state_key_asiento] = not st.session_state[state_key_asiento]
 
+                if st.session_state[state_key_asiento]:
+                    st.markdown("#### 📒 Generar y Registrar Asiento Contable Abono Trimestral")
+
+                    cuentas_detalle_bs = []
+                    try:
+                        conn_pc_bs = conectar_db(empresa_emp_bs)
+                        if conn_pc_bs:
+                            with conn_pc_bs.cursor() as cur_pc_bs:
+                                cur_pc_bs.execute("""
+                                    SELECT codigo, nombre
+                                    FROM plan_cuentas
+                                    WHERE tipo = 'Detalle'
+                                    ORDER BY codigo ASC
+                                """)
+                                cols_pc_bs = [desc[0] for desc in cur_pc_bs.description]
+                                cuentas_detalle_bs = [dict(zip(cols_pc_bs, fila)) for fila in cur_pc_bs.fetchall()]
+                            conn_pc_bs.close()
+                    except Exception as err_pc_bs:
+                        st.error(f"❌ Error cargando plan de cuentas: {err_pc_bs}")
+
+                    opciones_pc_bs = {
+                        f"{c['codigo']} - {c['nombre']}": {"codigo": str(c["codigo"]), "nombre": str(c["nombre"])}
+                        for c in cuentas_detalle_bs
+                    }
+                    lista_pc_bs = list(opciones_pc_bs.keys())
+
+                    def _idx_defecto_bs(opciones, prefijos, fallback=0):
+                        for idx, label in enumerate(opciones):
+                            if any(label.startswith(p) for p in prefijos):
+                                return idx
+                        return min(fallback, max(len(opciones) - 1, 0))
+
+                    m1, m2, m3 = st.columns(3)
+                    with m1:
+                        n_comprobante_bs = st.text_input(
+                            "N° Comprobante",
+                            value=f"BS-{emp_id_bs}-{date.today().strftime('%Y%m%d')}",
+                            key=f"bs_ac_comp_{emp_id_bs}"
+                        )
+                    with m2:
+                        fecha_asiento_bs = st.date_input(
+                            "Fecha Asiento",
+                            value=fecha_egreso_bs,
+                            key=f"bs_ac_fecha_{emp_id_bs}"
+                        )
+                    with m3:
+                        ref_asiento_bs = st.text_input(
+                            "Referencia",
+                            value=f"CI-{cedula_emp_bs}" if cedula_emp_bs else f"EMP-{emp_id_bs}",
+                            key=f"bs_ac_ref_{emp_id_bs}"
+                        )
+
+                    a1, a2 = st.columns(2)
+                    with a1:
+                        sel_cta_prest_bs = st.selectbox(
+                            "1. Cuenta Prestaciones Sociales (Debe)",
+                            options=lista_pc_bs if lista_pc_bs else ["5.1.1.03.001 - Prestaciones Sociales"],
+                            index=_idx_defecto_bs(lista_pc_bs, ["5.1.1", "6.1.1", "5.1"], 0) if lista_pc_bs else 0,
+                            key=f"bs_ac_cta_prest_{emp_id_bs}"
+                        )
+                    with a2:
+                        sel_cta_ver_bs = st.selectbox(
+                            "2. Ver / Contrapartida Prestaciones Sociales (Haber)",
+                            options=lista_pc_bs if lista_pc_bs else ["2.1.3.01.001 - Prestaciones Sociales por Pagar"],
+                            index=_idx_defecto_bs(lista_pc_bs, ["2.1.3", "2.1.2", "2.1"], 1) if lista_pc_bs else 0,
+                            key=f"bs_ac_cta_ver_{emp_id_bs}"
+                        )
+
+                    cta_prest_info = opciones_pc_bs.get(
+                        sel_cta_prest_bs,
+                        {"codigo": str(sel_cta_prest_bs).split(" - ")[0], "nombre": str(sel_cta_prest_bs)}
+                    )
+                    cta_ver_info = opciones_pc_bs.get(
+                        sel_cta_ver_bs,
+                        {"codigo": str(sel_cta_ver_bs).split(" - ")[0], "nombre": str(sel_cta_ver_bs)}
+                    )
+
+                    monto_prest_bs, origen_monto_bs = _monto_asiento_bs(
+                        res_bs if "res_bs" in locals() else {},
+                        empresa_emp_bs,
+                        cedula_emp_bs if "cedula_emp_bs" in locals() else ref_asiento_bs,
+                    )
+                    st.caption(f"Monto abono trimestral detectado: **{monto_prest_bs:,.2f}** (`{origen_monto_bs}`)")
+
+                    trimestre_bs = _trimestre_texto_bs(fecha_asiento_bs)
+                    desc_trimestre_bs = (
+                        f"Abonos trimestrales correspondientes a las prestaciones sociales de los empleados "
+                        f"del {trimestre_bs} trimestre ({nombre_emp_bs})".strip()
+                    )
+
+                    filas_asiento_bs = [
+                        {
+                            "n_comprobante": n_comprobante_bs.strip(),
+                            "descripcion": desc_trimestre_bs,
+                            "fecha": fecha_asiento_bs,
+                            "plan_cuentas": cta_prest_info["codigo"],
+                            "cuenta_contable": cta_prest_info["nombre"],
+                            "referencia": ref_asiento_bs.strip(),
+                            "debe": monto_prest_bs,
+                            "haber": 0.00,
+                            "bloqueado": 0,
+                        },
+                        {
+                            "n_comprobante": n_comprobante_bs.strip(),
+                            "descripcion": desc_trimestre_bs,
+                            "fecha": fecha_asiento_bs,
+                            "plan_cuentas": cta_ver_info["codigo"],
+                            "cuenta_contable": cta_ver_info["nombre"],
+                            "referencia": ref_asiento_bs.strip(),
+                            "debe": 0.00,
+                            "haber": monto_prest_bs,
+                            "bloqueado": 0,
+                        },
+                    ]
+
+                    df_asiento_bs_preview = pd.DataFrame(filas_asiento_bs)
+                    df_asiento_bs_visual = df_asiento_bs_preview.copy()
+                    df_asiento_bs_visual["debe"] = df_asiento_bs_visual["debe"].apply(lambda x: f"{float(x):,.2f}")
+                    df_asiento_bs_visual["haber"] = df_asiento_bs_visual["haber"].apply(lambda x: f"{float(x):,.2f}")
+                    st.dataframe(df_asiento_bs_visual, use_container_width=True, hide_index=True)
+
+                    lineas_bs_guardar = [
+                        fa for fa in filas_asiento_bs if (float(fa["debe"]) > 0 or float(fa["haber"]) > 0)
+                    ]
+
+                    if st.button(
+                        "📌 Guardar Asiento en `asientos_contables`",
+                        type="primary",
+                        use_container_width=True,
+                        key=f"btn_guardar_asiento_bs_{emp_id_bs}"
+                    ):
+                        try:
+                            conn_ac_bs = conectar_db(empresa_emp_bs)
+                            if conn_ac_bs:
+                                with conn_ac_bs.cursor() as cur_ac_bs:
+                                    query_ins_asiento_bs = """
+                                        INSERT INTO asientos_contables (
+                                            n_comprobante, descripcion, fecha, plan_cuentas,
+                                            cuenta_contable, referencia, debe, haber, bloqueado
+                                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                    """
+                                    for fa in lineas_bs_guardar:
+                                        cur_ac_bs.execute(query_ins_asiento_bs, (
+                                            fa["n_comprobante"],
+                                            fa["descripcion"],
+                                            fa["fecha"],
+                                            fa["plan_cuentas"],
+                                            fa["cuenta_contable"],
+                                            fa["referencia"],
+                                            float(fa["debe"]),
+                                            float(fa["haber"]),
+                                            int(fa["bloqueado"]),
+                                        ))
+                                conn_ac_bs.commit()
+                                conn_ac_bs.close()
+                                clave_emp_reg = f"bs_empleados_asiento_registrados_{empresa_emp_bs}"
+                                st.session_state.setdefault(clave_emp_reg, set()).add(str(emp_id_bs))
+                                st.success(f"✅ Asiento contable `{n_comprobante_bs.strip()}` guardado en `asientos_contables`.")
+                                st.rerun()
+                        except Exception as err_ac_bs:
+                            st.error(f"❌ Error guardando el asiento contable: {err_ac_bs}")
     with mod_beneficio_socia:
         st.divider()
         st.markdown("### 🗂️ Tabla de Gestión: Modificar y Eliminar (`beneficios_sociales`)")
