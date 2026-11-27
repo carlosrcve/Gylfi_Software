@@ -14119,278 +14119,278 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                         st.error(f"❌ Error guardando el asiento contable: {err_ac_bs}")
 
     with mod_beneficio_socia:
-    st.divider()
-    st.markdown("### 🗂️ Tabla de Gestión: Modificar y Eliminar (`beneficios_sociales`)")
+        st.divider()
+        st.markdown("### 🗂️ Tabla de Gestión: Modificar y Eliminar (`beneficios_sociales`)")
 
-    emp_tabla_bs = str(empresa_emp_bs if "empresa_emp_bs" in locals() else db_actual).strip()
-    cache_key_bs = f"bs_crud_cache_{emp_tabla_bs}"
+        emp_tabla_bs = str(empresa_emp_bs if "empresa_emp_bs" in locals() else db_actual).strip()
+        cache_key_bs = f"bs_crud_cache_{emp_tabla_bs}"
 
-    COLS_MONTOS_BS = [
-        "salario_diario",
-        "salario_mensual",
-        "utilidades",
-        "bono_vacacional",
-        "prestaciones_sociales",
-    ]
+        COLS_MONTOS_BS = [
+            "salario_diario",
+            "salario_mensual",
+            "utilidades",
+            "bono_vacacional",
+            "prestaciones_sociales",
+        ]
 
-    def _parse_fecha_bs(val):
-        if val is None or (isinstance(val, float) and pd.isna(val)):
-            return None
-        s = str(val).strip()
-        if s in ("", "None", "NaT", "0000-00-00", "0000-00-00 00:00:00"):
-            return None
-        if isinstance(val, date) and not hasattr(val, "hour"):
-            return val
-        if hasattr(val, "date"):
-            return val.date()
-        try:
-            return date.fromisoformat(s[:10])
-        except ValueError:
-            return None
+        def _parse_fecha_bs(val):
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                return None
+            s = str(val).strip()
+            if s in ("", "None", "NaT", "0000-00-00", "0000-00-00 00:00:00"):
+                return None
+            if isinstance(val, date) and not hasattr(val, "hour"):
+                return val
+            if hasattr(val, "date"):
+                return val.date()
+            try:
+                return date.fromisoformat(s[:10])
+            except ValueError:
+                return None
 
-    def _parse_monto_bs(val) -> float:
-        if val is None or (isinstance(val, float) and pd.isna(val)):
-            return 0.0
-        if isinstance(val, (int, float, np.number)):
-            return round(float(val), 2)
-        s = str(val).replace(",", "").strip()
-        if s in ("", "None", "nan", "NaN"):
-            return 0.0
-        try:
-            return round(float(s), 2)
-        except ValueError:
-            return 0.0
+        def _parse_monto_bs(val) -> float:
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                return 0.0
+            if isinstance(val, (int, float, np.number)):
+                return round(float(val), 2)
+            s = str(val).replace(",", "").strip()
+            if s in ("", "None", "nan", "NaN"):
+                return 0.0
+            try:
+                return round(float(s), 2)
+            except ValueError:
+                return 0.0
 
-    def _cargar_df_bs(empresa_nombre: str) -> pd.DataFrame:
-        conn_tbl_bs = conectar_db(empresa_nombre)
-        if not conn_tbl_bs:
-            return pd.DataFrame()
-        try:
-            with conn_tbl_bs.cursor() as cur_tbl:
-                cur_tbl.execute("""
-                    SELECT id, empresa_db, empleado_id, nombre_empleado,
-                           fecha_ingreso, fecha_egreso, salario_diario, salario_mensual,
-                           utilidades, bono_vacacional, prestaciones_sociales,
-                           observaciones, creado_en
-                    FROM beneficios_sociales
-                    WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
-                    ORDER BY id DESC
-                """, (empresa_nombre,))
-                cols_tbl = [desc[0] for desc in cur_tbl.description]
-                filas = cur_tbl.fetchall()
-        finally:
-            conn_tbl_bs.close()
+        def _cargar_df_bs(empresa_nombre: str) -> pd.DataFrame:
+            conn_tbl_bs = conectar_db(empresa_nombre)
+            if not conn_tbl_bs:
+                return pd.DataFrame()
+            try:
+                with conn_tbl_bs.cursor() as cur_tbl:
+                    cur_tbl.execute("""
+                        SELECT id, empresa_db, empleado_id, nombre_empleado,
+                               fecha_ingreso, fecha_egreso, salario_diario, salario_mensual,
+                               utilidades, bono_vacacional, prestaciones_sociales,
+                               observaciones, creado_en
+                        FROM beneficios_sociales
+                        WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                        ORDER BY id DESC
+                    """, (empresa_nombre,))
+                    cols_tbl = [desc[0] for desc in cur_tbl.description]
+                    filas = cur_tbl.fetchall()
+            finally:
+                conn_tbl_bs.close()
 
-        if not filas:
-            return pd.DataFrame()
+            if not filas:
+                return pd.DataFrame()
 
-        df_out = pd.DataFrame([dict(zip(cols_tbl, fila)) for fila in filas])
-        df_out["id"] = pd.to_numeric(df_out["id"], errors="coerce").astype("int64")
-        df_out["empleado_id"] = pd.to_numeric(df_out["empleado_id"], errors="coerce").fillna(0).astype("int64")
-        df_out["nombre_empleado"] = df_out["nombre_empleado"].fillna("").astype(str)
-        df_out["fecha_ingreso"] = df_out["fecha_ingreso"].apply(_parse_fecha_bs)
-        df_out["fecha_egreso"] = df_out["fecha_egreso"].apply(_parse_fecha_bs)
-        df_out["creado_en"] = df_out["creado_en"].apply(
-            lambda v: str(v)[:19] if v is not None and str(v).strip() not in ("", "None", "NaT") else "—"
-        )
-        df_out["observaciones"] = df_out["observaciones"].fillna("").astype(str)
-
-        for col_dec in COLS_MONTOS_BS:
-            df_out[col_dec] = df_out[col_dec].apply(_parse_monto_bs).astype("float64")
-
-        return df_out.set_index("id", drop=False)
-
-    top_c1, top_c2 = st.columns([5, 1])
-    with top_c2:
-        if st.button("🔄 Recargar", use_container_width=True, key=f"btn_reload_bs_{emp_tabla_bs}"):
-            st.session_state.pop(cache_key_bs, None)
-
-    if cache_key_bs not in st.session_state:
-        try:
-            st.session_state[cache_key_bs] = _cargar_df_bs(emp_tabla_bs)
-        except Exception as err_tbl_bs:
-            st.error(f"❌ Error cargando tabla de gestión `beneficios_sociales`: {err_tbl_bs}")
-            st.session_state[cache_key_bs] = pd.DataFrame()
-
-    df_base_bs = st.session_state[cache_key_bs]
-
-    if df_base_bs.empty:
-        st.info(f"No hay registros en `beneficios_sociales` para `{emp_tabla_bs}`.")
-    else:
-        df_estilo_bs = df_base_bs.style.format({col: "{:,.2f}" for col in COLS_MONTOS_BS})
-
-        df_tabla_editada = st.data_editor(
-            df_estilo_bs,
-            use_container_width=True,
-            hide_index=True,
-            num_rows="fixed",
-            key=f"tabla_crud_bs_{emp_tabla_bs}",
-            column_config={
-                "id": st.column_config.NumberColumn("ID", disabled=True),
-                "empresa_db": st.column_config.TextColumn("Empresa DB", disabled=True),
-                "empleado_id": st.column_config.NumberColumn("Empleado ID"),
-                "nombre_empleado": st.column_config.TextColumn("Nombre Empleado"),
-                "fecha_ingreso": st.column_config.DateColumn("Fecha Ingreso", format="YYYY-MM-DD"),
-                "fecha_egreso": st.column_config.DateColumn("Fecha Egreso", format="YYYY-MM-DD"),
-                "salario_diario": st.column_config.NumberColumn("Salario Diario", format="%.2f", min_value=0.0),
-                "salario_mensual": st.column_config.NumberColumn("Salario Mensual", format="%.2f", min_value=0.0),
-                "utilidades": st.column_config.NumberColumn("Utilidades", format="%.2f", min_value=0.0),
-                "bono_vacacional": st.column_config.NumberColumn("Bono Vacacional", format="%.2f", min_value=0.0),
-                "prestaciones_sociales": st.column_config.NumberColumn("Prestaciones Sociales", format="%.2f", min_value=0.0),
-                "observaciones": st.column_config.TextColumn("Observaciones"),
-                "creado_en": st.column_config.TextColumn("Creado En", disabled=True),
-            },
-        )
-
-        col_upd, col_del = st.columns(2)
-
-        with col_upd:
-            if st.button(
-                "✏️ Guardar Modificaciones de la Tabla",
-                type="primary",
-                use_container_width=True,
-                key=f"btn_guardar_mod_bs_{emp_tabla_bs}",
-            ):
-                try:
-                    df_new = df_tabla_editada.copy()
-                    if "id" in df_new.columns:
-                        df_new = df_new.set_index("id", drop=False)
-
-                    cols_editables = [
-                        "empleado_id",
-                        "nombre_empleado",
-                        "fecha_ingreso",
-                        "fecha_egreso",
-                        "salario_diario",
-                        "salario_mensual",
-                        "utilidades",
-                        "bono_vacacional",
-                        "prestaciones_sociales",
-                        "observaciones",
-                    ]
-
-                    df_old_cmp = df_base_bs.loc[df_new.index, cols_editables].copy()
-                    df_new_cmp = df_new[cols_editables].copy()
-
-                    for c_num in COLS_MONTOS_BS:
-                        df_old_cmp[c_num] = df_old_cmp[c_num].apply(_parse_monto_bs)
-                        df_new_cmp[c_num] = df_new_cmp[c_num].apply(_parse_monto_bs)
-
-                    df_old_cmp["empleado_id"] = pd.to_numeric(df_old_cmp["empleado_id"], errors="coerce").fillna(0).astype("int64")
-                    df_new_cmp["empleado_id"] = pd.to_numeric(df_new_cmp["empleado_id"], errors="coerce").fillna(0).astype("int64")
-
-                    df_old_cmp["nombre_empleado"] = df_old_cmp["nombre_empleado"].fillna("").astype(str)
-                    df_new_cmp["nombre_empleado"] = df_new_cmp["nombre_empleado"].fillna("").astype(str)
-
-                    df_old_cmp["observaciones"] = df_old_cmp["observaciones"].fillna("").astype(str)
-                    df_new_cmp["observaciones"] = df_new_cmp["observaciones"].fillna("").astype(str)
-
-                    df_old_cmp["fecha_ingreso"] = df_old_cmp["fecha_ingreso"].apply(_parse_fecha_bs)
-                    df_new_cmp["fecha_ingreso"] = df_new_cmp["fecha_ingreso"].apply(_parse_fecha_bs)
-                    df_old_cmp["fecha_egreso"] = df_old_cmp["fecha_egreso"].apply(_parse_fecha_bs)
-                    df_new_cmp["fecha_egreso"] = df_new_cmp["fecha_egreso"].apply(_parse_fecha_bs)
-
-                    mascara_cambios = (df_old_cmp != df_new_cmp).any(axis=1)
-                    ids_cambiados = df_new_cmp.index[mascara_cambios].tolist()
-
-                    if not ids_cambiados:
-                        st.info("No hay cambios pendientes por guardar.")
-                    else:
-                        lote_params = []
-                        for reg_id in ids_cambiados:
-                            r = df_new_cmp.loc[reg_id]
-                            f_ing_val = r["fecha_ingreso"] or date.today()
-                            f_egr_val = r["fecha_egreso"]
-                            lote_params.append((
-                                int(r["empleado_id"]),
-                                str(r["nombre_empleado"]).strip(),
-                                f_ing_val,
-                                f_egr_val,
-                                float(r["salario_diario"]),
-                                float(r["salario_mensual"]),
-                                float(r["utilidades"]),
-                                float(r["bono_vacacional"]),
-                                float(r["prestaciones_sociales"]),
-                                str(r["observaciones"]).strip(),
-                                int(reg_id),
-                                emp_tabla_bs,
-                            ))
-
-                        conn_mod_bs = conectar_db(emp_tabla_bs)
-                        if not conn_mod_bs:
-                            st.error("❌ No se pudo conectar a la base de datos.")
-                        else:
-                            sql_mod_bs = """
-                                UPDATE beneficios_sociales
-                                SET empleado_id = %s,
-                                    nombre_empleado = %s,
-                                    fecha_ingreso = %s,
-                                    fecha_egreso = %s,
-                                    salario_diario = %s,
-                                    salario_mensual = %s,
-                                    utilidades = %s,
-                                    bono_vacacional = %s,
-                                    prestaciones_sociales = %s,
-                                    observaciones = %s
-                                WHERE id = %s AND LOWER(TRIM(empresa_db)) = LOWER(%s)
-                            """
-                            try:
-                                with conn_mod_bs.cursor() as cur_mod:
-                                    cur_mod.executemany(sql_mod_bs, lote_params)
-                                conn_mod_bs.commit()
-                            finally:
-                                conn_mod_bs.close()
-
-                            st.session_state[cache_key_bs] = _cargar_df_bs(emp_tabla_bs)
-                            st.success(f"✅ {len(lote_params)} registro(s) actualizado(s) en `beneficios_sociales`.")
-                            st.rerun()
-                except Exception as err_mod_bs:
-                    st.error(f"❌ Error al actualizar `beneficios_sociales`: {err_mod_bs}")
-
-        with col_del:
-            opciones_borrar_bs = {
-                f"#{int(r['id'])} | {r['nombre_empleado']} | Prest.: {float(r['prestaciones_sociales']):,.2f}": int(r["id"])
-                for _, r in df_base_bs.iterrows()
-            }
-            sel_borrar_label = st.selectbox(
-                "Registro a eliminar",
-                options=list(opciones_borrar_bs.keys()),
-                label_visibility="collapsed",
-                key=f"sel_borrar_bs_{emp_tabla_bs}",
+            df_out = pd.DataFrame([dict(zip(cols_tbl, fila)) for fila in filas])
+            df_out["id"] = pd.to_numeric(df_out["id"], errors="coerce").astype("int64")
+            df_out["empleado_id"] = pd.to_numeric(df_out["empleado_id"], errors="coerce").fillna(0).astype("int64")
+            df_out["nombre_empleado"] = df_out["nombre_empleado"].fillna("").astype(str)
+            df_out["fecha_ingreso"] = df_out["fecha_ingreso"].apply(_parse_fecha_bs)
+            df_out["fecha_egreso"] = df_out["fecha_egreso"].apply(_parse_fecha_bs)
+            df_out["creado_en"] = df_out["creado_en"].apply(
+                lambda v: str(v)[:19] if v is not None and str(v).strip() not in ("", "None", "NaT") else "—"
             )
-            confirmar_borrar_bs = st.checkbox(
-                "Confirmar eliminación",
-                key=f"chk_borrar_bs_{emp_tabla_bs}",
-            )
-            if st.button(
-                "🗑️ Eliminar Registro",
+            df_out["observaciones"] = df_out["observaciones"].fillna("").astype(str)
+
+            for col_dec in COLS_MONTOS_BS:
+                df_out[col_dec] = df_out[col_dec].apply(_parse_monto_bs).astype("float64")
+
+            return df_out.set_index("id", drop=False)
+
+        top_c1, top_c2 = st.columns([5, 1])
+        with top_c2:
+            if st.button("🔄 Recargar", use_container_width=True, key=f"btn_reload_bs_{emp_tabla_bs}"):
+                st.session_state.pop(cache_key_bs, None)
+
+        if cache_key_bs not in st.session_state:
+            try:
+                st.session_state[cache_key_bs] = _cargar_df_bs(emp_tabla_bs)
+            except Exception as err_tbl_bs:
+                st.error(f"❌ Error cargando tabla de gestión `beneficios_sociales`: {err_tbl_bs}")
+                st.session_state[cache_key_bs] = pd.DataFrame()
+
+        df_base_bs = st.session_state[cache_key_bs]
+
+        if df_base_bs.empty:
+            st.info(f"No hay registros en `beneficios_sociales` para `{emp_tabla_bs}`.")
+        else:
+            df_estilo_bs = df_base_bs.style.format({col: "{:,.2f}" for col in COLS_MONTOS_BS})
+
+            df_tabla_editada = st.data_editor(
+                df_estilo_bs,
                 use_container_width=True,
-                key=f"btn_borrar_bs_{emp_tabla_bs}",
-            ):
-                if not confirmar_borrar_bs:
-                    st.warning("⚠️ Marca **Confirmar eliminación** para borrar el registro.")
-                else:
+                hide_index=True,
+                num_rows="fixed",
+                key=f"tabla_crud_bs_{emp_tabla_bs}",
+                column_config={
+                    "id": st.column_config.NumberColumn("ID", disabled=True),
+                    "empresa_db": st.column_config.TextColumn("Empresa DB", disabled=True),
+                    "empleado_id": st.column_config.NumberColumn("Empleado ID"),
+                    "nombre_empleado": st.column_config.TextColumn("Nombre Empleado"),
+                    "fecha_ingreso": st.column_config.DateColumn("Fecha Ingreso", format="YYYY-MM-DD"),
+                    "fecha_egreso": st.column_config.DateColumn("Fecha Egreso", format="YYYY-MM-DD"),
+                    "salario_diario": st.column_config.NumberColumn("Salario Diario", format="%.2f", min_value=0.0),
+                    "salario_mensual": st.column_config.NumberColumn("Salario Mensual", format="%.2f", min_value=0.0),
+                    "utilidades": st.column_config.NumberColumn("Utilidades", format="%.2f", min_value=0.0),
+                    "bono_vacacional": st.column_config.NumberColumn("Bono Vacacional", format="%.2f", min_value=0.0),
+                    "prestaciones_sociales": st.column_config.NumberColumn("Prestaciones Sociales", format="%.2f", min_value=0.0),
+                    "observaciones": st.column_config.TextColumn("Observaciones"),
+                    "creado_en": st.column_config.TextColumn("Creado En", disabled=True),
+                },
+            )
+
+            col_upd, col_del = st.columns(2)
+
+            with col_upd:
+                if st.button(
+                    "✏️ Guardar Modificaciones de la Tabla",
+                    type="primary",
+                    use_container_width=True,
+                    key=f"btn_guardar_mod_bs_{emp_tabla_bs}",
+                ):
                     try:
-                        id_borrar = opciones_borrar_bs[sel_borrar_label]
-                        conn_bor_bs = conectar_db(emp_tabla_bs)
-                        if not conn_bor_bs:
-                            st.error("❌ No se pudo conectar a la base de datos.")
-                        else:
-                            try:
-                                with conn_bor_bs.cursor() as cur_bor:
-                                    cur_bor.execute(
-                                        "DELETE FROM beneficios_sociales WHERE id = %s AND LOWER(TRIM(empresa_db)) = LOWER(%s)",
-                                        (id_borrar, emp_tabla_bs),
-                                    )
-                                conn_bor_bs.commit()
-                            finally:
-                                conn_bor_bs.close()
+                        df_new = df_tabla_editada.copy()
+                        if "id" in df_new.columns:
+                            df_new = df_new.set_index("id", drop=False)
 
-                            st.session_state[cache_key_bs] = _cargar_df_bs(emp_tabla_bs)
-                            st.success(f"✅ Registro #{id_borrar} eliminado de `beneficios_sociales`.")
-                            st.rerun()
-                    except Exception as err_bor_bs:
-                        st.error(f"❌ Error al eliminar registro: {err_bor_bs}")
+                        cols_editables = [
+                            "empleado_id",
+                            "nombre_empleado",
+                            "fecha_ingreso",
+                            "fecha_egreso",
+                            "salario_diario",
+                            "salario_mensual",
+                            "utilidades",
+                            "bono_vacacional",
+                            "prestaciones_sociales",
+                            "observaciones",
+                        ]
+
+                        df_old_cmp = df_base_bs.loc[df_new.index, cols_editables].copy()
+                        df_new_cmp = df_new[cols_editables].copy()
+
+                        for c_num in COLS_MONTOS_BS:
+                            df_old_cmp[c_num] = df_old_cmp[c_num].apply(_parse_monto_bs)
+                            df_new_cmp[c_num] = df_new_cmp[c_num].apply(_parse_monto_bs)
+
+                        df_old_cmp["empleado_id"] = pd.to_numeric(df_old_cmp["empleado_id"], errors="coerce").fillna(0).astype("int64")
+                        df_new_cmp["empleado_id"] = pd.to_numeric(df_new_cmp["empleado_id"], errors="coerce").fillna(0).astype("int64")
+
+                        df_old_cmp["nombre_empleado"] = df_old_cmp["nombre_empleado"].fillna("").astype(str)
+                        df_new_cmp["nombre_empleado"] = df_new_cmp["nombre_empleado"].fillna("").astype(str)
+
+                        df_old_cmp["observaciones"] = df_old_cmp["observaciones"].fillna("").astype(str)
+                        df_new_cmp["observaciones"] = df_new_cmp["observaciones"].fillna("").astype(str)
+
+                        df_old_cmp["fecha_ingreso"] = df_old_cmp["fecha_ingreso"].apply(_parse_fecha_bs)
+                        df_new_cmp["fecha_ingreso"] = df_new_cmp["fecha_ingreso"].apply(_parse_fecha_bs)
+                        df_old_cmp["fecha_egreso"] = df_old_cmp["fecha_egreso"].apply(_parse_fecha_bs)
+                        df_new_cmp["fecha_egreso"] = df_new_cmp["fecha_egreso"].apply(_parse_fecha_bs)
+
+                        mascara_cambios = (df_old_cmp != df_new_cmp).any(axis=1)
+                        ids_cambiados = df_new_cmp.index[mascara_cambios].tolist()
+
+                        if not ids_cambiados:
+                            st.info("No hay cambios pendientes por guardar.")
+                        else:
+                            lote_params = []
+                            for reg_id in ids_cambiados:
+                                r = df_new_cmp.loc[reg_id]
+                                f_ing_val = r["fecha_ingreso"] or date.today()
+                                f_egr_val = r["fecha_egreso"]
+                                lote_params.append((
+                                    int(r["empleado_id"]),
+                                    str(r["nombre_empleado"]).strip(),
+                                    f_ing_val,
+                                    f_egr_val,
+                                    float(r["salario_diario"]),
+                                    float(r["salario_mensual"]),
+                                    float(r["utilidades"]),
+                                    float(r["bono_vacacional"]),
+                                    float(r["prestaciones_sociales"]),
+                                    str(r["observaciones"]).strip(),
+                                    int(reg_id),
+                                    emp_tabla_bs,
+                                ))
+
+                            conn_mod_bs = conectar_db(emp_tabla_bs)
+                            if not conn_mod_bs:
+                                st.error("❌ No se pudo conectar a la base de datos.")
+                            else:
+                                sql_mod_bs = """
+                                    UPDATE beneficios_sociales
+                                    SET empleado_id = %s,
+                                        nombre_empleado = %s,
+                                        fecha_ingreso = %s,
+                                        fecha_egreso = %s,
+                                        salario_diario = %s,
+                                        salario_mensual = %s,
+                                        utilidades = %s,
+                                        bono_vacacional = %s,
+                                        prestaciones_sociales = %s,
+                                        observaciones = %s
+                                    WHERE id = %s AND LOWER(TRIM(empresa_db)) = LOWER(%s)
+                                """
+                                try:
+                                    with conn_mod_bs.cursor() as cur_mod:
+                                        cur_mod.executemany(sql_mod_bs, lote_params)
+                                    conn_mod_bs.commit()
+                                finally:
+                                    conn_mod_bs.close()
+
+                                st.session_state[cache_key_bs] = _cargar_df_bs(emp_tabla_bs)
+                                st.success(f"✅ {len(lote_params)} registro(s) actualizado(s) en `beneficios_sociales`.")
+                                st.rerun()
+                    except Exception as err_mod_bs:
+                        st.error(f"❌ Error al actualizar `beneficios_sociales`: {err_mod_bs}")
+
+            with col_del:
+                opciones_borrar_bs = {
+                    f"#{int(r['id'])} | {r['nombre_empleado']} | Prest.: {float(r['prestaciones_sociales']):,.2f}": int(r["id"])
+                    for _, r in df_base_bs.iterrows()
+                }
+                sel_borrar_label = st.selectbox(
+                    "Registro a eliminar",
+                    options=list(opciones_borrar_bs.keys()),
+                    label_visibility="collapsed",
+                    key=f"sel_borrar_bs_{emp_tabla_bs}",
+                )
+                confirmar_borrar_bs = st.checkbox(
+                    "Confirmar eliminación",
+                    key=f"chk_borrar_bs_{emp_tabla_bs}",
+                )
+                if st.button(
+                    "🗑️ Eliminar Registro",
+                    use_container_width=True,
+                    key=f"btn_borrar_bs_{emp_tabla_bs}",
+                ):
+                    if not confirmar_borrar_bs:
+                        st.warning("⚠️ Marca **Confirmar eliminación** para borrar el registro.")
+                    else:
+                        try:
+                            id_borrar = opciones_borrar_bs[sel_borrar_label]
+                            conn_bor_bs = conectar_db(emp_tabla_bs)
+                            if not conn_bor_bs:
+                                st.error("❌ No se pudo conectar a la base de datos.")
+                            else:
+                                try:
+                                    with conn_bor_bs.cursor() as cur_bor:
+                                        cur_bor.execute(
+                                            "DELETE FROM beneficios_sociales WHERE id = %s AND LOWER(TRIM(empresa_db)) = LOWER(%s)",
+                                            (id_borrar, emp_tabla_bs),
+                                        )
+                                    conn_bor_bs.commit()
+                                finally:
+                                    conn_bor_bs.close()
+
+                                st.session_state[cache_key_bs] = _cargar_df_bs(emp_tabla_bs)
+                                st.success(f"✅ Registro #{id_borrar} eliminado de `beneficios_sociales`.")
+                                st.rerun()
+                        except Exception as err_bor_bs:
+                            st.error(f"❌ Error al eliminar registro: {err_bor_bs}")
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
