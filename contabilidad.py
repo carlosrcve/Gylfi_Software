@@ -14640,6 +14640,467 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                         except Exception as err_bor_bs:
                             st.error(f"❌ Error al eliminar registro: {err_bor_bs}")
 
+
+import xml.etree.ElementTree as ET
+from datetime import datetime, date, time
+from decimal import Decimal, ROUND_HALF_UP
+from fpdf import FPDF
+
+
+def _r2(val) -> Decimal:
+    return Decimal(str(val or "0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _r4(val) -> Decimal:
+    return Decimal(str(val or "0")).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+
+def _siguiente_correlativo_str(ultimo_val: str | None, inicio_val: str, ancho: int = 8) -> str:
+    """Incrementa un correlativo numérico o tipo '00-024470' manteniendo formato."""
+    raw = str(ultimo_val or "").strip()
+    if not raw:
+        raw = str(inicio_val or "1").strip()
+    else:
+        # Si ya había un último usado, incrementamos en 1
+        if "-" in raw:
+            prefijo, num_str = raw.rsplit("-", 1)
+            digitos = "".join(ch for ch in num_str if ch.isdigit()) or "0"
+            ancho_num = max(len(digitos), 6)
+            nuevo_num = str(int(digitos) + 1).zfill(ancho_num)
+            return f"{prefijo}-{nuevo_num}"
+        digitos = "".join(ch for ch in raw if ch.isdigit()) or "0"
+        return str(int(digitos) + 1).zfill(max(len(digitos), ancho))
+
+    if "-" in raw:
+        return raw
+    digitos = "".join(ch for ch in raw if ch.isdigit()) or "1"
+    return digitos.zfill(ancho)
+
+
+def obtener_o_crear_rango_activo(conn, empresa_db: str) -> dict | None:
+    """Obtiene el rango fiscal activo para la empresa o crea uno inicial si no existe."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT *
+            FROM control_rangos_fiscales
+            WHERE LOWER(TRIM(empresa_db)) = LOWER(%s) AND activo = 1
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (str(empresa_db).strip(),),
+        )
+        cols = [d[0] for d in cur.description]
+        row = cur.fetchone()
+        if row:
+            return dict(zip(cols, row))
+
+        cur.execute(
+            """
+            INSERT INTO control_rangos_fiscales (
+                empresa_db, rif_emisor, razon_social_emisor, direccion_fiscal,
+                telefono_emisor, correo_emisor, codigo_actividad_economica,
+                imprenta_digital_nombre, imprenta_digital_rif, providencia_imprenta,
+                fecha_providencia_imprenta, proveedor_certificado,
+                rango_control_desde, rango_control_hasta,
+                ultimo_numero_control, ultimo_numero_documento,
+                fecha_generacion_rango, leyenda_legal, activo
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, 1
+            )
+            """,
+            (
+                str(empresa_db).strip(),
+                "J-00000000-0",
+                str(empresa_db).strip(),
+                "Caracas, Venezuela",
+                "",
+                "",
+                "",
+                "Imprenta Digital Autorizada",
+                "J-00000000-0",
+                "SNAT/2024/000102",
+                None,
+                "Proveedor de Certificados Autorizado",
+                "00-000001",
+                "00-999999",
+                None,
+                None,
+                datetime.now(),
+                "Documento emitido conforme a la normativa fiscal vigente del SENIAT.",
+            ),
+        )
+        conn.commit()
+
+        cur.execute(
+            """
+            SELECT *
+            FROM control_rangos_fiscales
+            WHERE id = LAST_INSERT_ID()
+            """
+        )
+        cols2 = [d[0] for d in cur.description]
+        row2 = cur.fetchone()
+        return dict(zip(cols2, row2)) if row2 else None
+
+
+def calcular_totales_factura(lineas: list[dict], tasa_bcv: float, aplica_igtf: bool = False) -> dict:
+    """
+    Calcula importes por línea y totales consolidados en Bs. y divisa.
+    Alícuotas soportadas: 'G' (Gravado 16%), 'E' (Exento 0%), 'R' (Reducido 8%).
+    """
+    tasa = _r4(tasa_bcv if Decimal(str(tasa_bcv or 0)) > 0 else Decimal("1"))
+    subtotal_bs = Decimal("0.00")
+    exento_bs = Decimal("0.00")
+    base_16_bs = Decimal("0.00")
+    base_8_bs = Decimal("0.00")
+    iva_16_bs = Decimal("0.00")
+    iva_8_bs = Decimal("0.00")
+
+    lineas_calculadas = []
+    for idx, ln in enumerate(lineas, start=1):
+        cant = Decimal(str(ln.get("cantidad") or 0))
+        pu_bs = _r2(ln.get("precio_unitario_bs") or 0)
+        desc_pct = Decimal(str(ln.get("descuento_pct") or 0))
+        alicuota = str(ln.get("alicuota") or "G").upper().strip()
+
+        bruto_linea_bs = _r2(cant * pu_bs)
+        descuento_bs = _r2(bruto_linea_bs * (desc_pct / Decimal("100")))
+        neto_bs = _r2(bruto_linea_bs - descuento_bs)
+        neto_div = _r2(neto_bs / tasa)
+        pu_div = _r2(pu_bs / tasa)
+
+        if alicuota == "E":
+            porc_iva = Decimal("0.00")
+            exento_bs += neto_bs
+        elif alicuota == "R":
+            porc_iva = Decimal("8.00")
+            base_8_bs += neto_bs
+            iva_8_bs += _r2(neto_bs * Decimal("0.08"))
+        else:
+            alicuota = "G"
+            porc_iva = Decimal("16.00")
+            base_16_bs += neto_bs
+            iva_16_bs += _r2(neto_bs * Decimal("0.16"))
+
+        subtotal_bs += neto_bs
+
+        lineas_calculadas.append({
+            "renglon": idx,
+            "codigo_item": str(ln.get("codigo_item") or "").strip(),
+            "descripcion": str(ln.get("descripcion") or "").strip(),
+            "unidad": str(ln.get("unidad") or "Unidad").strip(),
+            "cantidad": float(cant),
+            "precio_unitario_bs": float(pu_bs),
+            "precio_unitario_divisa": float(pu_div),
+            "descuento_pct": float(desc_pct),
+            "alicuota": alicuota,
+            "porcentaje_iva": float(porc_iva),
+            "importe_bs": float(neto_bs),
+            "importe_divisa": float(neto_div),
+        })
+
+    iva_total_bs = _r2(iva_16_bs + iva_8_bs)
+    monto_antes_igtf_bs = _r2(subtotal_bs + iva_total_bs)
+    igtf_3_bs = _r2(monto_antes_igtf_bs * Decimal("0.03")) if aplica_igtf else Decimal("0.00")
+    total_bs = _r2(monto_antes_igtf_bs + igtf_3_bs)
+
+    return {
+        "tasa_bcv": float(tasa),
+        "lineas": lineas_calculadas,
+        "subtotal_bs": float(_r2(subtotal_bs)),
+        "subtotal_divisa": float(_r2(subtotal_bs / tasa)),
+        "exento_bs": float(_r2(exento_bs)),
+        "exento_divisa": float(_r2(exento_bs / tasa)),
+        "base_imponible_16_bs": float(_r2(base_16_bs)),
+        "base_imponible_16_divisa": float(_r2(base_16_bs / tasa)),
+        "base_imponible_8_bs": float(_r2(base_8_bs)),
+        "iva_16_bs": float(_r2(iva_16_bs)),
+        "iva_16_divisa": float(_r2(iva_16_bs / tasa)),
+        "iva_8_bs": float(_r2(iva_8_bs)),
+        "iva_total_bs": float(iva_total_bs),
+        "igtf_3_bs": float(igtf_3_bs),
+        "igtf_3_divisa": float(_r2(igtf_3_bs / tasa)),
+        "total_bs": float(total_bs),
+        "total_divisa": float(_r2(total_bs / tasa)),
+    }
+
+
+def generar_xml_factura(cabecera: dict, totales: dict, rango: dict) -> str:
+    """Genera representación XML estructurada de la factura digital."""
+    root = ET.Element("FacturaDigitalVE", version="1.0")
+
+    emisor_el = ET.SubElement(root, "Emisor")
+    ET.SubElement(emisor_el, "RIF").text = str(rango.get("rif_emisor") or "")
+    ET.SubElement(emisor_el, "RazonSocial").text = str(rango.get("razon_social_emisor") or "")
+    ET.SubElement(emisor_el, "DireccionFiscal").text = str(rango.get("direccion_fiscal") or "")
+    ET.SubElement(emisor_el, "ActividadEconomica").text = str(rango.get("codigo_actividad_economica") or "")
+
+    doc_el = ET.SubElement(root, "Documento")
+    ET.SubElement(doc_el, "NumeroDocumento").text = str(cabecera.get("n_documento") or "")
+    ET.SubElement(doc_el, "NumeroControl").text = str(cabecera.get("n_control") or "")
+    ET.SubElement(doc_el, "FechaEmision").text = str(cabecera.get("fecha_emision") or "")
+    ET.SubElement(doc_el, "HoraEmision").text = str(cabecera.get("hora_emision") or "")
+    ET.SubElement(doc_el, "CondicionPago").text = str(cabecera.get("condicion_pago") or "")
+    ET.SubElement(doc_el, "TipoVenta").text = str(cabecera.get("tipo_venta") or "")
+    ET.SubElement(doc_el, "TasaBCV").text = f"{totales['tasa_bcv']:.4f}"
+
+    cli_el = ET.SubElement(root, "Receptor")
+    ET.SubElement(cli_el, "RIF").text = str(cabecera.get("cliente_rif") or "")
+    ET.SubElement(cli_el, "Nombre").text = str(cabecera.get("cliente_nombre") or "")
+    ET.SubElement(cli_el, "DireccionFiscal").text = str(cabecera.get("cliente_direccion_fiscal") or "")
+
+    items_el = ET.SubElement(root, "Items")
+    for ln in totales.get("lineas", []):
+        it_el = ET.SubElement(items_el, "Item", numero=str(ln["renglon"]))
+        ET.SubElement(it_el, "Codigo").text = str(ln["codigo_item"])
+        ET.SubElement(it_el, "Descripcion").text = str(ln["descripcion"])
+        ET.SubElement(it_el, "Unidad").text = str(ln["unidad"])
+        ET.SubElement(it_el, "Cantidad").text = f"{ln['cantidad']:.4f}"
+        ET.SubElement(it_el, "PrecioUnitarioBs").text = f"{ln['precio_unitario_bs']:.2f}"
+        ET.SubElement(it_el, "DescuentoPct").text = f"{ln['descuento_pct']:.2f}"
+        ET.SubElement(it_el, "Alicuota").text = str(ln["alicuota"])
+        ET.SubElement(it_el, "ImporteBs").text = f"{ln['importe_bs']:.2f}"
+
+    tot_el = ET.SubElement(root, "Totales")
+    ET.SubElement(tot_el, "SubtotalBs").text = f"{totales['subtotal_bs']:.2f}"
+    ET.SubElement(tot_el, "SubtotalDivisa").text = f"{totales['subtotal_divisa']:.2f}"
+    ET.SubElement(tot_el, "ExentoBs").text = f"{totales['exento_bs']:.2f}"
+    ET.SubElement(tot_el, "BaseImponible16Bs").text = f"{totales['base_imponible_16_bs']:.2f}"
+    ET.SubElement(tot_el, "Iva16Bs").text = f"{totales['iva_16_bs']:.2f}"
+    ET.SubElement(tot_el, "Igtf3Bs").text = f"{totales['igtf_3_bs']:.2f}"
+    ET.SubElement(tot_el, "TotalBs").text = f"{totales['total_bs']:.2f}"
+    ET.SubElement(tot_el, "TotalDivisa").text = f"{totales['total_divisa']:.2f}"
+
+    imp_el = ET.SubElement(root, "ImprentaDigital")
+    ET.SubElement(imp_el, "Nombre").text = str(rango.get("imprenta_digital_nombre") or "")
+    ET.SubElement(imp_el, "RIF").text = str(rango.get("imprenta_digital_rif") or "")
+    ET.SubElement(imp_el, "Providencia").text = str(rango.get("providencia_imprenta") or "")
+    ET.SubElement(imp_el, "ProveedorCertificado").text = str(rango.get("proveedor_certificado") or "")
+
+    return ET.tostring(root, encoding="unicode")
+
+
+def generar_pdf_factura_digital(cabecera: dict, totales: dict, rango: dict) -> bytes:
+    """Genera el PDF de Factura Digital en formato carta/A4 usando fpdf2."""
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=True, margin=12)
+    pdf.add_page()
+
+    def _txt(v) -> str:
+        return str(v or "").encode("latin-1", errors="replace").decode("latin-1")
+
+    # Encabezado Emisor y Documento
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.cell(120, 6, _txt(rango.get("razon_social_emisor") or "EMISOR"), ln=0)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(66, 6, "FACTURA DIGITAL", ln=1, align="R")
+
+    pdf.set_font("Helvetica", "", 8)
+    pdf.cell(120, 4, _txt(f"RIF: {rango.get('rif_emisor', '')} | Act. Econ.: {rango.get('codigo_actividad_economica', '')}"), ln=0)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.cell(66, 4, _txt(f"N° Documento: {cabecera.get('n_documento', '')}"), ln=1, align="R")
+
+    pdf.set_font("Helvetica", "", 8)
+    pdf.multi_cell(120, 4, _txt(rango.get("direccion_fiscal", "")), border=0)
+    pdf.set_xy(130, 20)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.cell(66, 4, _txt(f"N° de Control: {cabecera.get('n_control', '')}"), ln=1, align="R")
+    pdf.set_x(130)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.cell(66, 4, _txt(f"Emisión: {cabecera.get('fecha_emision', '')} {cabecera.get('hora_emision', '')}"), ln=1, align="R")
+
+    pdf.ln(4)
+
+    # Datos del Cliente
+    pdf.set_fill_color(240, 243, 247)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.cell(186, 5, "DATOS DEL CLIENTE / RECEPTOR", ln=1, fill=True)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.cell(110, 5, _txt(f"Razón Social: {cabecera.get('cliente_nombre', '')}"), ln=0)
+    pdf.cell(76, 5, _txt(f"RIF / C.I.: {cabecera.get('cliente_rif', '')}"), ln=1)
+    pdf.cell(110, 5, _txt(f"Condición: {cabecera.get('condicion_pago', '')} | Tipo: {cabecera.get('tipo_venta', '')}"), ln=0)
+    pdf.cell(76, 5, _txt(f"Período: {cabecera.get('periodo_fact', '')} | Tasa BCV: {totales['tasa_bcv']:,.4f}"), ln=1)
+    pdf.multi_cell(186, 4, _txt(f"Dirección Fiscal: {cabecera.get('cliente_direccion_fiscal', '')}"))
+    pdf.ln(3)
+
+    # Tabla de Ítems
+    pdf.set_font("Helvetica", "B", 7.5)
+    pdf.cell(14, 6, "Cant.", border=1, align="C")
+    pdf.cell(18, 6, "Código", border=1, align="C")
+    pdf.cell(76, 6, "Descripción", border=1, align="L")
+    pdf.cell(26, 6, "P. Unit (Bs.)", border=1, align="R")
+    pdf.cell(16, 6, "% Desc.", border=1, align="R")
+    pdf.cell(12, 6, "Alíc.", border=1, align="C")
+    pdf.cell(24, 6, "Importe (Bs.)", border=1, align="R", ln=1)
+
+    pdf.set_font("Helvetica", "", 7.5)
+    for ln in totales.get("lineas", []):
+        pdf.cell(14, 5, _txt(f"{ln['cantidad']:,.2f}"), border=1, align="R")
+        pdf.cell(18, 5, _txt(ln["codigo_item"][:12]), border=1, align="L")
+        pdf.cell(76, 5, _txt(ln["descripcion"][:48]), border=1, align="L")
+        pdf.cell(26, 5, _txt(f"{ln['precio_unitario_bs']:,.2f}"), border=1, align="R")
+        pdf.cell(16, 5, _txt(f"{ln['descuento_pct']:,.2f}%"), border=1, align="R")
+        pdf.cell(12, 5, _txt(f"({ln['alicuota']})"), border=1, align="C")
+        pdf.cell(24, 5, _txt(f"{ln['importe_bs']:,.2f}"), border=1, align="R", ln=1)
+
+    pdf.ln(3)
+
+    # Totales en Bs. y Divisa
+    resumen = [
+        ("Sub Total", f"{totales['subtotal_divisa']:,.2f} USD", f"{totales['subtotal_bs']:,.2f} Bs."),
+        ("Exento", f"{totales['exento_divisa']:,.2f} USD", f"{totales['exento_bs']:,.2f} Bs."),
+        ("Base Imponible 16%", f"{totales['base_imponible_16_divisa']:,.2f} USD", f"{totales['base_imponible_16_bs']:,.2f} Bs."),
+        ("IVA 16%", f"{totales['iva_16_divisa']:,.2f} USD", f"{totales['iva_16_bs']:,.2f} Bs."),
+        ("IGTF 3%", f"{totales['igtf_3_divisa']:,.2f} USD", f"{totales['igtf_3_bs']:,.2f} Bs."),
+        ("TOTAL A PAGAR", f"{totales['total_divisa']:,.2f} USD", f"{totales['total_bs']:,.2f} Bs."),
+    ]
+    for etiqueta, m_div, m_bs in resumen:
+        es_total = etiqueta == "TOTAL A PAGAR"
+        pdf.set_font("Helvetica", "B" if es_total else "", 8)
+        pdf.cell(110, 5, "", border=0)
+        pdf.cell(34, 5, _txt(etiqueta), border=1)
+        pdf.cell(21, 5, _txt(m_div), border=1, align="R")
+        pdf.cell(21, 5, _txt(m_bs), border=1, align="R", ln=1)
+
+    pdf.ln(4)
+
+    # Pie Legal e Imprenta Digital
+    pdf.set_font("Helvetica", "", 7)
+    pie_legal = (
+        f"{rango.get('leyenda_legal') or 'Documento emitido conforme a la normativa fiscal vigente.'} | "
+        f"Imprenta Digital: {rango.get('imprenta_digital_nombre', '')} "
+        f"(RIF: {rango.get('imprenta_digital_rif', '')}, Providencia: {rango.get('providencia_imprenta', '')}) | "
+        f"Proveedor Certificado: {rango.get('proveedor_certificado', '')} | "
+        f"Rango Control: {rango.get('rango_control_desde', '')} - {rango.get('rango_control_hasta', '')}"
+    )
+    pdf.multi_cell(186, 3.5, _txt(pie_legal))
+
+    salida = pdf.output(dest="S")
+    return bytes(salida) if isinstance(salida, (bytearray, bytes)) else salida.encode("latin-1")
+
+
+def emitir_factura_en_bd(conn, empresa_db: str, rango: dict, cabecera: dict, totales: dict, xml_str: str) -> tuple[int, str, str]:
+    """Asigna correlativo y N° de Control, guarda cabecera + detalle y actualiza el rango."""
+    n_doc = _siguiente_correlativo_str(
+        rango.get("ultimo_numero_documento"),
+        cabecera.get("n_documento") or "00000001",
+        ancho=8,
+    )
+    n_ctrl = _siguiente_correlativo_str(
+        rango.get("ultimo_numero_control"),
+        rango.get("rango_control_desde") or "00-000001",
+    )
+
+    ahora_dt = datetime.now()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO facturas_cabecera (
+                empresa_db, rango_fiscal_id, n_documento, n_control,
+                fecha_emision, hora_emision, fecha_asignacion_control,
+                cliente_rif, cliente_nombre, cliente_telefono,
+                cliente_direccion_fiscal, cliente_direccion_entrega,
+                condicion_pago, tipo_venta, sucursal, periodo_fact,
+                pague_antes, nro_orden_compra, vendedor,
+                moneda_expresion, tasa_bcv,
+                subtotal_bs, subtotal_divisa, exento_bs, exento_divisa,
+                base_imponible_16_bs, base_imponible_16_divisa,
+                iva_16_bs, iva_16_divisa, igtf_3_bs, igtf_3_divisa,
+                total_bs, total_divisa, aplica_igtf, estado, xml_generado, observaciones
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, 'EMITIDA', %s, %s
+            )
+            """,
+            (
+                str(empresa_db).strip(),
+                rango.get("id"),
+                n_doc,
+                n_ctrl,
+                cabecera["fecha_emision"],
+                cabecera["hora_emision"],
+                ahora_dt,
+                cabecera["cliente_rif"],
+                cabecera["cliente_nombre"],
+                cabecera.get("cliente_telefono"),
+                cabecera.get("cliente_direccion_fiscal"),
+                cabecera.get("cliente_direccion_entrega"),
+                cabecera.get("condicion_pago", "CONTADO"),
+                cabecera.get("tipo_venta", "INTERNA"),
+                cabecera.get("sucursal", "No asignada"),
+                cabecera.get("periodo_fact"),
+                cabecera.get("pague_antes"),
+                cabecera.get("nro_orden_compra"),
+                cabecera.get("vendedor"),
+                cabecera.get("moneda_expresion", "USD"),
+                totales["tasa_bcv"],
+                totales["subtotal_bs"],
+                totales["subtotal_divisa"],
+                totales["exento_bs"],
+                totales["exento_divisa"],
+                totales["base_imponible_16_bs"],
+                totales["base_imponible_16_divisa"],
+                totales["iva_16_bs"],
+                totales["iva_16_divisa"],
+                totales["igtf_3_bs"],
+                totales["igtf_3_divisa"],
+                totales["total_bs"],
+                totales["total_divisa"],
+                1 if cabecera.get("aplica_igtf") else 0,
+                xml_str,
+                cabecera.get("observaciones"),
+            ),
+        )
+        factura_id = cur.lastrowid
+
+        for ln in totales.get("lineas", []):
+            cur.execute(
+                """
+                INSERT INTO facturas_detalle (
+                    factura_id, empresa_db, renglon, codigo_item,
+                    descripcion, unidad, cantidad,
+                    precio_unitario_bs, precio_unitario_divisa,
+                    descuento_pct, alicuota, porcentaje_iva,
+                    importe_bs, importe_divisa
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                )
+                """,
+                (
+                    factura_id,
+                    str(empresa_db).strip(),
+                    ln["renglon"],
+                    ln["codigo_item"],
+                    ln["descripcion"],
+                    ln["unidad"],
+                    ln["cantidad"],
+                    ln["precio_unitario_bs"],
+                    ln["precio_unitario_divisa"],
+                    ln["descuento_pct"],
+                    ln["alicuota"],
+                    ln["porcentaje_iva"],
+                    ln["importe_bs"],
+                    ln["importe_divisa"],
+                ),
+            )
+
+        cur.execute(
+            """
+            UPDATE control_rangos_fiscales
+            SET ultimo_numero_documento = %s,
+                ultimo_numero_control = %s
+            WHERE id = %s
+            """,
+            (n_doc, n_ctrl, rango.get("id")),
+        )
+
+    conn.commit()
+    return int(factura_id), n_doc, n_ctrl
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -15007,6 +15468,8 @@ if menu_lateral == "📊 Auditoría Contable":
             "📄 Auxiliar Cta por Pagar",
             "📸 Códigos QR y Escaneo",
             "👥 Nómina",
+            "Facturacion Digital",
+
         ]
         if "PEDACITO" in str(nombre_sel).upper() and "CIELO" in str(nombre_sel).upper():
             if "🧁 Inventarios" not in modulos_disponibles:
@@ -27946,3 +28409,218 @@ if opcion_menu == "👥 Nómina":
             lista_bancos_detalle=lista_bancos_detalle if "lista_bancos_detalle" in locals() else None,
             dict_bancos_detalle=dict_bancos_detalle if "dict_bancos_detalle" in locals() else None,
         )
+
+
+
+if opcion_menu == "Facturacion Digital":
+    db_actual = st.session_state.get("DB_ACTUAL")
+    if not db_actual:
+        st.warning("⚠️ Selecciona primero una empresa activa para usar el módulo de Facturación Digital.")
+    else:
+        st.markdown("### 🧾 Facturación Digital")
+        st.caption(f"Empresa activa: `{db_actual}` — Emisión fiscal, XML y PDF con `fpdf2`.")
+
+        conn_fd = conectar_db(db_actual)
+        if not conn_fd:
+            st.error("❌ No se pudo conectar a la base de datos.")
+        else:
+            try:
+                rango_activo = obtener_o_crear_rango_activo(conn_fd, str(db_actual))
+
+                with st.expander("⚙️ Configuración Fiscal / Rango de Control e Imprenta Digital", expanded=False):
+                    with st.form(f"form_rango_fd_{db_actual}"):
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            rif_em = st.text_input("RIF Emisor", value=rango_activo.get("rif_emisor") or "")
+                            razon_em = st.text_input("Razón Social Emisor", value=rango_activo.get("razon_social_emisor") or "")
+                            act_ec = st.text_input("Código Act. Económica", value=rango_activo.get("codigo_actividad_economica") or "")
+                        with c2:
+                            imp_nom = st.text_input("Imprenta Digital", value=rango_activo.get("imprenta_digital_nombre") or "")
+                            imp_rif = st.text_input("RIF Imprenta Digital", value=rango_activo.get("imprenta_digital_rif") or "")
+                            prov_imp = st.text_input("Providencia Imprenta", value=rango_activo.get("providencia_imprenta") or "")
+                        with c3:
+                            prov_cert = st.text_input("Proveedor Certificado", value=rango_activo.get("proveedor_certificado") or "")
+                            ctrl_desde = st.text_input("Control Desde", value=rango_activo.get("rango_control_desde") or "00-000001")
+                            ctrl_hasta = st.text_input("Control Hasta", value=rango_activo.get("rango_control_hasta") or "00-999999")
+                        dir_em = st.text_input("Dirección Fiscal Emisor", value=rango_activo.get("direccion_fiscal") or "")
+                        ley_leg = st.text_area("Leyenda Legal", value=rango_activo.get("leyenda_legal") or "", height=68)
+
+                        if st.form_submit_button("💾 Guardar Configuración Fiscal"):
+                            with conn_fd.cursor() as cur_r:
+                                cur_r.execute(
+                                    """
+                                    UPDATE control_rangos_fiscales
+                                    SET rif_emisor=%s, razon_social_emisor=%s, codigo_actividad_economica=%s,
+                                        imprenta_digital_nombre=%s, imprenta_digital_rif=%s, providencia_imprenta=%s,
+                                        proveedor_certificado=%s, rango_control_desde=%s, rango_control_hasta=%s,
+                                        direccion_fiscal=%s, leyenda_legal=%s
+                                    WHERE id=%s
+                                    """,
+                                    (
+                                        rif_em.strip(), razon_em.strip(), act_ec.strip(),
+                                        imp_nom.strip(), imp_rif.strip(), prov_imp.strip(),
+                                        prov_cert.strip(), ctrl_desde.strip(), ctrl_hasta.strip(),
+                                        dir_em.strip(), ley_leg.strip(), rango_activo["id"],
+                                    ),
+                                )
+                            conn_fd.commit()
+                            st.success("✅ Configuración fiscal actualizada.")
+                            st.rerun()
+
+                st.markdown("#### 1. Datos del Documento y Cliente")
+                d1, d2, d3, d4 = st.columns(4)
+                with d1:
+                    fecha_emision = st.date_input("Fecha de Emisión", value=date.today(), key="fd_fecha_em")
+                with d2:
+                    condicion_pago = st.selectbox("Condición de Pago", ["CONTADO", "CREDITO"], key="fd_cond_pago")
+                with d3:
+                    tipo_venta = st.selectbox("Tipo de Venta", ["INTERNA", "EXPORTACION"], key="fd_tipo_venta")
+                with d4:
+                    tasa_bcv = st.number_input("Tasa BCV (Bs./USD)", min_value=0.0001, value=500.4606, format="%.4f", key="fd_tasa_bcv")
+
+                c_a, c_b, c_c = st.columns(3)
+                with c_a:
+                    cliente_rif = st.text_input("RIF / C.I. Cliente", placeholder="J-405133520", key="fd_cli_rif")
+                with c_b:
+                    cliente_nombre = st.text_input("Nombre o Razón Social Cliente", placeholder="REPRESENTACIONES PEDACITO DE CIELO, C.A.", key="fd_cli_nom")
+                with c_c:
+                    cliente_tel = st.text_input("Teléfono Cliente", placeholder="+58 412-0000000", key="fd_cli_tel")
+
+                c_d, c_e, c_f = st.columns(3)
+                with c_d:
+                    cliente_dir = st.text_input("Dirección Fiscal Cliente", key="fd_cli_dir")
+                with c_e:
+                    periodo_fact = st.text_input("Período Fact.", value=date.today().strftime("%B %Y").upper(), key="fd_periodo")
+                with c_f:
+                    aplica_igtf = st.checkbox("Aplicar IGTF 3% (divisas)", value=False, key="fd_igtf")
+
+                st.markdown("#### 2. Detalle de Ítems")
+                key_df_items = f"fd_items_df_{db_actual}"
+                if key_df_items not in st.session_state:
+                    st.session_state[key_df_items] = pd.DataFrame([
+                        {
+                            "codigo_item": "PROD-001",
+                            "descripcion": "Producto o servicio de ejemplo",
+                            "unidad": "Unidad",
+                            "cantidad": 1.0,
+                            "precio_unitario_bs": 1000.0,
+                            "descuento_pct": 0.0,
+                            "alicuota": "G",
+                        }
+                    ])
+
+                df_editado = st.data_editor(
+                    st.session_state[key_df_items],
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "codigo_item": st.column_config.TextColumn("Código"),
+                        "descripcion": st.column_config.TextColumn("Concepto / Descripción", required=True),
+                        "unidad": st.column_config.TextColumn("Unidad"),
+                        "cantidad": st.column_config.NumberColumn("Cant.", min_value=0.0001, step=1.0, format="%.2f"),
+                        "precio_unitario_bs": st.column_config.NumberColumn("Precio Unit. (Bs.)", min_value=0.0, step=10.0, format="%.2f"),
+                        "descuento_pct": st.column_config.NumberColumn("% Desc.", min_value=0.0, max_value=100.0, step=1.0, format="%.2f"),
+                        "alicuota": st.column_config.SelectboxColumn("Alíc.", options=["G", "E", "R"]),
+                    },
+                    key="fd_editor_lineas",
+                )
+
+                lineas_validas = [
+                    r for r in df_editado.to_dict(orient="records")
+                    if str(r.get("descripcion") or "").strip() and float(r.get("cantidad") or 0) > 0
+                ]
+                totales = calcular_totales_factura(lineas_validas, tasa_bcv=tasa_bcv, aplica_igtf=aplica_igtf)
+
+                st.markdown("#### 3. Resumen Tributario y Emisión")
+                t1, t2, t3, t4 = st.columns(4)
+                t1.metric("Sub Total (Bs.)", f"{totales['subtotal_bs']:,.2f}", delta=f"{totales['subtotal_divisa']:,.2f} USD")
+                t2.metric("Base Imponible 16% (Bs.)", f"{totales['base_imponible_16_bs']:,.2f}", delta=f"Exento: {totales['exento_bs']:,.2f} Bs.")
+                t3.metric("IVA 16% + IGTF 3% (Bs.)", f"{(totales['iva_16_bs'] + totales['igtf_3_bs']):,.2f}", delta=f"IVA: {totales['iva_16_bs']:,.2f} | IGTF: {totales['igtf_3_bs']:,.2f}")
+                t4.metric("Total Factura (Bs.)", f"{totales['total_bs']:,.2f}", delta=f"{totales['total_divisa']:,.2f} USD")
+
+                if st.button("🚀 Emitir Factura Digital (Guardar + XML + PDF)", type="primary", use_container_width=True, key="btn_emitir_fd"):
+                    if not cliente_rif.strip() or not cliente_nombre.strip():
+                        st.error("❌ Debes indicar el RIF/C.I. y el Nombre o Razón Social del cliente.")
+                    elif not lineas_validas:
+                        st.error("❌ Agrega al menos un ítem válido con descripción y cantidad mayor a cero.")
+                    else:
+                        cabecera_payload = {
+                            "fecha_emision": fecha_emision,
+                            "hora_emision": datetime.now().strftime("%H:%M:%S"),
+                            "cliente_rif": cliente_rif.strip().upper(),
+                            "cliente_nombre": cliente_nombre.strip(),
+                            "cliente_telefono": cliente_tel.strip(),
+                            "cliente_direccion_fiscal": cliente_dir.strip(),
+                            "cliente_direccion_entrega": cliente_dir.strip(),
+                            "condicion_pago": condicion_pago,
+                            "tipo_venta": tipo_venta,
+                            "periodo_fact": periodo_fact.strip(),
+                            "tasa_bcv": tasa_bcv,
+                            "aplica_igtf": aplica_igtf,
+                        }
+                        xml_str = generar_xml_factura(cabecera_payload, totales, rango_activo)
+                        fac_id, n_doc_emitido, n_ctrl_emitido = emitir_factura_en_bd(
+                            conn_fd, str(db_actual), rango_activo, cabecera_payload, totales, xml_str
+                        )
+                        cabecera_payload["n_documento"] = n_doc_emitido
+                        cabecera_payload["n_control"] = n_ctrl_emitido
+                        pdf_bytes = generar_pdf_factura_digital(cabecera_payload, totales, rango_activo)
+
+                        st.session_state[f"ultima_factura_emitida_{db_actual}"] = {
+                            "id": fac_id,
+                            "n_documento": n_doc_emitido,
+                            "n_control": n_ctrl_emitido,
+                            "xml": xml_str,
+                            "pdf": pdf_bytes,
+                        }
+                        st.success(f"✅ Factura **{n_doc_emitido}** emitida con N° de Control **{n_ctrl_emitido}** (ID #{fac_id}).")
+
+                ultima_fac = st.session_state.get(f"ultima_factura_emitida_{db_actual}")
+                if ultima_fac:
+                    dl1, dl2 = st.columns(2)
+                    with dl1:
+                        st.download_button(
+                            label=f"📄 Descargar PDF ({ultima_fac['n_documento']})",
+                            data=ultima_fac["pdf"],
+                            file_name=f"factura_{ultima_fac['n_documento']}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                            key="btn_dl_pdf_fd",
+                        )
+                    with dl2:
+                        st.download_button(
+                            label=f"🧾 Descargar XML ({ultima_fac['n_documento']})",
+                            data=ultima_fac["xml"].encode("utf-8"),
+                            file_name=f"factura_{ultima_fac['n_documento']}.xml",
+                            mime="application/xml",
+                            use_container_width=True,
+                            key="btn_dl_xml_fd",
+                        )
+
+                st.divider()
+                st.markdown("#### 4. Facturas Emitidas")
+                with conn_fd.cursor() as cur_hist:
+                    cur_hist.execute(
+                        """
+                        SELECT id, n_documento, n_control, fecha_emision, cliente_rif,
+                               cliente_nombre, condicion_pago, total_bs, total_divisa, estado
+                        FROM facturas_cabecera
+                        WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                        ORDER BY id DESC
+                        LIMIT 100
+                        """,
+                        (str(db_actual).strip(),),
+                    )
+                    cols_f = [d[0] for d in cur_hist.description]
+                    filas_f = [dict(zip(cols_f, r)) for r in cur_hist.fetchall()]
+
+                if filas_f:
+                    df_fac = pd.DataFrame(filas_f)
+                    df_fac["total_bs"] = df_fac["total_bs"].apply(lambda x: f"{float(x or 0):,.2f}")
+                    df_fac["total_divisa"] = df_fac["total_divisa"].apply(lambda x: f"{float(x or 0):,.2f}")
+                    st.dataframe(df_fac, use_container_width=True, hide_index=True)
+                else:
+                    st.info("Aún no hay facturas emitidas para esta empresa.")
+            finally:
+                conn_fd.close()
