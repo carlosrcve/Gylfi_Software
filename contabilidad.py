@@ -14123,7 +14123,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
         st.markdown("### 🗂️ Tabla de Gestión: Modificar y Eliminar (`beneficios_sociales`)")
 
         emp_tabla_bs = str(empresa_emp_bs if "empresa_emp_bs" in locals() else db_actual).strip()
-        cache_key_bs = f"bs_crud_cache_{emp_tabla_bs}"
+        cache_key_bs = f"bs_crud_cache_v2_{emp_tabla_bs}"
 
         COLS_MONTOS_BS = [
             "salario_diario",
@@ -14161,9 +14161,6 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             except ValueError:
                 return 0.0
 
-        def _fmt_monto_bs(val) -> str:
-            return f"{_parse_monto_bs(val):,.2f}"
-
         def _cargar_df_bs(empresa_nombre: str) -> pd.DataFrame:
             conn_tbl_bs = conectar_db(empresa_nombre)
             if not conn_tbl_bs:
@@ -14188,7 +14185,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                 return pd.DataFrame()
 
             df_out = pd.DataFrame([dict(zip(cols_tbl, fila)) for fila in filas])
-            df_out["id"] = pd.to_numeric(df_out["id"], errors="coerce").astype("int64")
+            df_out["id"] = pd.to_numeric(df_out["id"], errors="coerce").fillna(0).astype("int64")
             df_out["empleado_id"] = pd.to_numeric(df_out["empleado_id"], errors="coerce").fillna(0).astype("int64")
             df_out["nombre_empleado"] = df_out["nombre_empleado"].fillna("").astype(str)
             df_out["fecha_ingreso"] = df_out["fecha_ingreso"].apply(_parse_fecha_bs)
@@ -14199,9 +14196,9 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
             df_out["observaciones"] = df_out["observaciones"].fillna("").astype(str)
 
             for col_dec in COLS_MONTOS_BS:
-                df_out[col_dec] = df_out[col_dec].apply(_fmt_monto_bs)
+                df_out[col_dec] = df_out[col_dec].apply(_parse_monto_bs).astype("float64")
 
-            return df_out.set_index("id", drop=False)
+            return df_out.reset_index(drop=True)
 
         top_c1, top_c2 = st.columns([5, 1])
         with top_c2:
@@ -14227,17 +14224,17 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                 num_rows="fixed",
                 key=f"tabla_crud_bs_{emp_tabla_bs}",
                 column_config={
-                    "id": st.column_config.NumberColumn("ID", disabled=True),
+                    "id": st.column_config.NumberColumn("ID", disabled=True, format="%d"),
                     "empresa_db": st.column_config.TextColumn("Empresa DB", disabled=True),
-                    "empleado_id": st.column_config.NumberColumn("Empleado ID"),
+                    "empleado_id": st.column_config.NumberColumn("Empleado ID", format="%d"),
                     "nombre_empleado": st.column_config.TextColumn("Nombre Empleado"),
                     "fecha_ingreso": st.column_config.DateColumn("Fecha Ingreso", format="YYYY-MM-DD"),
                     "fecha_egreso": st.column_config.DateColumn("Fecha Egreso", format="YYYY-MM-DD"),
-                    "salario_diario": st.column_config.TextColumn("Salario Diario"),
-                    "salario_mensual": st.column_config.TextColumn("Salario Mensual"),
-                    "utilidades": st.column_config.TextColumn("Utilidades"),
-                    "bono_vacacional": st.column_config.TextColumn("Bono Vacacional"),
-                    "prestaciones_sociales": st.column_config.TextColumn("Prestaciones Sociales"),
+                    "salario_diario": st.column_config.NumberColumn("Salario Diario", format="%.2f", min_value=0.0),
+                    "salario_mensual": st.column_config.NumberColumn("Salario Mensual", format="%.2f", min_value=0.0),
+                    "utilidades": st.column_config.NumberColumn("Utilidades", format="%.2f", min_value=0.0),
+                    "bono_vacacional": st.column_config.NumberColumn("Bono Vacacional", format="%.2f", min_value=0.0),
+                    "prestaciones_sociales": st.column_config.NumberColumn("Prestaciones Sociales", format="%.2f", min_value=0.0),
                     "observaciones": st.column_config.TextColumn("Observaciones"),
                     "creado_en": st.column_config.TextColumn("Creado En", disabled=True),
                 },
@@ -14253,9 +14250,8 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     key=f"btn_guardar_mod_bs_{emp_tabla_bs}",
                 ):
                     try:
-                        df_new = df_tabla_editada.copy()
-                        if "id" in df_new.columns:
-                            df_new = df_new.set_index("id", drop=False)
+                        df_old = df_base_bs.set_index("id", drop=False)
+                        df_new = df_tabla_editada.set_index("id", drop=False)
 
                         cols_editables = [
                             "empleado_id",
@@ -14270,7 +14266,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             "observaciones",
                         ]
 
-                        df_old_cmp = df_base_bs.loc[df_new.index, cols_editables].copy()
+                        df_old_cmp = df_old.loc[df_new.index, cols_editables].copy()
                         df_new_cmp = df_new[cols_editables].copy()
 
                         for c_num in COLS_MONTOS_BS:
@@ -14350,7 +14346,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
 
             with col_del:
                 opciones_borrar_bs = {
-                    f"#{int(r['id'])} | {r['nombre_empleado']} | Prest.: {r['prestaciones_sociales']}": int(r["id"])
+                    f"#{int(r['id'])} | {r['nombre_empleado']} | Prest.: {float(r['prestaciones_sociales']):,.2f}": int(r["id"])
                     for _, r in df_base_bs.iterrows()
                 }
                 sel_borrar_label = st.selectbox(
