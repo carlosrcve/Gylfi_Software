@@ -13740,9 +13740,22 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     d4.metric("Bono Vacacional Diario", f"{res_bs['bono_vacacional_diario']:,.2f}")
                     d5.metric("Salario Diario Integral", f"{res_bs['salario_diario_integral']:,.2f}")
 
-                    sdi_val = float(res_bs["salario_diario_integral"] or 0.0)
+                    # Ejemplo de ajuste en el cálculo de trimestres y total acumulado si aplica el 1er abono al 2026-03-31
+                    sdi_val = round(float(res_bs["salario_diario_integral"] or 0.0), 2)
                     dias_trim_val = int(dias_prest_bs or 15)
                     abono_trimestral_bs = round(sdi_val * dias_trim_val, 2)
+
+                    # Si res_bs["trimestres_servicio"] viene en 0 pero estás calculando el 1er abono trimestral:
+                    trimestres_calc = int(res_bs.get("trimestres_servicio") or 0)
+                    dias_adic_calc = int(res_bs.get("dias_adicionales_acum") or 0)
+
+                    # Si quieres que el acumulado refleje al menos el abono trimestral cuando el usuario calcula el abono:
+                    total_prest_acum_bs = round(
+                        float(res_bs.get("prestaciones_sociales") or 0.0), 2
+                    )
+                    if total_prest_acum_bs == 0.0 and abono_trimestral_bs > 0.0:
+                        # Solo si deseas mostrar el abono del trimestre en curso cuando trimestres_servicio == 0
+                        total_prest_acum_bs = abono_trimestral_bs
 
                     b1, b2 = st.columns(2)
                     b1.metric(
