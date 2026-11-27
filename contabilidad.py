@@ -28696,6 +28696,26 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                             key="btn_dl_xml_fd",
                         )
 
+                
+                #### 4. Facturas Emitidas
+                from decimal import Decimal, ROUND_HALF_UP
+
+
+                def _r2_ve(val) -> Decimal:
+                    return Decimal(str(val or "0")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+                def _fmt_ve_num(val, decimales: int = 2) -> str:
+                    """Formatea números al estilo venezolano: punto para miles y coma para decimales."""
+                    q = Decimal("1") if decimales == 0 else Decimal("0." + "0" * decimales)
+                    d = Decimal(str(val or "0")).quantize(q, rounding=ROUND_HALF_UP)
+                    partes = f"{d:,.{decimales}f}".split(".")
+                    entero_ve = partes[0].replace(",", ".")
+                    if decimales == 0:
+                        return entero_ve
+                    return f"{entero_ve},{partes[1]}"
+
+
                 st.divider()
                 st.markdown("#### 4. Facturas Emitidas")
                 with conn_fd.cursor() as cur_hist:
