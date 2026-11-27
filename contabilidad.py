@@ -12699,7 +12699,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
         "🧮 Procesar Nómina y Asiento",
         "🧑‍💼 Trabajadores",
         "📄 Recibos Emitidos",
-        "📄 Prestaciones Sociales"
+        "💼 Prestaciones Sociales"
     ])
 
     with tab_calc:
