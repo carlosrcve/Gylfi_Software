@@ -13793,22 +13793,39 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                         st.rerun()
                 except Exception as err_save_bs:
                     st.error(f"❌ Error al guardar en `beneficios_sociales`: {err_save_bs}")
-
         st.divider()
         st.markdown("#### 📋 Historial de Beneficios Sociales")
         try:
+            emp_key_bs = str(db_actual).strip()
             conn_hist_bs = conectar_db(db_actual)
             if conn_hist_bs:
                 with conn_hist_bs.cursor() as cur_hbs:
+                    cur_hbs.execute("""
+                        CREATE TABLE IF NOT EXISTS beneficios_sociales (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            empresa_db VARCHAR(100) NOT NULL,
+                            empleado_id INT NOT NULL,
+                            nombre_empleado VARCHAR(180) NOT NULL,
+                            fecha_ingreso DATE NOT NULL,
+                            fecha_egreso DATE NULL,
+                            salario_diario DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+                            salario_mensual DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+                            utilidades DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+                            bono_vacacional DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+                            prestaciones_sociales DECIMAL(14,2) NOT NULL DEFAULT 0.00,
+                            observaciones TEXT,
+                            creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """)
                     cur_hbs.execute("""
                         SELECT id, nombre_empleado, fecha_ingreso, fecha_egreso,
                                salario_diario, salario_mensual, utilidades,
                                bono_vacacional, prestaciones_sociales, observaciones, creado_en
                         FROM beneficios_sociales
-                        WHERE empresa_db = %s
+                        WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
                         ORDER BY id DESC
                         LIMIT 200
-                    """, (str(db_actual),))
+                    """, (emp_key_bs,))
                     cols_hbs = [desc[0] for desc in cur_hbs.description]
                     filas_hbs = [dict(zip(cols_hbs, fila)) for fila in cur_hbs.fetchall()]
                 conn_hist_bs.close()
