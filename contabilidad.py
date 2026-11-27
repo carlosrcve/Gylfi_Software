@@ -14038,27 +14038,93 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     return "tercero"
                 return "cuarto"
 
-            def _monto_asiento_bs(res_dict: dict) -> float:
-                for cand in [
-                    locals().get("total_prest_acum_bs"),
-                    locals().get("abono_trimestral_bs"),
-                    res_dict.get("prestaciones_sociales") if isinstance(res_dict, dict) else 0.0,
+
+            def _a_float_monto_bs(val) -> float:
+                if val is None or (isinstance(val, float) and pd.isna(val)):
+                    return 0.0
+                if isinstance(val, (int, float, np.number)):
+                    return round(float(val), 2)
+                s = str(val).replace(",", "").strip()
+                if not s or s.lower() in ("none", "nan"):
+                    return 0.0
+                try:
+                    return round(float(s), 2)
+                except ValueError:
+                    return 0.0
+
+
+            def _monto_asiento_bs(res_dict: dict, empresa_db: str, cedula_ref: str = "") -> tuple[float, str]:
+                # 1. Claves explícitas en session_state
+                for clave, origen in [
+                    (f"bs_monto_asiento_{empresa_db}", "session_state:bs_monto_asiento"),
+                    ("ultimo_abono_trimestral_bs", "session_state:ultimo_abono_trimestral_bs"),
+                    ("abono_trimestral_bs", "session_state:abono_trimestral_bs"),
+                    ("prestaciones_sociales", "session_state:prestaciones_sociales"),
                 ]:
-                    if cand is None or (isinstance(cand, float) and pd.isna(cand)):
-                        continue
-                    if isinstance(cand, (int, float, np.number)):
-                        val = round(float(cand), 2)
-                        if val > 0.0:
-                            return val
-                    else:
-                        s = str(cand).replace(",", "").strip()
+                    v = _a_float_monto_bs(st.session_state.get(clave))
+                    if v > 0.0:
+                        return v, origen
+
+                # 2. Diccionario res_bs si está disponible
+                if isinstance(res_dict, dict):
+                    for k in ("prestaciones_sociales", "abono_trimestral", "salario_diario_integral"):
+                        v = _a_float_monto_bs(res_dict.get(k))
+                        if v > 0.0:
+                            return v, f"res_bs.{k}"
+
+                # 3. Consultar columna prestaciones_sociales en beneficios_sociales
+                try:
+                    conn_ps = conectar_db(empresa_db)
+                    if conn_ps:
                         try:
-                            val = round(float(s), 2)
-                            if val > 0.0:
-                                return val
-                        except ValueError:
-                            pass
-                return 0.0
+                            with conn_ps.cursor() as cur_ps:
+                                ced_limpia = (
+                                    str(cedula_ref or "")
+                                    .replace("CI-", "")
+                                    .replace("V-", "")
+                                    .replace("E-", "")
+                                    .strip()
+                                )
+                                if ced_limpia:
+                                    cur_ps.execute(
+                                        """
+                                        SELECT prestaciones_sociales
+                                        FROM beneficios_sociales
+                                        WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                                          AND (
+                                              CAST(empleado_id AS CHAR) = %s
+                                              OR observaciones LIKE %s
+                                              OR nombre_empleado LIKE %s
+                                          )
+                                        ORDER BY id DESC
+                                        LIMIT 1
+                                        """,
+                                        (empresa_db, ced_limpia, f"%{ced_limpia}%", f"%{ced_limpia}%"),
+                                    )
+                                    row_c = cur_ps.fetchone()
+                                    if row_c and _a_float_monto_bs(row_c[0]) > 0.0:
+                                        return _a_float_monto_bs(row_c[0]), "bd:beneficios_sociales(cedula)"
+
+                                cur_ps.execute(
+                                    """
+                                    SELECT prestaciones_sociales
+                                    FROM beneficios_sociales
+                                    WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                                    ORDER BY id DESC
+                                    LIMIT 1
+                                    """,
+                                    (empresa_db,),
+                                )
+                                row_u = cur_ps.fetchone()
+                                if row_u and _a_float_monto_bs(row_u[0]) > 0.0:
+                                    return _a_float_monto_bs(row_u[0]), "bd:beneficios_sociales(ultimo)"
+                        finally:
+                            conn_ps.close()
+                except Exception:
+                    pass
+
+                return 0.0, "no_encontrado (0.00)"
+
 
             st.divider()
             state_key_asiento = f"bs_registrar_asiento_{emp_id_bs}"
@@ -14073,7 +14139,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                 st.session_state[state_key_asiento] = not st.session_state[state_key_asiento]
 
             if st.session_state[state_key_asiento]:
-                st.markdown("#### 📒 Generar y Registrar Asiento Contable")
+                st.markdown("#### 📒 Generar y Registrar Asiento Contable Abono Trimestral")
 
                 cuentas_detalle_bs = []
                 try:
@@ -14149,7 +14215,13 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     {"codigo": str(sel_cta_ver_bs).split(" - ")[0], "nombre": str(sel_cta_ver_bs)}
                 )
 
-                monto_prest_bs = _monto_asiento_bs(res_bs if "res_bs" in locals() else {})
+                monto_prest_bs, origen_monto_bs = _monto_asiento_bs(
+                    res_bs if "res_bs" in locals() else {},
+                    empresa_emp_bs,
+                    cedula_emp_bs if "cedula_emp_bs" in locals() else ref_asiento_bs,
+                )
+                st.caption(f"Monto abono trimestral detectado: **{monto_prest_bs:,.2f}** (`{origen_monto_bs}`)")
+
                 trimestre_bs = _trimestre_texto_bs(fecha_asiento_bs)
                 desc_trimestre_bs = (
                     f"Abonos trimestrales correspondientes a las prestaciones sociales de los empleados "
@@ -14224,7 +14296,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             st.success(f"✅ Asiento contable `{n_comprobante_bs.strip()}` guardado en `asientos_contables`.")
                     except Exception as err_ac_bs:
                         st.error(f"❌ Error guardando el asiento contable: {err_ac_bs}")
-            
+
     with mod_beneficio_socia:
         st.divider()
         st.markdown("### 🗂️ Tabla de Gestión: Modificar y Eliminar (`beneficios_sociales`)")
