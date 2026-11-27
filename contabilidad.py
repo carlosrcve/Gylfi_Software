@@ -12995,39 +12995,15 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     st.divider()
                     st.markdown("#### 📒 Generar y Registrar Asiento Contable")
 
-                    def _a_float_seguro_bs(val) -> float:
-                        if val is None or (isinstance(val, float) and pd.isna(val)):
-                            return 0.0
-                        if isinstance(val, (int, float, np.number)):
-                            return round(float(val), 2)
-                        s = str(val).replace(",", "").strip()
-                        if not s or s.lower() in ("none", "nan"):
-                            return 0.0
-                        try:
-                            return round(float(s), 2)
-                        except ValueError:
-                            return 0.0
-
-                    # Buscar el abono trimestral desde datos_asiento, variables locales o session_state
-                    candidatos_abono = [
-                        datos_asiento.get("abono_trimestral_prestaciones"),
-                        datos_asiento.get("abono_trimestral_bs"),
-                        datos_asiento.get("prestaciones_sociales"),
-                        datos_asiento.get("monto"),
-                        locals().get("abono_trimestral_bs"),
-                        locals().get("total_prest_acum_bs"),
-                        st.session_state.get("abono_trimestral_bs"),
-                        st.session_state.get("ultimo_abono_trimestral_bs"),
-                    ]
-
-                    monto_abono_bs = 0.0
-                    for cand in candidatos_abono:
-                        v = _a_float_seguro_bs(cand)
-                        if v > 0.0:
-                            monto_abono_bs = v
-                            break
-
-                    abono_trim_asiento = monto_abono_bs
+                    abono_trim_asiento = round(
+                        float(
+                            datos_asiento.get("abono_trimestral_prestaciones")
+                            or datos_asiento.get("prestaciones_sociales")
+                            or (abono_trimestral_bs if "abono_trimestral_bs" in locals() else 0.0)
+                            or 0.0
+                        ),
+                        2,
+                    )
 
                     cuentas_detalle = []
                     try:
@@ -13124,7 +13100,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             "plan_cuentas": cta_sueldos_info["codigo"],
                             "cuenta_contable": cta_sueldos_info["nombre"],
                             "referencia": datos_asiento["periodo"],
-                            "debe": _a_float_seguro_bs(datos_asiento.get("total_salarios")),
+                            "debe": round(float(datos_asiento.get("total_salarios") or 0.0), 2),
                             "haber": 0.00,
                             "bloqueado": 0,
                         },
@@ -13135,7 +13111,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             "plan_cuentas": cta_bonos_info["codigo"],
                             "cuenta_contable": cta_bonos_info["nombre"],
                             "referencia": datos_asiento["periodo"],
-                            "debe": _a_float_seguro_bs(datos_asiento.get("total_bonos")),
+                            "debe": round(float(datos_asiento.get("total_bonos") or 0.0), 2),
                             "haber": 0.00,
                             "bloqueado": 0,
                         },
@@ -13147,7 +13123,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             "cuenta_contable": cta_ded_info["nombre"],
                             "referencia": datos_asiento["periodo"],
                             "debe": 0.00,
-                            "haber": _a_float_seguro_bs(datos_asiento.get("total_deducciones")),
+                            "haber": round(float(datos_asiento.get("total_deducciones") or 0.0), 2),
                             "bloqueado": 0,
                         },
                         {
@@ -13158,7 +13134,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             "cuenta_contable": cta_neto_info["nombre"],
                             "referencia": datos_asiento["periodo"],
                             "debe": 0.00,
-                            "haber": _a_float_seguro_bs(datos_asiento.get("total_neto")),
+                            "haber": round(float(datos_asiento.get("total_neto") or 0.0), 2),
                             "bloqueado": 0,
                         },
                         {
@@ -14062,6 +14038,28 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     return "tercero"
                 return "cuarto"
 
+            def _monto_asiento_bs(res_dict: dict) -> float:
+                for cand in [
+                    locals().get("total_prest_acum_bs"),
+                    locals().get("abono_trimestral_bs"),
+                    res_dict.get("prestaciones_sociales") if isinstance(res_dict, dict) else 0.0,
+                ]:
+                    if cand is None or (isinstance(cand, float) and pd.isna(cand)):
+                        continue
+                    if isinstance(cand, (int, float, np.number)):
+                        val = round(float(cand), 2)
+                        if val > 0.0:
+                            return val
+                    else:
+                        s = str(cand).replace(",", "").strip()
+                        try:
+                            val = round(float(s), 2)
+                            if val > 0.0:
+                                return val
+                        except ValueError:
+                            pass
+                return 0.0
+
             st.divider()
             state_key_asiento = f"bs_registrar_asiento_{emp_id_bs}"
             if state_key_asiento not in st.session_state:
@@ -14151,7 +14149,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                     {"codigo": str(sel_cta_ver_bs).split(" - ")[0], "nombre": str(sel_cta_ver_bs)}
                 )
 
-                monto_prest_bs = round(float(res_bs.get("prestaciones_sociales") or 0.0), 2)
+                monto_prest_bs = _monto_asiento_bs(res_bs if "res_bs" in locals() else {})
                 trimestre_bs = _trimestre_texto_bs(fecha_asiento_bs)
                 desc_trimestre_bs = (
                     f"Abonos trimestrales correspondientes a las prestaciones sociales de los empleados "
@@ -14226,7 +14224,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             st.success(f"✅ Asiento contable `{n_comprobante_bs.strip()}` guardado en `asientos_contables`.")
                     except Exception as err_ac_bs:
                         st.error(f"❌ Error guardando el asiento contable: {err_ac_bs}")
-
+            
     with mod_beneficio_socia:
         st.divider()
         st.markdown("### 🗂️ Tabla de Gestión: Modificar y Eliminar (`beneficios_sociales`)")
