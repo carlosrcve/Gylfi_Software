@@ -28793,3 +28793,5 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                         )
                 else:
                     st.info("Aún no hay facturas emitidas para esta empresa.")
+            finally:
+                _cerrar_conexion_segura(conn_fd)
