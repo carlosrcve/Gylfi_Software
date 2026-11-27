@@ -13781,7 +13781,7 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                             "empleado_id": emp_bs["id"],
                             "nombre_empleado": emp_bs["nombre_completo"],
                             "fecha_ingreso": fecha_ingreso_bs,
-                            "fecha_egreso": fecha_egreso_bs if usar_fecha_egreso_bs else None,
+                            "fecha_egreso": fecha_egreso_bs,  # <-- toma directamente la fecha manual elegida
                             "salario_diario": res_bs["salario_diario_integral"] if not es_literal_c else res_bs["salario_diario"],
                             "salario_mensual": res_bs["salario_mensual"],
                             "utilidades": res_bs["utilidades"],
@@ -13818,12 +13818,15 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                 if filas_hbs:
                     df_hbs = pd.DataFrame(filas_hbs)
 
-                    def _fmt_fecha(val, vacio="—"):
-                        if val is None or pd.isna(val) or str(val).strip() in ("", "None", "NaT"):
+                    def _fmt_fecha(val, vacio="Activo"):
+                        if val is None or (isinstance(val, float) and pd.isna(val)):
+                            return vacio
+                        s = str(val).strip()
+                        if s in ("", "None", "NaT", "0000-00-00", "0000-00-00 00:00:00"):
                             return vacio
                         if hasattr(val, "strftime"):
                             return val.strftime("%Y-%m-%d")
-                        return str(val)[:10]
+                        return s[:10]
 
                     if "fecha_ingreso" in df_hbs.columns:
                         df_hbs["fecha_ingreso"] = df_hbs["fecha_ingreso"].apply(lambda v: _fmt_fecha(v, "—"))
@@ -13831,10 +13834,6 @@ def render_modulo_nomina(conectar_db, db_actual, lista_bancos_detalle=None, dict
                         df_hbs["fecha_egreso"] = df_hbs["fecha_egreso"].apply(lambda v: _fmt_fecha(v, "Activo"))
                     if "creado_en" in df_hbs.columns:
                         df_hbs["creado_en"] = df_hbs["creado_en"].apply(lambda v: _fmt_fecha(v, "—"))
-
-                    for col_num in ["salario_diario", "salario_mensual", "utilidades", "bono_vacacional", "prestaciones_sociales"]:
-                        if col_num in df_hbs.columns:
-                            df_hbs[col_num] = df_hbs[col_num].apply(lambda x: f"{float(x or 0.0):,.2f}")
 
                     st.dataframe(df_hbs, use_container_width=True, hide_index=True)
                 else:
