@@ -28984,6 +28984,32 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                             st.dataframe(df_cat_vis, use_container_width=True, hide_index=True)
 
                     st.markdown("#### 1. Datos del Documento y Cliente")
+                    clientes_db = obtener_clientes_comerciales(conn_fd)
+                    if clientes_db:
+                        mapa_clientes = {
+                            f"{_formatear_rif(c.get('rif'))} — {c.get('razon_social') or ''}": c
+                            for c in clientes_db
+                        }
+                        opciones_cli = ["-- Cliente manual / nuevo --"] + list(mapa_clientes.keys())
+                        col_sel_cli, col_btn_cli = st.columns([3, 1])
+                        with col_sel_cli:
+                            cli_elegido_lbl = st.selectbox(
+                                "Seleccionar Cliente desde `clientes_comerciales`",
+                                options=opciones_cli,
+                                key=f"fd_sel_cliente_{db_actual}",
+                            )
+                        with col_btn_cli:
+                            st.write("")
+                            st.write("")
+                            if st.button("📥 Cargar Cliente", use_container_width=True, key=f"btn_cargar_cli_{db_actual}"):
+                                if cli_elegido_lbl != "-- Cliente manual / nuevo --":
+                                    c_dat = mapa_clientes[cli_elegido_lbl]
+                                    st.session_state["fd_cli_rif"] = _formatear_rif(c_dat.get("rif") or "")
+                                    st.session_state["fd_cli_nom"] = str(c_dat.get("razon_social") or "")
+                                    st.session_state["fd_cli_tel"] = str(c_dat.get("telefono") or "")
+                                    st.session_state["fd_cli_dir"] = str(c_dat.get("direccion_fiscal") or "")
+                                    st.rerun()
+
                     d1, d2, d3, d4 = st.columns(4)
                     with d1:
                         fecha_emision = st.date_input("Fecha de Emisión", value=date.today(), key="fd_fecha_em")
