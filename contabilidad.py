@@ -15526,6 +15526,59 @@ def obtener_clientes_comerciales(conn) -> list[dict]:
     except Exception:
         return []
 
+def obtener_plan_cuentas(conn) -> list[dict]:
+    """Obtiene las cuentas de plan_cuentas."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, codigo, nombre, nivel, tipo, padre
+                FROM plan_cuentas
+                ORDER BY codigo ASC
+                """
+            )
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception:
+        return []
+
+
+def registrar_asiento_factura(
+    conn,
+    n_comprobante: str,
+    fecha_asiento,
+    referencia: str,
+    descripcion_base: str,
+    plan_cuentas_label: str,
+    lineas_asiento: list[dict],
+    bloqueado: int = 1,
+) -> None:
+    """Inserta los movimientos del asiento contable en asientos_contables."""
+    with conn.cursor() as cur:
+        for idx, mov in enumerate(lineas_asiento, start=1):
+            debe_val = round(float(mov.get("debe") or 0.0), 2)
+            haber_val = round(float(mov.get("haber") or 0.0), 2)
+            cur.execute(
+                """
+                INSERT INTO asientos_contables (
+                    n_comprobante, descripcion, fecha, plan_cuentas,
+                    cuenta_contable, referencia, debe, haber, bloqueado
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    n_comprobante,
+                    f"{descripcion_base} | {mov.get('concepto_linea', f'Renglón {idx}')}",
+                    fecha_asiento,
+                    plan_cuentas_label,
+                    mov.get("cuenta_contable", ""),
+                    referencia,
+                    debe_val,
+                    haber_val,
+                    int(bloqueado),
+                ),
+            )
+    conn.commit()
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -29184,6 +29237,7 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                     t2.metric("Base Imponible 16% (Bs.)", f"{totales['base_imponible_16_bs']:,.2f}", delta=f"Exento: {totales['exento_bs']:,.2f} Bs.")
                     t3.metric("IVA 16% + IGTF 3% (Bs.)", f"{(totales['iva_16_bs'] + totales['igtf_3_bs']):,.2f}", delta=f"IVA: {totales['iva_16_bs']:,.2f} | IGTF: {totales['igtf_3_bs']:,.2f}")
                     t4.metric("Total Factura (Bs.)", f"{totales['total_bs']:,.2f}", delta=f"{totales['total_divisa']:,.2f} USD")
+
                     if st.button("🚀 Emitir Factura Digital (Guardar + XML + PDF)", type="primary", use_container_width=True, key="btn_emitir_fd"):
                         if not cliente_rif.strip() or not cliente_nombre.strip():
                             st.error("❌ Debes indicar el RIF/C.I. y el Nombre o Razón Social del cliente.")
@@ -29224,7 +29278,12 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                                 "n_control": n_ctrl_emitido,
                                 "xml": xml_str,
                                 "pdf": pdf_bytes,
+                                "fecha_emision": fecha_emision,
+                                "cliente_rif": cliente_rif.strip().upper(),
+                                "cliente_nombre": cliente_nombre.strip(),
+                                "totales": totales,
                             }
+                            st.session_state[f"mostrar_asiento_fd_{db_actual}"] = False
                             st.success(f"✅ Factura **{n_doc_emitido}** emitida con N° de Control **{n_ctrl_emitido}** (ID #{fac_id}).")
 
                     ultima_fac = st.session_state.get(f"ultima_factura_emitida_{db_actual}")
@@ -29341,6 +29400,164 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                             )
                     else:
                         st.info("Aún no hay facturas emitidas para esta empresa.")
+
+                    # =============================================================
+                    # FLUJO DE ASIENTO CONTABLE AL FINAL DE LA FACTURA
+                    # =============================================================
+                    st.divider()
+                    st.markdown("#### 5. Procesamiento de Asiento Contable")
+
+                    key_ver_asiento = f"mostrar_asiento_fd_{db_actual}"
+                    if key_ver_asiento not in st.session_state:
+                        st.session_state[key_ver_asiento] = False
+
+                    fac_ref_asiento = ultima_fac if ultima_fac else (filas_f[0] if filas_f else None)
+                    tot_ref_asiento = (
+                        ultima_fac["totales"]
+                        if (ultima_fac and ultima_fac.get("totales"))
+                        else (
+                            calcular_totales_factura(
+                                lineas_bd,
+                                tasa_bcv=float(fac_ref_asiento.get("tasa_bcv") or 1),
+                                aplica_igtf=bool(fac_ref_asiento.get("aplica_igtf")),
+                            )
+                            if fac_ref_asiento and "lineas_bd" in locals()
+                            else totales
+                        )
+                    )
+
+                    if st.button(
+                        "¿Desea procesar el asiento contable? — Sí, mostrar asiento",
+                        type="secondary",
+                        use_container_width=True,
+                        key=f"btn_desea_asiento_{db_actual}",
+                    ):
+                        st.session_state[key_ver_asiento] = True
+
+                    if st.session_state[key_ver_asiento]:
+                        plan_cuentas_rows = obtener_plan_cuentas(conn_fd)
+                        cuentas_plan_opts = [
+                            f"{str(pc.get('codigo') or '').strip()} - {str(pc.get('nombre') or '').strip()}".strip(" -")
+                            for pc in plan_cuentas_rows
+                        ] or ["Sin cuentas en plan_cuentas"]
+
+                        cli_actual_obj = por_rif.get(_rif_sin_guion(cliente_rif)) or {}
+                        cta_cli_cod = str(cli_actual_obj.get("codigo_cuenta") or "").strip()
+                        cta_cli_desc = str(cli_actual_obj.get("descripcion_cuenta") or "").strip()
+                        cta_cliente_sugerida = (
+                            f"{cta_cli_cod} - {cta_cli_desc}".strip(" -")
+                            if (cta_cli_cod or cta_cli_desc)
+                            else cuentas_plan_opts[0]
+                        )
+
+                        cuentas_cliente_opts = (
+                            [cta_cliente_sugerida] + [c for c in cuentas_plan_opts if c != cta_cliente_sugerida]
+                            if cta_cliente_sugerida
+                            else cuentas_plan_opts
+                        )
+
+                        monto_total_debe = round(float(tot_ref_asiento.get("total_bs") or 0.0), 2)
+                        monto_iva_igtf_haber = round(
+                            float(tot_ref_asiento.get("iva_16_bs") or 0.0) + float(tot_ref_asiento.get("igtf_3_bs") or 0.0),
+                            2,
+                        )
+                        monto_base_ingreso_haber = round(float(tot_ref_asiento.get("base_imponible_16_bs") or 0.0), 2)
+
+                        n_comp_def = f"AST-{fac_ref_asiento['n_documento']}" if fac_ref_asiento else f"AST-{datetime.now().strftime('%Y%m%d%H%M')}"
+                        ref_def = str(fac_ref_asiento.get("n_control") or fac_ref_asiento.get("n_documento") or "") if fac_ref_asiento else ""
+                        fecha_ast_def = fac_ref_asiento.get("fecha_emision") if fac_ref_asiento and fac_ref_asiento.get("fecha_emision") else fecha_emision
+                        desc_ast_def = f"Factura {fac_ref_asiento['n_documento']} - {cliente_nombre}" if fac_ref_asiento else f"Factura - {cliente_nombre}"
+
+                        st.markdown("##### 📋 Frente del Asiento Contable")
+                        ac1, ac2, ac3 = st.columns(3)
+                        with ac1:
+                            n_comprobante_inp = st.text_input("N° Comprobante (`n_comprobante`)", value=n_comp_def, key=f"ast_ncomp_{db_actual}")
+                        with ac2:
+                            fecha_asiento_inp = st.date_input("Fecha (`fecha`)", value=fecha_ast_def, key=f"ast_fecha_{db_actual}")
+                        with ac3:
+                            referencia_inp = st.text_input("Referencia (`referencia`)", value=ref_def, key=f"ast_ref_{db_actual}")
+
+                        ac4, ac5 = st.columns([2, 1])
+                        with ac4:
+                            descripcion_ast_inp = st.text_input("Descripción (`descripcion`)", value=desc_ast_def, key=f"ast_desc_{db_actual}")
+                        with ac5:
+                            plan_cuentas_inp = st.text_input("Plan de Cuentas (`plan_cuentas`)", value="plan_cuentas", key=f"ast_plan_{db_actual}")
+
+                        st.markdown("##### 🔀 Asignación de Cuentas Contables")
+                        s1, s2, s3 = st.columns(3)
+                        with s1:
+                            cta_debe_total = st.selectbox(
+                                "1. Cuenta Total Factura (DEBE — `clientes_comerciales`)",
+                                options=cuentas_cliente_opts,
+                                key=f"ast_sb_cliente_{db_actual}",
+                            )
+                        with s2:
+                            cta_haber_impuestos = st.selectbox(
+                                "2. Cuenta IVA 16% + IGTF 3% (HABER — `plan_cuentas`)",
+                                options=cuentas_plan_opts,
+                                key=f"ast_sb_iva_{db_actual}",
+                            )
+                        with s3:
+                            cta_haber_ingreso = st.selectbox(
+                                "3. Cuenta Base Imponible 16% Ingreso (HABER — `plan_cuentas`)",
+                                options=cuentas_plan_opts,
+                                key=f"ast_sb_ingreso_{db_actual}",
+                            )
+
+                        df_frente_asiento = pd.DataFrame([
+                            {
+                                "cuenta_contable": cta_debe_total,
+                                "concepto": "Total Factura (Bs.)",
+                                "debe": f"{monto_total_debe:,.2f}",
+                                "haber": "0.00",
+                            },
+                            {
+                                "cuenta_contable": cta_haber_impuestos,
+                                "concepto": "IVA 16% + IGTF 3% (Bs.)",
+                                "debe": "0.00",
+                                "haber": f"{monto_iva_igtf_haber:,.2f}",
+                            },
+                            {
+                                "cuenta_contable": cta_haber_ingreso,
+                                "concepto": "Base Imponible 16% / Ingreso (Bs.)",
+                                "debe": "0.00",
+                                "haber": f"{monto_base_ingreso_haber:,.2f}",
+                            },
+                        ])
+                        st.dataframe(df_frente_asiento, use_container_width=True, hide_index=True)
+
+                        if st.button("💾 Guardar Asiento Contable", type="primary", use_container_width=True, key=f"btn_guardar_asiento_{db_actual}"):
+                            lineas_a_guardar = [
+                                {
+                                    "concepto_linea": "Total Factura (Bs.)",
+                                    "cuenta_contable": cta_debe_total,
+                                    "debe": monto_total_debe,
+                                    "haber": 0.0,
+                                },
+                                {
+                                    "concepto_linea": "IVA 16% + IGTF 3% (Bs.)",
+                                    "cuenta_contable": cta_haber_impuestos,
+                                    "debe": 0.0,
+                                    "haber": monto_iva_igtf_haber,
+                                },
+                                {
+                                    "concepto_linea": "Base Imponible 16% / Ingreso (Bs.)",
+                                    "cuenta_contable": cta_haber_ingreso,
+                                    "debe": 0.0,
+                                    "haber": monto_base_ingreso_haber,
+                                },
+                            ]
+                            registrar_asiento_factura(
+                                conn=conn_fd,
+                                n_comprobante=n_comprobante_inp.strip(),
+                                fecha_asiento=fecha_asiento_inp,
+                                referencia=referencia_inp.strip(),
+                                descripcion_base=descripcion_ast_inp.strip(),
+                                plan_cuentas_label=plan_cuentas_inp.strip() or "plan_cuentas",
+                                lineas_asiento=lineas_a_guardar,
+                                bloqueado=1,
+                            )
+                            st.success(f"✅ Asiento contable **{n_comprobante_inp.strip()}** guardado en `asientos_contables`.")
 
                 # =====================================================================
                 # PESTAÑA 2: NOTAS DE CRÉDITO
