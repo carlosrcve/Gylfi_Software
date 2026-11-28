@@ -15527,13 +15527,14 @@ def obtener_clientes_comerciales(conn) -> list[dict]:
         return []
 
 def obtener_plan_cuentas(conn) -> list[dict]:
-    """Obtiene las cuentas de plan_cuentas."""
+    """Obtiene únicamente las cuentas de tipo 'Detalle' de plan_cuentas."""
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT id, codigo, nombre, nivel, tipo, padre
                 FROM plan_cuentas
+                WHERE LOWER(TRIM(tipo)) = 'detalle'
                 ORDER BY codigo ASC
                 """
             )
