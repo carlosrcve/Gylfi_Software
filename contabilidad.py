@@ -15478,6 +15478,37 @@ def emitir_documento_fiscal_en_bd(
     conn.commit()
     return doc_id, n_documento, n_control
 
+def obtener_catalogos_fd(conn, empresa_db: str) -> tuple[list[dict], list[str]]:
+    """Lee productos y unidades de medida desde MySQL."""
+    emp = empresa_db.strip()
+    try:
+        with conn.cursor() as cur_u:
+            cur_u.execute(
+                "SELECT nombre FROM unidades_medida_fd WHERE LOWER(TRIM(empresa_db)) = LOWER(%s) ORDER BY nombre ASC",
+                (emp,),
+            )
+            unidades = [r[0] for r in cur_u.fetchall()] or ["Unidad", "Servicio"]
+    except Exception:
+        unidades = ["Unidad", "Servicio"]
+
+    try:
+        with conn.cursor() as cur_p:
+            cur_p.execute(
+                """
+                SELECT codigo_item, descripcion, unidad, precio_unitario_bs, alicuota
+                FROM catalogo_productos_fd
+                WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                ORDER BY codigo_item ASC
+                """,
+                (emp,),
+            )
+            cols = [d[0] for d in cur_p.description]
+            productos = [dict(zip(cols, r)) for r in cur_p.fetchall()]
+    except Exception:
+        productos = []
+
+    return productos, unidades
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -28868,6 +28899,90 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                 # PESTAÑA 1: FACTURA DIGITAL
                 # =====================================================================
                 with tab_fac:
+                    with st.expander("📦 Catálogo de Productos y Unidades (Registrar / Actualizar)", expanded=False):
+                        productos_cat, unidades_cat = obtener_catalogos_fd(conn_fd, str(db_actual))
+
+                        st.markdown("##### 1. Registrar o Actualizar Producto / Servicio")
+                        with st.form(f"form_catalogo_prod_{db_actual}", clear_on_submit=True):
+                            f1, f2, f3 = st.columns([1.2, 2.4, 1.2])
+                            with f1:
+                                cod_inp = st.text_input("Código (`codigo_item`)", placeholder="PROD-002")
+                            with f2:
+                                desc_inp = st.text_input("Descripción (`descripcion`)", placeholder="Nombre del producto o servicio")
+                            with f3:
+                                uni_inp = st.selectbox("Unidad (`unidad`)", options=unidades_cat)
+
+                            f4, f5, f6 = st.columns([1.4, 1.0, 1.4])
+                            with f4:
+                                prec_inp = st.number_input(
+                                    "Precio Unitario Bs. (`precio_unitario_bs`)",
+                                    min_value=0.0,
+                                    step=10.0,
+                                    format="%.2f",
+                                )
+                            with f5:
+                                ali_inp = st.selectbox("Alícuota (`alicuota`)", options=["G", "E", "R"])
+                            with f6:
+                                st.text_input("Empresa (`empresa_db`)", value=str(db_actual), disabled=True)
+
+                            guardar_prod = st.form_submit_button("💾 Guardar Producto en Catálogo", use_container_width=True)
+                            if guardar_prod:
+                                if not cod_inp.strip() or not desc_inp.strip():
+                                    st.error("❌ Debes completar `codigo_item` y `descripcion`.")
+                                else:
+                                    with conn_fd.cursor() as cur_p:
+                                        cur_p.execute(
+                                            """
+                                            INSERT INTO catalogo_productos_fd
+                                                (empresa_db, codigo_item, descripcion, unidad, precio_unitario_bs, alicuota)
+                                            VALUES (%s, %s, %s, %s, %s, %s)
+                                            ON DUPLICATE KEY UPDATE
+                                                descripcion = VALUES(descripcion),
+                                                unidad = VALUES(unidad),
+                                                precio_unitario_bs = VALUES(precio_unitario_bs),
+                                                alicuota = VALUES(alicuota)
+                                            """,
+                                            (
+                                                str(db_actual).strip(),
+                                                cod_inp.strip().upper(),
+                                                desc_inp.strip(),
+                                                uni_inp,
+                                                float(prec_inp),
+                                                ali_inp,
+                                            ),
+                                        )
+                                    conn_fd.commit()
+                                    st.success(f"✅ Producto **{cod_inp.strip().upper()}** guardado para `{db_actual}`.")
+                                    st.rerun()
+
+                        st.markdown("##### 2. Agregar Nueva Unidad de Medida")
+                        with st.form(f"form_catalogo_uni_{db_actual}", clear_on_submit=True):
+                            u_col1, u_col2 = st.columns([3, 1])
+                            with u_col1:
+                                nueva_uni_inp = st.text_input("Nueva Unidad (`nombre`)", placeholder="Ej. Metro, Caja, Bidón, Hora")
+                            with u_col2:
+                                st.write("")
+                                st.write("")
+                                guardar_uni = st.form_submit_button("➕ Agregar Unidad", use_container_width=True)
+                            if guardar_uni:
+                                if not nueva_uni_inp.strip():
+                                    st.error("❌ Escribe el nombre de la unidad.")
+                                else:
+                                    with conn_fd.cursor() as cur_u:
+                                        cur_u.execute(
+                                            "INSERT IGNORE INTO unidades_medida_fd (empresa_db, nombre) VALUES (%s, %s)",
+                                            (str(db_actual).strip(), nueva_uni_inp.strip()),
+                                        )
+                                    conn_fd.commit()
+                                    st.success(f"✅ Unidad **{nueva_uni_inp.strip()}** agregada.")
+                                    st.rerun()
+
+                        if productos_cat:
+                            st.markdown("##### 3. Productos Registrados en la Empresa")
+                            df_cat_vis = pd.DataFrame(productos_cat)
+                            df_cat_vis["precio_unitario_bs"] = df_cat_vis["precio_unitario_bs"].apply(lambda x: _fmt_ve_num(x, 2))
+                            st.dataframe(df_cat_vis, use_container_width=True, hide_index=True)
+
                     st.markdown("#### 1. Datos del Documento y Cliente")
                     d1, d2, d3, d4 = st.columns(4)
                     with d1:
@@ -28908,17 +29023,29 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                         pague_antes = st.date_input("Pague Antes", value=fecha_emision, key="fd_pague_antes")
 
                     st.markdown("#### 2. Detalle de Ítems")
+                    productos_cat, unidades_cat = obtener_catalogos_fd(conn_fd, str(db_actual))
+                    codigos_opts = [p["codigo_item"] for p in productos_cat] or ["PROD-001"]
+                    descripciones_opts = [p["descripcion"] for p in productos_cat] or ["Producto o servicio de ejemplo"]
+                    unidades_opts = unidades_cat or ["Unidad"]
+
                     key_df_items = f"fd_items_df_{db_actual}"
                     if key_df_items not in st.session_state:
+                        base_p = productos_cat[0] if productos_cat else {
+                            "codigo_item": codigos_opts[0],
+                            "descripcion": descripciones_opts[0],
+                            "unidad": unidades_opts[0],
+                            "precio_unitario_bs": 1000.0,
+                            "alicuota": "G",
+                        }
                         st.session_state[key_df_items] = pd.DataFrame([
                             {
-                                "codigo_item": "PROD-001",
-                                "descripcion": "Producto o servicio de ejemplo",
-                                "unidad": "Unidad",
+                                "codigo_item": base_p["codigo_item"],
+                                "descripcion": base_p["descripcion"],
+                                "unidad": base_p["unidad"] if base_p["unidad"] in unidades_opts else unidades_opts[0],
                                 "cantidad": 1.0,
-                                "precio_unitario_bs": 1000.0,
+                                "precio_unitario_bs": float(base_p.get("precio_unitario_bs") or 1000.0),
                                 "descuento_pct": 0.0,
-                                "alicuota": "G",
+                                "alicuota": base_p.get("alicuota") if base_p.get("alicuota") in ("G", "E", "R") else "G",
                             }
                         ])
 
@@ -28928,9 +29055,9 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                         use_container_width=True,
                         hide_index=True,
                         column_config={
-                            "codigo_item": st.column_config.TextColumn("Código"),
-                            "descripcion": st.column_config.TextColumn("Concepto / Descripción", required=True),
-                            "unidad": st.column_config.TextColumn("Unidad"),
+                            "codigo_item": st.column_config.SelectboxColumn("Código", options=codigos_opts, required=True),
+                            "descripcion": st.column_config.SelectboxColumn("Concepto / Descripción", options=descripciones_opts, required=True),
+                            "unidad": st.column_config.SelectboxColumn("Unidad", options=unidades_opts, required=True),
                             "cantidad": st.column_config.NumberColumn("Cant.", min_value=0.0001, step=1.0, format="%.2f"),
                             "precio_unitario_bs": st.column_config.NumberColumn("Precio Unit. (Bs.)", min_value=0.0, step=10.0, format="%.2f"),
                             "descuento_pct": st.column_config.NumberColumn("% Desc.", min_value=0.0, max_value=100.0, step=1.0, format="%.2f"),
