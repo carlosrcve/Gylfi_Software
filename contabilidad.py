@@ -15313,7 +15313,131 @@ def emitir_factura_en_bd(conn, empresa_db: str, rango: dict, cabecera: dict, tot
     conn.commit()
     return int(factura_id), n_doc, n_ctrl
 
+def asegurar_columnas_nota_credito(conn) -> None:
+    """Agrega soporte de Notas de Crédito de forma segura e idempotente."""
+    alter_cmds = [
+        "ALTER TABLE control_rangos_fiscales ADD COLUMN correlativo_nc_actual BIGINT NOT NULL DEFAULT 0",
+        "ALTER TABLE facturas_cabecera ADD COLUMN tipo_documento VARCHAR(20) NOT NULL DEFAULT 'FACTURA'",
+        "ALTER TABLE facturas_cabecera ADD COLUMN factura_afectada_id BIGINT NULL",
+        "ALTER TABLE facturas_cabecera ADD COLUMN factura_afectada_numero VARCHAR(32) NULL",
+        "ALTER TABLE facturas_cabecera ADD COLUMN factura_afectada_control VARCHAR(32) NULL",
+        "ALTER TABLE facturas_cabecera ADD COLUMN factura_afectada_fecha DATE NULL",
+        "ALTER TABLE facturas_cabecera ADD COLUMN motivo_ajuste VARCHAR(255) NULL",
+    ]
+    with conn.cursor() as cur:
+        for sql in alter_cmds:
+            try:
+                cur.execute(sql)
+            except Exception:
+                # La columna ya existe
+                pass
+    conn.commit()
 
+def emitir_documento_fiscal_en_bd(
+    conn,
+    empresa_db: str,
+    rango: dict,
+    cabecera: dict,
+    totales: dict,
+    xml_str: str,
+) -> tuple[int, str, str]:
+    """Guarda FACTURA o NOTA_CREDITO en BD con su correlativo propio y el mismo rango de control."""
+    tipo_doc = (cabecera.get("tipo_documento") or "FACTURA").upper().strip()
+    es_nc = tipo_doc == "NOTA_CREDITO"
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM control_rangos_fiscales WHERE id = %s FOR UPDATE",
+            (rango["id"],),
+        )
+        cols_r = [d[0] for d in cur.description]
+        rango_lock = dict(zip(cols_r, cur.fetchone()))
+
+        prefijo_ctrl = str(rango_lock.get("rango_control_desde") or "00-000001").split("-")[0]
+        nuevo_ctrl_num = int(rango_lock.get("correlativo_control_actual") or 0) + 1
+        n_control = f"{prefijo_ctrl}-{nuevo_ctrl_num:06d}"
+
+        if es_nc:
+            nuevo_doc_num = int(rango_lock.get("correlativo_nc_actual") or 0) + 1
+            n_documento = f"{nuevo_doc_num:08d}"
+            cur.execute(
+                """
+                UPDATE control_rangos_fiscales
+                SET correlativo_nc_actual = %s, correlativo_control_actual = %s
+                WHERE id = %s
+                """,
+                (nuevo_doc_num, nuevo_ctrl_num, rango_lock["id"]),
+            )
+        else:
+            nuevo_doc_num = int(rango_lock.get("correlativo_doc_actual") or 0) + 1
+            n_documento = f"{nuevo_doc_num:08d}"
+            cur.execute(
+                """
+                UPDATE control_rangos_fiscales
+                SET correlativo_doc_actual = %s, correlativo_control_actual = %s
+                WHERE id = %s
+                """,
+                (nuevo_doc_num, nuevo_ctrl_num, rango_lock["id"]),
+            )
+
+        cur.execute(
+            """
+            INSERT INTO facturas_cabecera (
+                empresa_db, rango_fiscal_id, tipo_documento,
+                n_documento, n_control, fecha_emision, hora_emision,
+                cliente_rif, cliente_nombre, cliente_telefono,
+                cliente_direccion_fiscal, cliente_direccion_entrega,
+                condicion_pago, tipo_venta, periodo_fact, tasa_bcv, aplica_igtf,
+                subtotal_bs, exento_bs, base_imponible_16_bs, iva_16_bs, igtf_3_bs, total_bs,
+                subtotal_divisa, total_divisa,
+                factura_afectada_id, factura_afectada_numero, factura_afectada_control,
+                factura_afectada_fecha, motivo_ajuste, xml_generado, estado
+            ) VALUES (
+                %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s,
+                %s, %s,
+                %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s,
+                %s, %s,
+                %s, %s, %s,
+                %s, %s, %s, 'EMITIDA'
+            )
+            """,
+            (
+                empresa_db.strip(), rango_lock["id"], tipo_doc,
+                n_documento, n_control, cabecera["fecha_emision"], cabecera["hora_emision"],
+                cabecera["cliente_rif"], cabecera["cliente_nombre"], cabecera.get("cliente_telefono", ""),
+                cabecera.get("cliente_direccion_fiscal", ""), cabecera.get("cliente_direccion_entrega", ""),
+                cabecera.get("condicion_pago", "CONTADO"), cabecera.get("tipo_venta", "INTERNA"),
+                cabecera.get("periodo_fact", ""), float(totales["tasa_bcv"]), int(bool(cabecera.get("aplica_igtf"))),
+                float(totales["subtotal_bs"]), float(totales["exento_bs"]), float(totales["base_imponible_16_bs"]),
+                float(totales["iva_16_bs"]), float(totales["igtf_3_bs"]), float(totales["total_bs"]),
+                float(totales["subtotal_divisa"]), float(totales["total_divisa"]),
+                cabecera.get("factura_afectada_id"), cabecera.get("factura_afectada_numero"),
+                cabecera.get("factura_afectada_control"), cabecera.get("factura_afectada_fecha"),
+                cabecera.get("motivo_ajuste"), xml_str,
+            ),
+        )
+        doc_id = cur.lastrowid
+
+        for idx, ln in enumerate(totales.get("lineas", []), start=1):
+            cur.execute(
+                """
+                INSERT INTO facturas_detalle (
+                    factura_id, renglon, codigo_item, descripcion, unidad,
+                    cantidad, precio_unitario_bs, descuento_pct, alicuota, importe_bs
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    doc_id, idx, ln.get("codigo_item", ""), ln["descripcion"], ln.get("unidad", "Unidad"),
+                    float(ln["cantidad"]), float(ln["precio_unitario_bs"]), float(ln.get("descuento_pct", 0)),
+                    ln.get("alicuota", "G"), float(ln["importe_bs"]),
+                ),
+            )
+
+    conn.commit()
+    return doc_id, n_documento, n_control
 
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
