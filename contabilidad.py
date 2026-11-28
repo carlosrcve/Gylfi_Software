@@ -15580,6 +15580,32 @@ def registrar_asiento_factura(
             )
     conn.commit()
 
+def obtener_cuentas_clientes_comerciales(conn) -> list[str]:
+    """Obtiene las cuentas (codigo_cuenta - descripcion_cuenta) desde clientes_comerciales."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT DISTINCT codigo_cuenta, descripcion_cuenta
+                FROM clientes_comerciales
+                WHERE COALESCE(TRIM(codigo_cuenta), '') <> ''
+                   OR COALESCE(TRIM(descripcion_cuenta), '') <> ''
+                ORDER BY codigo_cuenta ASC, descripcion_cuenta ASC
+                """
+            )
+            filas = cur.fetchall()
+        cuentas = []
+        for cod_c, desc_c in filas:
+            cod_s = str(cod_c or "").strip()
+            desc_s = str(desc_c or "").strip()
+            etiqueta = f"{cod_s} - {desc_s}".strip(" -")
+            if etiqueta and etiqueta not in cuentas:
+                cuentas.append(etiqueta)
+        return cuentas
+    except Exception:
+        return []
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -29442,20 +29468,20 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                             for pc in plan_cuentas_rows
                         ] or ["Sin cuentas en plan_cuentas"]
 
+                        cuentas_cli_tabla = obtener_cuentas_clientes_comerciales(conn_fd)
                         cli_actual_obj = por_rif.get(_rif_sin_guion(cliente_rif)) or {}
                         cta_cli_cod = str(cli_actual_obj.get("codigo_cuenta") or "").strip()
                         cta_cli_desc = str(cli_actual_obj.get("descripcion_cuenta") or "").strip()
-                        cta_cliente_sugerida = (
-                            f"{cta_cli_cod} - {cta_cli_desc}".strip(" -")
-                            if (cta_cli_cod or cta_cli_desc)
-                            else cuentas_plan_opts[0]
-                        )
+                        cta_cliente_sugerida = f"{cta_cli_cod} - {cta_cli_desc}".strip(" -")
 
-                        cuentas_cliente_opts = (
-                            [cta_cliente_sugerida] + [c for c in cuentas_plan_opts if c != cta_cliente_sugerida]
-                            if cta_cliente_sugerida
-                            else cuentas_plan_opts
-                        )
+                        cuentas_cliente_opts = []
+                        if cta_cliente_sugerida:
+                            cuentas_cliente_opts.append(cta_cliente_sugerida)
+                        for c_lbl in cuentas_cli_tabla:
+                            if c_lbl not in cuentas_cliente_opts:
+                                cuentas_cliente_opts.append(c_lbl)
+                        if not cuentas_cliente_opts:
+                            cuentas_cliente_opts = ["Sin cuenta en clientes_comerciales"]
 
                         monto_total_debe = round(float(tot_ref_asiento.get("total_bs") or 0.0), 2)
                         monto_iva_igtf_haber = round(
