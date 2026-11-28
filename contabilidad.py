@@ -15313,6 +15313,8 @@ def emitir_factura_en_bd(conn, empresa_db: str, rango: dict, cabecera: dict, tot
     conn.commit()
     return int(factura_id), n_doc, n_ctrl
 
+
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
@@ -28654,6 +28656,7 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
             st.error("❌ No se pudo conectar a la base de datos.")
         else:
             try:
+                asegurar_columnas_nota_credito(conn_fd)
                 rango_activo = obtener_o_crear_rango_activo(conn_fd, str(db_actual))
 
                 with st.expander("⚙️ Configuración Fiscal / Rango de Control e Imprenta Digital", expanded=False):
@@ -28696,291 +28699,559 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                             st.success("✅ Configuración fiscal actualizada.")
                             st.rerun()
 
-                st.markdown("#### 1. Datos del Documento y Cliente")
-                d1, d2, d3, d4 = st.columns(4)
-                with d1:
-                    fecha_emision = st.date_input("Fecha de Emisión", value=date.today(), key="fd_fecha_em")
-                with d2:
-                    condicion_pago = st.selectbox("Condición de Pago", ["CONTADO", "CREDITO"], key="fd_cond_pago")
-                with d3:
-                    tipo_venta = st.selectbox("Tipo de Venta", ["INTERNA", "EXPORTACION"], key="fd_tipo_venta")
-                with d4:
-                    tasa_bcv = st.number_input("Tasa BCV (Bs./USD)", min_value=0.0001, value=500.4606, format="%.4f", key="fd_tasa_bcv")
+                tab_fac, tab_nc = st.tabs(["🧾 Factura Digital", "↩️ Notas de Crédito"])
 
-                periodo_default_es = f"{MESES_ES[fecha_emision.month]} {fecha_emision.year}"
+                # =====================================================================
+                # PESTAÑA 1: FACTURA DIGITAL
+                # =====================================================================
+                with tab_fac:
+                    st.markdown("#### 1. Datos del Documento y Cliente")
+                    d1, d2, d3, d4 = st.columns(4)
+                    with d1:
+                        fecha_emision = st.date_input("Fecha de Emisión", value=date.today(), key="fd_fecha_em")
+                    with d2:
+                        condicion_pago = st.selectbox("Condición de Pago", ["CONTADO", "CREDITO"], key="fd_cond_pago")
+                    with d3:
+                        tipo_venta = st.selectbox("Tipo de Venta", ["INTERNA", "EXPORTACION"], key="fd_tipo_venta")
+                    with d4:
+                        tasa_bcv = st.number_input("Tasa BCV (Bs./USD)", min_value=0.0001, value=500.4606, format="%.4f", key="fd_tasa_bcv")
 
-                c_a, c_b, c_c = st.columns(3)
-                with c_a:
-                    cliente_rif = st.text_input("RIF / C.I. Cliente", placeholder="J-405133520", key="fd_cli_rif")
-                with c_b:
-                    cliente_nombre = st.text_input("Nombre o Razón Social Cliente", placeholder="REPRESENTACIONES PEDACITO DE CIELO, C.A.", key="fd_cli_nom")
-                with c_c:
-                    cliente_tel = st.text_input("Teléfono Cliente", placeholder="+58 412-0000000", key="fd_cli_tel")
+                    periodo_default_es = f"{MESES_ES[fecha_emision.month]} {fecha_emision.year}"
 
-                c_d, c_e, c_f = st.columns(3)
-                with c_d:
-                    cliente_dir = st.text_input("Dirección Fiscal Cliente", key="fd_cli_dir")
-                with c_e:
-                    periodo_fact = st.text_input("Período Fact.", value=periodo_default_es, key="fd_periodo")
-                with c_f:
-                    aplica_igtf = st.checkbox("Aplicar IGTF 3% (divisas)", value=False, key="fd_igtf")
+                    c_a, c_b, c_c = st.columns(3)
+                    with c_a:
+                        cliente_rif = st.text_input("RIF / C.I. Cliente", placeholder="J-405133520", key="fd_cli_rif")
+                    with c_b:
+                        cliente_nombre = st.text_input("Nombre o Razón Social Cliente", placeholder="REPRESENTACIONES PEDACITO DE CIELO, C.A.", key="fd_cli_nom")
+                    with c_c:
+                        cliente_tel = st.text_input("Teléfono Cliente", placeholder="+58 412-0000000", key="fd_cli_tel")
 
-                op1, op2, op3, op4 = st.columns(4)
-                with op1:
-                    sucursal = st.text_input("Sucursal", value="No asignada", key="fd_sucursal")
-                with op2:
-                    vendedor = st.text_input("Vendedor", value="", placeholder="Nombre del vendedor", key="fd_vendedor")
-                with op3:
-                    nro_orden_compra = st.text_input("Nro. Orden de Compra", value="N/A", key="fd_oc")
-                with op4:
-                    pague_antes = st.date_input("Pague Antes", value=fecha_emision, key="fd_pague_antes")
+                    c_d, c_e, c_f = st.columns(3)
+                    with c_d:
+                        cliente_dir = st.text_input("Dirección Fiscal Cliente", key="fd_cli_dir")
+                    with c_e:
+                        periodo_fact = st.text_input("Período Fact.", value=periodo_default_es, key="fd_periodo")
+                    with c_f:
+                        aplica_igtf = st.checkbox("Aplicar IGTF 3% (divisas)", value=False, key="fd_igtf")
 
-                st.markdown("#### 2. Detalle de Ítems")
-                key_df_items = f"fd_items_df_{db_actual}"
-                if key_df_items not in st.session_state:
-                    st.session_state[key_df_items] = pd.DataFrame([
-                        {
-                            "codigo_item": "PROD-001",
-                            "descripcion": "Producto o servicio de ejemplo",
-                            "unidad": "Unidad",
-                            "cantidad": 1.0,
-                            "precio_unitario_bs": 1000.0,
-                            "descuento_pct": 0.0,
-                            "alicuota": "G",
-                        }
-                    ])
+                    op1, op2, op3, op4 = st.columns(4)
+                    with op1:
+                        sucursal = st.text_input("Sucursal", value="No asignada", key="fd_sucursal")
+                    with op2:
+                        vendedor = st.text_input("Vendedor", value="", placeholder="Nombre del vendedor", key="fd_vendedor")
+                    with op3:
+                        nro_orden_compra = st.text_input("Nro. Orden de Compra", value="N/A", key="fd_oc")
+                    with op4:
+                        pague_antes = st.date_input("Pague Antes", value=fecha_emision, key="fd_pague_antes")
 
-                df_editado = st.data_editor(
-                    st.session_state[key_df_items],
-                    num_rows="dynamic",
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "codigo_item": st.column_config.TextColumn("Código"),
-                        "descripcion": st.column_config.TextColumn("Concepto / Descripción", required=True),
-                        "unidad": st.column_config.TextColumn("Unidad"),
-                        "cantidad": st.column_config.NumberColumn("Cant.", min_value=0.0001, step=1.0, format="%.2f"),
-                        "precio_unitario_bs": st.column_config.NumberColumn("Precio Unit. (Bs.)", min_value=0.0, step=10.0, format="%.2f"),
-                        "descuento_pct": st.column_config.NumberColumn("% Desc.", min_value=0.0, max_value=100.0, step=1.0, format="%.2f"),
-                        "alicuota": st.column_config.SelectboxColumn("Alíc.", options=["G", "E", "R"]),
-                    },
-                    key="fd_editor_lineas",
-                )
+                    st.markdown("#### 2. Detalle de Ítems")
+                    key_df_items = f"fd_items_df_{db_actual}"
+                    if key_df_items not in st.session_state:
+                        st.session_state[key_df_items] = pd.DataFrame([
+                            {
+                                "codigo_item": "PROD-001",
+                                "descripcion": "Producto o servicio de ejemplo",
+                                "unidad": "Unidad",
+                                "cantidad": 1.0,
+                                "precio_unitario_bs": 1000.0,
+                                "descuento_pct": 0.0,
+                                "alicuota": "G",
+                            }
+                        ])
 
-                lineas_validas = [
-                    r for r in df_editado.to_dict(orient="records")
-                    if str(r.get("descripcion") or "").strip() and float(r.get("cantidad") or 0) > 0
-                ]
-                totales = calcular_totales_factura(lineas_validas, tasa_bcv=tasa_bcv, aplica_igtf=aplica_igtf)
-
-                st.markdown("#### 3. Resumen Tributario y Emisión")
-                t1, t2, t3, t4 = st.columns(4)
-                t1.metric("Sub Total (Bs.)", f"{totales['subtotal_bs']:,.2f}", delta=f"{totales['subtotal_divisa']:,.2f} USD")
-                t2.metric("Base Imponible 16% (Bs.)", f"{totales['base_imponible_16_bs']:,.2f}", delta=f"Exento: {totales['exento_bs']:,.2f} Bs.")
-                t3.metric("IVA 16% + IGTF 3% (Bs.)", f"{(totales['iva_16_bs'] + totales['igtf_3_bs']):,.2f}", delta=f"IVA: {totales['iva_16_bs']:,.2f} | IGTF: {totales['igtf_3_bs']:,.2f}")
-                t4.metric("Total Factura (Bs.)", f"{totales['total_bs']:,.2f}", delta=f"{totales['total_divisa']:,.2f} USD")
-
-                if st.button("🚀 Emitir Factura Digital (Guardar + XML + PDF)", type="primary", use_container_width=True, key="btn_emitir_fd"):
-                    if not cliente_rif.strip() or not cliente_nombre.strip():
-                        st.error("❌ Debes indicar el RIF/C.I. y el Nombre o Razón Social del cliente.")
-                    elif not lineas_validas:
-                        st.error("❌ Agrega al menos un ítem válido con descripción y cantidad mayor a cero.")
-                    else:
-                        cabecera_payload = {
-                            "fecha_emision": fecha_emision,
-                            "hora_emision": datetime.now().strftime("%H:%M:%S"),
-                            "cliente_rif": cliente_rif.strip().upper(),
-                            "cliente_nombre": cliente_nombre.strip(),
-                            "cliente_telefono": cliente_tel.strip(),
-                            "cliente_direccion_fiscal": cliente_dir.strip(),
-                            "cliente_direccion_entrega": cliente_dir.strip(),
-                            "condicion_pago": condicion_pago,
-                            "tipo_venta": tipo_venta,
-                            "periodo_fact": periodo_fact.strip(),
-                            "tasa_bcv": tasa_bcv,
-                            "aplica_igtf": aplica_igtf,
-                            "sucursal": sucursal.strip() or "No asignada",
-                            "vendedor": vendedor.strip() or "N/A",
-                            "nro_orden_compra": nro_orden_compra.strip() or "N/A",
-                            "pague_antes": pague_antes,
-                            "fecha_asignacion_control": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        }
-                        xml_str = generar_xml_factura(cabecera_payload, totales, rango_activo)
-                        fac_id, n_doc_emitido, n_ctrl_emitido = emitir_factura_en_bd(
-                            conn_fd, str(db_actual), rango_activo, cabecera_payload, totales, xml_str
-                        )
-                        cabecera_payload["n_documento"] = n_doc_emitido
-                        cabecera_payload["n_control"] = n_ctrl_emitido
-                        pdf_bytes = generar_pdf_factura_digital(cabecera_payload, totales, rango_activo)
-
-                        st.session_state[f"ultima_factura_emitida_{db_actual}"] = {
-                            "id": fac_id,
-                            "n_documento": n_doc_emitido,
-                            "n_control": n_ctrl_emitido,
-                            "xml": xml_str,
-                            "pdf": pdf_bytes,
-                        }
-                        st.success(f"✅ Factura **{n_doc_emitido}** emitida con N° de Control **{n_ctrl_emitido}** (ID #{fac_id}).")
-
-                ultima_fac = st.session_state.get(f"ultima_factura_emitida_{db_actual}")
-                if ultima_fac:
-                    dl1, dl2 = st.columns(2)
-                    with dl1:
-                        st.download_button(
-                            label=f"📄 Descargar PDF ({ultima_fac['n_documento']})",
-                            data=ultima_fac["pdf"],
-                            file_name=f"factura_{ultima_fac['n_documento']}.pdf",
-                            mime="application/pdf",
-                            use_container_width=True,
-                            key="btn_dl_pdf_fd",
-                        )
-                    with dl2:
-                        st.download_button(
-                            label=f"🧾 Descargar XML ({ultima_fac['n_documento']})",
-                            data=ultima_fac["xml"].encode("utf-8"),
-                            file_name=f"factura_{ultima_fac['n_documento']}.xml",
-                            mime="application/xml",
-                            use_container_width=True,
-                            key="btn_dl_xml_fd",
-                        )
-
-                
-                #### 4. Facturas Emitidas
-                from datetime import datetime
-                from decimal import Decimal, ROUND_HALF_UP
-
-
-                def _formatear_rif(rif_raw: str) -> str:
-                    """Normaliza RIF/C.I. a formato con guion antes del dígito verificador si aplica (ej. J-405133520)."""
-                    s = "".join(ch for ch in str(rif_raw or "").upper().strip() if ch.isalnum() or ch == "-")
-                    if not s or "-" in s:
-                        return s
-                    if len(s) >= 2 and s[0].isalpha() and s[1:].isdigit():
-                        return f"{s[0]}-{s[1:]}"
-                    return s
-
-
-                def _fmt_ve_num(val, decimales: int = 2) -> str:
-                    """Formatea números al estilo venezolano: punto para miles y coma para decimales."""
-                    q = Decimal("1") if decimales == 0 else Decimal("0." + "0" * decimales)
-                    d = Decimal(str(val or "0")).quantize(q, rounding=ROUND_HALF_UP)
-                    partes = f"{d:,.{decimales}f}".split(".")
-                    entero_ve = partes[0].replace(",", ".")
-                    if decimales == 0:
-                        return entero_ve
-                    return f"{entero_ve},{partes[1]}"
-
-
-                def _hora_12h_am_pm(hora_str: str) -> str:
-                    """Convierte HH:MM:SS a formato 12h con a.m./p.m. cuando es posible."""
-                    raw = str(hora_str or "").strip()
-                    for fmt in ("%H:%M:%S", "%H:%M"):
-                        try:
-                            dt_h = datetime.strptime(raw, fmt)
-                            sufijo = "a.m." if dt_h.hour < 12 else "p.m."
-                            hora_12 = dt_h.strftime("%I:%M:%S") if fmt == "%H:%M:%S" else dt_h.strftime("%I:%M")
-                            return f"{hora_12} {sufijo}"
-                        except ValueError:
-                            continue
-                    return raw
-
-
-                st.divider()
-                st.markdown("#### 4. Facturas Emitidas")
-                with conn_fd.cursor() as cur_hist:
-                    cur_hist.execute(
-                        """
-                        SELECT *
-                        FROM facturas_cabecera
-                        WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
-                        ORDER BY id DESC
-                        LIMIT 100
-                        """,
-                        (str(db_actual).strip(),),
+                    df_editado = st.data_editor(
+                        st.session_state[key_df_items],
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "codigo_item": st.column_config.TextColumn("Código"),
+                            "descripcion": st.column_config.TextColumn("Concepto / Descripción", required=True),
+                            "unidad": st.column_config.TextColumn("Unidad"),
+                            "cantidad": st.column_config.NumberColumn("Cant.", min_value=0.0001, step=1.0, format="%.2f"),
+                            "precio_unitario_bs": st.column_config.NumberColumn("Precio Unit. (Bs.)", min_value=0.0, step=10.0, format="%.2f"),
+                            "descuento_pct": st.column_config.NumberColumn("% Desc.", min_value=0.0, max_value=100.0, step=1.0, format="%.2f"),
+                            "alicuota": st.column_config.SelectboxColumn("Alíc.", options=["G", "E", "R"]),
+                        },
+                        key="fd_editor_lineas",
                     )
-                    cols_f = [d[0] for d in cur_hist.description]
-                    filas_f = [dict(zip(cols_f, r)) for r in cur_hist.fetchall()]
 
-                if filas_f:
-                    resumen_cols = [
-                        "id", "n_documento", "n_control", "fecha_emision",
-                        "cliente_rif", "cliente_nombre", "condicion_pago",
-                        "total_bs", "total_divisa", "estado",
+                    lineas_validas = [
+                        r for r in df_editado.to_dict(orient="records")
+                        if str(r.get("descripcion") or "").strip() and float(r.get("cantidad") or 0) > 0
                     ]
-                    df_fac = pd.DataFrame([
-                        {k: fila.get(k) for k in resumen_cols}
-                        for fila in filas_f
-                    ])
-                    df_fac["total_bs"] = df_fac["total_bs"].apply(lambda x: _fmt_ve_num(x, 2))
-                    df_fac["total_divisa"] = df_fac["total_divisa"].apply(lambda x: _fmt_ve_num(x, 2))
-                    st.dataframe(df_fac, use_container_width=True, hide_index=True)
+                    totales = calcular_totales_factura(lineas_validas, tasa_bcv=tasa_bcv, aplica_igtf=aplica_igtf)
 
-                    st.markdown("##### 🖨️ Reimprimir o Exportar Factura del Historial")
-                    mapa_facturas = {
-                        f"Doc {f['n_documento']} | Control {f['n_control']} | {f['fecha_emision']} — {f['cliente_nombre']} ({_fmt_ve_num(f['total_bs'], 2)} Bs.)": f
-                        for f in filas_f
-                    }
-                    opcion_fac_sel = st.selectbox(
-                        "Selecciona una factura emitida para generar su PDF y XML:",
-                        options=list(mapa_facturas.keys()),
-                        key=f"fd_sel_reimprimir_{db_actual}",
-                    )
-                    fac_sel = mapa_facturas[opcion_fac_sel]
+                    st.markdown("#### 3. Resumen Tributario y Emisión")
+                    t1, t2, t3, t4 = st.columns(4)
+                    t1.metric("Sub Total (Bs.)", f"{totales['subtotal_bs']:,.2f}", delta=f"{totales['subtotal_divisa']:,.2f} USD")
+                    t2.metric("Base Imponible 16% (Bs.)", f"{totales['base_imponible_16_bs']:,.2f}", delta=f"Exento: {totales['exento_bs']:,.2f} Bs.")
+                    t3.metric("IVA 16% + IGTF 3% (Bs.)", f"{(totales['iva_16_bs'] + totales['igtf_3_bs']):,.2f}", delta=f"IVA: {totales['iva_16_bs']:,.2f} | IGTF: {totales['igtf_3_bs']:,.2f}")
+                    t4.metric("Total Factura (Bs.)", f"{totales['total_bs']:,.2f}", delta=f"{totales['total_divisa']:,.2f} USD")
 
-                    with conn_fd.cursor() as cur_det:
-                        cur_det.execute(
-                            """
-                            SELECT codigo_item, descripcion, unidad, cantidad,
-                                   precio_unitario_bs, descuento_pct, alicuota
-                            FROM facturas_detalle
-                            WHERE factura_id = %s
-                            ORDER BY renglon ASC, id ASC
-                            """,
-                            (fac_sel["id"],),
-                        )
-                        cols_d = [d[0] for d in cur_det.description]
-                        lineas_bd = [dict(zip(cols_d, r)) for r in cur_det.fetchall()]
-
-                    rango_fac = rango_activo
-                    if fac_sel.get("rango_fiscal_id"):
-                        with conn_fd.cursor() as cur_rg:
-                            cur_rg.execute(
-                                "SELECT * FROM control_rangos_fiscales WHERE id = %s",
-                                (fac_sel["rango_fiscal_id"],),
+                    if st.button("🚀 Emitir Factura Digital (Guardar + XML + PDF)", type="primary", use_container_width=True, key="btn_emitir_fd"):
+                        if not cliente_rif.strip() or not cliente_nombre.strip():
+                            st.error("❌ Debes indicar el RIF/C.I. y el Nombre o Razón Social del cliente.")
+                        elif not lineas_validas:
+                            st.error("❌ Agrega al menos un ítem válido con descripción y cantidad mayor a cero.")
+                        else:
+                            cabecera_payload = {
+                                "tipo_documento": "FACTURA",
+                                "fecha_emision": fecha_emision,
+                                "hora_emision": datetime.now().strftime("%H:%M:%S"),
+                                "cliente_rif": cliente_rif.strip().upper(),
+                                "cliente_nombre": cliente_nombre.strip(),
+                                "cliente_telefono": cliente_tel.strip(),
+                                "cliente_direccion_fiscal": cliente_dir.strip(),
+                                "cliente_direccion_entrega": cliente_dir.strip(),
+                                "condicion_pago": condicion_pago,
+                                "tipo_venta": tipo_venta,
+                                "periodo_fact": periodo_fact.strip(),
+                                "tasa_bcv": tasa_bcv,
+                                "aplica_igtf": aplica_igtf,
+                                "sucursal": sucursal.strip() or "No asignada",
+                                "vendedor": vendedor.strip() or "N/A",
+                                "nro_orden_compra": nro_orden_compra.strip() or "N/A",
+                                "pague_antes": pague_antes,
+                                "fecha_asignacion_control": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            }
+                            xml_str = generar_xml_factura(cabecera_payload, totales, rango_activo)
+                            fac_id, n_doc_emitido, n_ctrl_emitido = emitir_documento_fiscal_en_bd(
+                                conn_fd, str(db_actual), rango_activo, cabecera_payload, totales, xml_str
                             )
-                            cols_rg = [d[0] for d in cur_rg.description]
-                            row_rg = cur_rg.fetchone()
-                            if row_rg:
-                                rango_fac = dict(zip(cols_rg, row_rg))
+                            cabecera_payload["n_documento"] = n_doc_emitido
+                            cabecera_payload["n_control"] = n_ctrl_emitido
+                            pdf_bytes = generar_pdf_factura_digital(cabecera_payload, totales, rango_activo)
 
-                    totales_reimp = calcular_totales_factura(
-                        lineas_bd,
-                        tasa_bcv=float(fac_sel.get("tasa_bcv") or 1),
-                        aplica_igtf=bool(fac_sel.get("aplica_igtf")),
+                            st.session_state[f"ultima_factura_emitida_{db_actual}"] = {
+                                "id": fac_id,
+                                "n_documento": n_doc_emitido,
+                                "n_control": n_ctrl_emitido,
+                                "xml": xml_str,
+                                "pdf": pdf_bytes,
+                            }
+                            st.success(f"✅ Factura **{n_doc_emitido}** emitida con N° de Control **{n_ctrl_emitido}** (ID #{fac_id}).")
+
+                    ultima_fac = st.session_state.get(f"ultima_factura_emitida_{db_actual}")
+                    if ultima_fac:
+                        dl1, dl2 = st.columns(2)
+                        with dl1:
+                            st.download_button(
+                                label=f"📄 Descargar PDF ({ultima_fac['n_documento']})",
+                                data=ultima_fac["pdf"],
+                                file_name=f"factura_{ultima_fac['n_documento']}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True,
+                                key="btn_dl_pdf_fd",
+                            )
+                        with dl2:
+                            st.download_button(
+                                label=f"🧾 Descargar XML ({ultima_fac['n_documento']})",
+                                data=ultima_fac["xml"].encode("utf-8"),
+                                file_name=f"factura_{ultima_fac['n_documento']}.xml",
+                                mime="application/xml",
+                                use_container_width=True,
+                                key="btn_dl_xml_fd",
+                            )
+
+                    st.divider()
+                    st.markdown("#### 4. Facturas Emitidas")
+                    with conn_fd.cursor() as cur_hist:
+                        cur_hist.execute(
+                            """
+                            SELECT *
+                            FROM facturas_cabecera
+                            WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                              AND COALESCE(tipo_documento, 'FACTURA') = 'FACTURA'
+                            ORDER BY id DESC
+                            LIMIT 100
+                            """,
+                            (str(db_actual).strip(),),
+                        )
+                        cols_f = [d[0] for d in cur_hist.description]
+                        filas_f = [dict(zip(cols_f, r)) for r in cur_hist.fetchall()]
+
+                    if filas_f:
+                        resumen_cols = [
+                            "id", "n_documento", "n_control", "fecha_emision",
+                            "cliente_rif", "cliente_nombre", "condicion_pago",
+                            "total_bs", "total_divisa", "estado",
+                        ]
+                        df_fac = pd.DataFrame([{k: fila.get(k) for k in resumen_cols} for fila in filas_f])
+                        df_fac["total_bs"] = df_fac["total_bs"].apply(lambda x: _fmt_ve_num(x, 2))
+                        df_fac["total_divisa"] = df_fac["total_divisa"].apply(lambda x: _fmt_ve_num(x, 2))
+                        st.dataframe(df_fac, use_container_width=True, hide_index=True)
+
+                        st.markdown("##### 🖨️ Reimprimir o Exportar Factura del Historial")
+                        mapa_facturas = {
+                            f"Doc {f['n_documento']} | Control {f['n_control']} | {f['fecha_emision']} — {f['cliente_nombre']} ({_fmt_ve_num(f['total_bs'], 2)} Bs.)": f
+                            for f in filas_f
+                        }
+                        opcion_fac_sel = st.selectbox(
+                            "Selecciona una factura emitida para generar su PDF y XML:",
+                            options=list(mapa_facturas.keys()),
+                            key=f"fd_sel_reimprimir_{db_actual}",
+                        )
+                        fac_sel = mapa_facturas[opcion_fac_sel]
+
+                        with conn_fd.cursor() as cur_det:
+                            cur_det.execute(
+                                """
+                                SELECT codigo_item, descripcion, unidad, cantidad,
+                                       precio_unitario_bs, descuento_pct, alicuota
+                                FROM facturas_detalle
+                                WHERE factura_id = %s
+                                ORDER BY renglon ASC, id ASC
+                                """,
+                                (fac_sel["id"],),
+                            )
+                            cols_d = [d[0] for d in cur_det.description]
+                            lineas_bd = [dict(zip(cols_d, r)) for r in cur_det.fetchall()]
+
+                        rango_fac = rango_activo
+                        if fac_sel.get("rango_fiscal_id"):
+                            with conn_fd.cursor() as cur_rg:
+                                cur_rg.execute("SELECT * FROM control_rangos_fiscales WHERE id = %s", (fac_sel["rango_fiscal_id"],))
+                                cols_rg = [d[0] for d in cur_rg.description]
+                                row_rg = cur_rg.fetchone()
+                                if row_rg:
+                                    rango_fac = dict(zip(cols_rg, row_rg))
+
+                        totales_reimp = calcular_totales_factura(
+                            lineas_bd,
+                            tasa_bcv=float(fac_sel.get("tasa_bcv") or 1),
+                            aplica_igtf=bool(fac_sel.get("aplica_igtf")),
+                        )
+                        pdf_reimp = generar_pdf_factura_digital(fac_sel, totales_reimp, rango_fac)
+                        xml_reimp = fac_sel.get("xml_generado") or generar_xml_factura(fac_sel, totales_reimp, rango_fac)
+
+                        r_dl1, r_dl2 = st.columns(2)
+                        with r_dl1:
+                            st.download_button(
+                                label=f"📄 Imprimir / Descargar PDF ({fac_sel['n_documento']})",
+                                data=pdf_reimp,
+                                file_name=f"factura_{fac_sel['n_documento']}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True,
+                                key=f"btn_reimp_pdf_{db_actual}_{fac_sel['id']}",
+                            )
+                        with r_dl2:
+                            st.download_button(
+                                label=f"🧾 Descargar XML ({fac_sel['n_documento']})",
+                                data=xml_reimp.encode("utf-8"),
+                                file_name=f"factura_{fac_sel['n_documento']}.xml",
+                                mime="application/xml",
+                                use_container_width=True,
+                                key=f"btn_reimp_xml_{db_actual}_{fac_sel['id']}",
+                            )
+                    else:
+                        st.info("Aún no hay facturas emitidas para esta empresa.")
+
+                # =====================================================================
+                # PESTAÑA 2: NOTAS DE CRÉDITO
+                # =====================================================================
+                with tab_nc:
+                    st.markdown("#### 1. Factura Afectada y Datos de la Nota de Crédito")
+                    with conn_fd.cursor() as cur_ref:
+                        cur_ref.execute(
+                            """
+                            SELECT id, n_documento, n_control, fecha_emision,
+                                   cliente_rif, cliente_nombre, cliente_telefono,
+                                   cliente_direccion_fiscal, tasa_bcv, total_bs
+                            FROM facturas_cabecera
+                            WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                              AND COALESCE(tipo_documento, 'FACTURA') = 'FACTURA'
+                            ORDER BY id DESC
+                            LIMIT 200
+                            """,
+                            (str(db_actual).strip(),),
+                        )
+                        cols_ref = [d[0] for d in cur_ref.description]
+                        facturas_ref = [dict(zip(cols_ref, r)) for r in cur_ref.fetchall()]
+
+                    factura_afectada = None
+                    if facturas_ref:
+                        mapa_ref = {
+                            f"Factura {f['n_documento']} | Control {f['n_control']} | {f['fecha_emision']} — {f['cliente_nombre']} ({_fmt_ve_num(f['total_bs'], 2)} Bs.)": f
+                            for f in facturas_ref
+                        }
+                        col_r1, col_r2 = st.columns([3, 1])
+                        with col_r1:
+                            sel_ref_txt = st.selectbox(
+                                "N° de Factura Afectada *",
+                                options=list(mapa_ref.keys()),
+                                key=f"nc_fac_afectada_{db_actual}",
+                            )
+                            factura_afectada = mapa_ref[sel_ref_txt]
+                        with col_r2:
+                            st.write("")
+                            st.write("")
+                            if st.button("📥 Cargar desde Factura", use_container_width=True, key=f"btn_nc_cargar_{db_actual}"):
+                                st.session_state[f"nc_cli_rif_{db_actual}"] = factura_afectada["cliente_rif"]
+                                st.session_state[f"nc_cli_nom_{db_actual}"] = factura_afectada["cliente_nombre"]
+                                st.session_state[f"nc_cli_tel_{db_actual}"] = factura_afectada.get("cliente_telefono") or ""
+                                st.session_state[f"nc_cli_dir_{db_actual}"] = factura_afectada.get("cliente_direccion_fiscal") or ""
+                                st.session_state[f"nc_tasa_bcv_{db_actual}"] = float(factura_afectada.get("tasa_bcv") or 500.4606)
+
+                                with conn_fd.cursor() as cur_ld:
+                                    cur_ld.execute(
+                                        """
+                                        SELECT codigo_item, descripcion, unidad, cantidad,
+                                               precio_unitario_bs, descuento_pct, alicuota
+                                        FROM facturas_detalle
+                                        WHERE factura_id = %s
+                                        ORDER BY renglon ASC, id ASC
+                                        """,
+                                        (factura_afectada["id"],),
+                                    )
+                                    cols_ld = [d[0] for d in cur_ld.description]
+                                    items_orig = [dict(zip(cols_ld, r)) for r in cur_ld.fetchall()]
+                                if items_orig:
+                                    st.session_state[f"nc_items_df_{db_actual}"] = pd.DataFrame(items_orig)
+                                st.rerun()
+                    else:
+                        st.warning("⚠️ No hay facturas emitidas para asociar a una Nota de Crédito.")
+
+                    n1, n2, n3, n4 = st.columns(4)
+                    with n1:
+                        nc_fecha_em = st.date_input("Fecha de Emisión NC", value=date.today(), key=f"nc_fecha_em_{db_actual}")
+                    with n2:
+                        nc_cond_pago = st.selectbox("Condición de Pago", ["CONTADO", "CREDITO"], key=f"nc_cond_{db_actual}")
+                    with n3:
+                        nc_tipo_venta = st.selectbox("Tipo de Venta", ["INTERNA", "EXPORTACION"], key=f"nc_tipo_v_{db_actual}")
+                    with n4:
+                        nc_tasa_bcv = st.number_input("Tasa BCV (Bs./USD)", min_value=0.0001, value=500.4606, format="%.4f", key=f"nc_tasa_bcv_{db_actual}")
+
+                    nc_periodo_def = f"{MESES_ES[nc_fecha_em.month]} {nc_fecha_em.year}"
+
+                    nc_a, nc_b, nc_c = st.columns(3)
+                    with nc_a:
+                        nc_cli_rif = st.text_input("RIF / C.I. Cliente", key=f"nc_cli_rif_{db_actual}")
+                    with nc_b:
+                        nc_cli_nom = st.text_input("Nombre o Razón Social Cliente", key=f"nc_cli_nom_{db_actual}")
+                    with nc_c:
+                        nc_cli_tel = st.text_input("Teléfono Cliente", key=f"nc_cli_tel_{db_actual}")
+
+                    nc_d, nc_e, nc_f = st.columns(3)
+                    with nc_d:
+                        nc_cli_dir = st.text_input("Dirección Fiscal Cliente", key=f"nc_cli_dir_{db_actual}")
+                    with nc_e:
+                        nc_periodo = st.text_input("Período NC", value=nc_periodo_def, key=f"nc_periodo_{db_actual}")
+                    with nc_f:
+                        nc_motivo = st.text_input("Motivo del Ajuste *", placeholder="Devolución / Descuento / Error", key=f"nc_motivo_{db_actual}")
+
+                    st.markdown("#### 2. Detalle de Ítems a Ajustar")
+                    key_nc_items = f"nc_items_df_{db_actual}"
+                    if key_nc_items not in st.session_state:
+                        st.session_state[key_nc_items] = pd.DataFrame([
+                            {
+                                "codigo_item": "PROD-001",
+                                "descripcion": "Ajuste / devolución de ítem",
+                                "unidad": "Unidad",
+                                "cantidad": 1.0,
+                                "precio_unitario_bs": 1000.0,
+                                "descuento_pct": 0.0,
+                                "alicuota": "G",
+                            }
+                        ])
+
+                    df_nc_edit = st.data_editor(
+                        st.session_state[key_nc_items],
+                        num_rows="dynamic",
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "codigo_item": st.column_config.TextColumn("Código"),
+                            "descripcion": st.column_config.TextColumn("Concepto / Descripción", required=True),
+                            "unidad": st.column_config.TextColumn("Unidad"),
+                            "cantidad": st.column_config.NumberColumn("Cant.", min_value=0.0001, step=1.0, format="%.2f"),
+                            "precio_unitario_bs": st.column_config.NumberColumn("Precio Unit. (Bs.)", min_value=0.0, step=10.0, format="%.2f"),
+                            "descuento_pct": st.column_config.NumberColumn("% Desc.", min_value=0.0, max_value=100.0, step=1.0, format="%.2f"),
+                            "alicuota": st.column_config.SelectboxColumn("Alíc.", options=["G", "E", "R"]),
+                        },
+                        key=f"nc_editor_lineas_{db_actual}",
                     )
-                    pdf_reimp = generar_pdf_factura_digital(fac_sel, totales_reimp, rango_fac)
-                    xml_reimp = fac_sel.get("xml_generado") or generar_xml_factura(fac_sel, totales_reimp, rango_fac)
 
-                    r_dl1, r_dl2 = st.columns(2)
-                    with r_dl1:
-                        st.download_button(
-                            label=f"📄 Imprimir / Descargar PDF ({fac_sel['n_documento']})",
-                            data=pdf_reimp,
-                            file_name=f"factura_{fac_sel['n_documento']}.pdf",
-                            mime="application/pdf",
-                            use_container_width=True,
-                            key=f"btn_reimp_pdf_{db_actual}_{fac_sel['id']}",
+                    nc_lineas = [
+                        r for r in df_nc_edit.to_dict(orient="records")
+                        if str(r.get("descripcion") or "").strip() and float(r.get("cantidad") or 0) > 0
+                    ]
+                    nc_totales = calcular_totales_factura(nc_lineas, tasa_bcv=nc_tasa_bcv, aplica_igtf=False)
+
+                    st.markdown("#### 3. Resumen y Emisión de Nota de Crédito")
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Base Imponible 16% (Bs.)", f"{_fmt_ve_num(nc_totales['base_imponible_16_bs'], 2)}", delta=f"Exento: {_fmt_ve_num(nc_totales['exento_bs'], 2)} Bs.")
+                    m2.metric("IVA 16% (Bs.)", f"{_fmt_ve_num(nc_totales['iva_16_bs'], 2)}")
+                    m3.metric("Total Nota de Crédito (Bs.)", f"{_fmt_ve_num(nc_totales['total_bs'], 2)}", delta=f"{_fmt_ve_num(nc_totales['total_divisa'], 2)} USD")
+
+                    if st.button("↩️ Emitir Nota de Crédito (Guardar + XML + PDF)", type="primary", use_container_width=True, key=f"btn_emitir_nc_{db_actual}"):
+                        if not factura_afectada:
+                            st.error("❌ Debes seleccionar la factura afectada.")
+                        elif not nc_cli_rif.strip() or not nc_cli_nom.strip():
+                            st.error("❌ Debes indicar RIF/C.I. y Razón Social del cliente.")
+                        elif not nc_motivo.strip():
+                            st.error("❌ Indica el motivo del ajuste para la Nota de Crédito.")
+                        elif not nc_lineas:
+                            st.error("❌ Agrega al menos un ítem válido.")
+                        else:
+                            nc_payload = {
+                                "tipo_documento": "NOTA_CREDITO",
+                                "fecha_emision": nc_fecha_em,
+                                "hora_emision": datetime.now().strftime("%H:%M:%S"),
+                                "cliente_rif": nc_cli_rif.strip().upper(),
+                                "cliente_nombre": nc_cli_nom.strip(),
+                                "cliente_telefono": nc_cli_tel.strip(),
+                                "cliente_direccion_fiscal": nc_cli_dir.strip(),
+                                "cliente_direccion_entrega": nc_cli_dir.strip(),
+                                "condicion_pago": nc_cond_pago,
+                                "tipo_venta": nc_tipo_venta,
+                                "periodo_fact": nc_periodo.strip(),
+                                "tasa_bcv": nc_tasa_bcv,
+                                "aplica_igtf": False,
+                                "sucursal": "No asignada",
+                                "vendedor": "N/A",
+                                "nro_orden_compra": "N/A",
+                                "pague_antes": nc_fecha_em,
+                                "fecha_asignacion_control": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "factura_afectada_id": factura_afectada["id"],
+                                "factura_afectada_numero": factura_afectada["n_documento"],
+                                "factura_afectada_control": factura_afectada["n_control"],
+                                "factura_afectada_fecha": factura_afectada["fecha_emision"],
+                                "motivo_ajuste": nc_motivo.strip(),
+                            }
+                            nc_xml = generar_xml_factura(nc_payload, nc_totales, rango_activo)
+                            nc_id, nc_num, nc_ctrl = emitir_documento_fiscal_en_bd(
+                                conn_fd, str(db_actual), rango_activo, nc_payload, nc_totales, nc_xml
+                            )
+                            nc_payload["n_documento"] = nc_num
+                            nc_payload["n_control"] = nc_ctrl
+                            nc_pdf = generar_pdf_factura_digital(nc_payload, nc_totales, rango_activo)
+
+                            st.session_state[f"ultima_nc_emitida_{db_actual}"] = {
+                                "id": nc_id,
+                                "n_documento": nc_num,
+                                "n_control": nc_ctrl,
+                                "xml": nc_xml,
+                                "pdf": nc_pdf,
+                            }
+                            st.success(
+                                f"✅ Nota de Crédito **{nc_num}** emitida (Control **{nc_ctrl}**) "
+                                f"afectando Factura **{factura_afectada['n_documento']}**."
+                            )
+
+                    ultima_nc = st.session_state.get(f"ultima_nc_emitida_{db_actual}")
+                    if ultima_nc:
+                        ndl1, ndl2 = st.columns(2)
+                        with ndl1:
+                            st.download_button(
+                                label=f"📄 Descargar PDF NC ({ultima_nc['n_documento']})",
+                                data=ultima_nc["pdf"],
+                                file_name=f"nota_credito_{ultima_nc['n_documento']}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True,
+                                key=f"btn_dl_pdf_nc_{db_actual}",
+                            )
+                        with ndl2:
+                            st.download_button(
+                                label=f"🧾 Descargar XML NC ({ultima_nc['n_documento']})",
+                                data=ultima_nc["xml"].encode("utf-8"),
+                                file_name=f"nota_credito_{ultima_nc['n_documento']}.xml",
+                                mime="application/xml",
+                                use_container_width=True,
+                                key=f"btn_dl_xml_nc_{db_actual}",
+                            )
+
+                    st.divider()
+                    st.markdown("#### 4. Notas de Crédito Emitidas")
+                    with conn_fd.cursor() as cur_nch:
+                        cur_nch.execute(
+                            """
+                            SELECT *
+                            FROM facturas_cabecera
+                            WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                              AND tipo_documento = 'NOTA_CREDITO'
+                            ORDER BY id DESC
+                            LIMIT 100
+                            """,
+                            (str(db_actual).strip(),),
                         )
-                    with r_dl2:
-                        st.download_button(
-                            label=f"🧾 Descargar XML ({fac_sel['n_documento']})",
-                            data=xml_reimp.encode("utf-8"),
-                            file_name=f"factura_{fac_sel['n_documento']}.xml",
-                            mime="application/xml",
-                            use_container_width=True,
-                            key=f"btn_reimp_xml_{db_actual}_{fac_sel['id']}",
+                        cols_nc = [d[0] for d in cur_nch.description]
+                        filas_nc = [dict(zip(cols_nc, r)) for r in cur_nch.fetchall()]
+
+                    if filas_nc:
+                        cols_nc_vis = [
+                            "id", "n_documento", "n_control", "factura_afectada_numero",
+                            "fecha_emision", "cliente_rif", "cliente_nombre",
+                            "motivo_ajuste", "total_bs", "total_divisa", "estado",
+                        ]
+                        df_nc = pd.DataFrame([{k: fila.get(k) for k in cols_nc_vis} for fila in filas_nc])
+                        df_nc["total_bs"] = df_nc["total_bs"].apply(lambda x: _fmt_ve_num(x, 2))
+                        df_nc["total_divisa"] = df_nc["total_divisa"].apply(lambda x: _fmt_ve_num(x, 2))
+                        st.dataframe(df_nc, use_container_width=True, hide_index=True)
+
+                        st.markdown("##### 🖨️ Reimprimir o Exportar Nota de Crédito del Historial")
+                        mapa_nc_hist = {
+                            f"NC {f['n_documento']} | Control {f['n_control']} | Afecta Fac. {f.get('factura_afectada_numero') or 'N/A'} — {f['cliente_nombre']} ({_fmt_ve_num(f['total_bs'], 2)} Bs.)": f
+                            for f in filas_nc
+                        }
+                        sel_nc_hist = st.selectbox(
+                            "Selecciona una Nota de Crédito para generar su PDF y XML:",
+                            options=list(mapa_nc_hist.keys()),
+                            key=f"nc_sel_reimprimir_{db_actual}",
                         )
-                else:
-                    st.info("Aún no hay facturas emitidas para esta empresa.")
+                        nc_sel = mapa_nc_hist[sel_nc_hist]
+
+                        with conn_fd.cursor() as cur_ncd:
+                            cur_ncd.execute(
+                                """
+                                SELECT codigo_item, descripcion, unidad, cantidad,
+                                       precio_unitario_bs, descuento_pct, alicuota
+                                FROM facturas_detalle
+                                WHERE factura_id = %s
+                                ORDER BY renglon ASC, id ASC
+                                """,
+                                (nc_sel["id"],),
+                            )
+                            cols_nd = [d[0] for d in cur_ncd.description]
+                            lineas_nc_bd = [dict(zip(cols_nd, r)) for r in cur_ncd.fetchall()]
+
+                        rango_nc = rango_activo
+                        if nc_sel.get("rango_fiscal_id"):
+                            with conn_fd.cursor() as cur_ncr:
+                                cur_ncr.execute("SELECT * FROM control_rangos_fiscales WHERE id = %s", (nc_sel["rango_fiscal_id"],))
+                                cols_nr = [d[0] for d in cur_ncr.description]
+                                row_nr = cur_ncr.fetchone()
+                                if row_nr:
+                                    rango_nc = dict(zip(cols_nr, row_nr))
+
+                        totales_nc_reimp = calcular_totales_factura(
+                            lineas_nc_bd,
+                            tasa_bcv=float(nc_sel.get("tasa_bcv") or 1),
+                            aplica_igtf=bool(nc_sel.get("aplica_igtf")),
+                        )
+                        pdf_nc_reimp = generar_pdf_factura_digital(nc_sel, totales_nc_reimp, rango_nc)
+                        xml_nc_reimp = nc_sel.get("xml_generado") or generar_xml_factura(nc_sel, totales_nc_reimp, rango_nc)
+
+                        nc_r1, nc_r2 = st.columns(2)
+                        with nc_r1:
+                            st.download_button(
+                                label=f"📄 Imprimir / Descargar PDF NC ({nc_sel['n_documento']})",
+                                data=pdf_nc_reimp,
+                                file_name=f"nota_credito_{nc_sel['n_documento']}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True,
+                                key=f"btn_reimp_pdf_nc_{db_actual}_{nc_sel['id']}",
+                            )
+                        with nc_r2:
+                            st.download_button(
+                                label=f"🧾 Descargar XML NC ({nc_sel['n_documento']})",
+                                data=xml_nc_reimp.encode("utf-8"),
+                                file_name=f"nota_credito_{nc_sel['n_documento']}.xml",
+                                mime="application/xml",
+                                use_container_width=True,
+                                key=f"btn_reimp_xml_nc_{db_actual}_{nc_sel['id']}",
+                            )
+                    else:
+                        st.info("Aún no hay Notas de Crédito emitidas para esta empresa.")
             finally:
                 _cerrar_conexion_segura(conn_fd)
