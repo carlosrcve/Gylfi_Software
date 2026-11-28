@@ -15509,6 +15509,23 @@ def obtener_catalogos_fd(conn, empresa_db: str) -> tuple[list[dict], list[str]]:
 
     return productos, unidades
 
+def obtener_clientes_comerciales(conn) -> list[dict]:
+    """Consulta los clientes registrados en clientes_comerciales."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT rif, tipo_persona, razon_social, direccion_fiscal,
+                       codigo_cuenta, descripcion_cuenta, telefono
+                FROM clientes_comerciales
+                ORDER BY razon_social ASC
+                """
+            )
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+    except Exception:
+        return []
+
 def gestionar_sidebar():
     user_rol = str(st.session_state.get('rol', 'admin')).strip().lower()
     user_id = st.session_state.get('user_id', st.session_state.get('cliente_id', 'N/A'))
