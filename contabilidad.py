@@ -29950,18 +29950,19 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                             for pc in plan_cuentas_nc_rows
                         ] or ["Sin cuentas en plan_cuentas"]
 
-                        cta_nc_cli_cod = str(cli_nc_obj.get("codigo_cuenta") or "").strip()
-                        cta_nc_cli_desc = str(cli_nc_obj.get("descripcion_cuenta") or "").strip()
-                        cta_nc_cliente_sugerida = (
-                            f"{cta_nc_cli_cod} - {cta_nc_cli_desc}".strip(" -")
-                            if (cta_nc_cli_cod or cta_nc_cli_desc)
-                            else cuentas_plan_nc_opts[0]
-                        )
-                        cuentas_nc_cliente_opts = (
-                            [cta_nc_cliente_sugerida] + [c for c in cuentas_plan_nc_opts if c != cta_nc_cliente_sugerida]
-                            if cta_nc_cliente_sugerida
-                            else cuentas_plan_nc_opts
-                        )
+                        cuentas_nc_cli_tabla = obtener_cuentas_clientes_comerciales(conn_fd)
+                        cli_nc_cod = str(cli_nc_obj.get("codigo_cuenta") or "").strip()
+                        cli_nc_desc = str(cli_nc_obj.get("descripcion_cuenta") or "").strip()
+                        cta_nc_cliente_sugerida = f"{cli_nc_cod} - {cli_nc_desc}".strip(" -")
+
+                        cuentas_nc_cliente_opts = []
+                        if cta_nc_cliente_sugerida:
+                            cuentas_nc_cliente_opts.append(cta_nc_cliente_sugerida)
+                        for c_lbl in cuentas_nc_cli_tabla:
+                            if c_lbl not in cuentas_nc_cliente_opts:
+                                cuentas_nc_cliente_opts.append(c_lbl)
+                        if not cuentas_nc_cliente_opts:
+                            cuentas_nc_cliente_opts = ["Sin cuenta en clientes_comerciales"]
 
                         monto_nc_total_haber = round(float(tot_ref_nc.get("total_bs") or 0.0), 2)
                         monto_nc_iva_debe = round(
@@ -29991,7 +29992,7 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                         with anc5:
                             plan_nc_ast_inp = st.text_input("Plan de Cuentas (`plan_cuentas`)", value="plan_cuentas", key=f"ast_nc_plan_{db_actual}")
 
-                        st.markdown("##### 🔀 Asignación de Cuentas Contables")
+                        st.markdown("##### 🔀 Asignación de Cuentas Contables (Nota de Crédito)")
                         ns1, ns2, ns3 = st.columns(3)
                         with ns1:
                             cta_nc_cliente = st.selectbox(
