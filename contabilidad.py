@@ -29549,6 +29549,7 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                 # =====================================================================
                 with tab_cat:
                     productos_cat, unidades_cat = obtener_catalogos_fd(conn_fd, str(db_actual))
+                    emp_cat = str(db_actual).strip()
 
                     st.markdown("#### 1. Registrar o Actualizar Código / Producto / Servicio")
                     with st.form(f"form_cat_prod_tab_{db_actual}", clear_on_submit=True):
@@ -29571,7 +29572,7 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                         with f5:
                             ali_inp = st.selectbox("Alícuota (`alicuota`)", options=["G", "E", "R"])
                         with f6:
-                            st.text_input("Empresa (`empresa_db`)", value=str(db_actual), disabled=True)
+                            st.text_input("Empresa (`empresa_db`)", value=emp_cat, disabled=True)
 
                         if st.form_submit_button("💾 Guardar Producto en Catálogo", use_container_width=True):
                             if not cod_inp.strip() or not desc_inp.strip():
@@ -29590,7 +29591,7 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                                             alicuota = VALUES(alicuota)
                                         """,
                                         (
-                                            str(db_actual).strip(),
+                                            emp_cat,
                                             cod_inp.strip().upper(),
                                             desc_inp.strip(),
                                             uni_inp,
@@ -29599,7 +29600,7 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                                         ),
                                     )
                                 conn_fd.commit()
-                                st.success(f"✅ Código/Producto **{cod_inp.strip().upper()}** guardado para `{db_actual}`.")
+                                st.success(f"✅ Código/Producto **{cod_inp.strip().upper()}** guardado para `{emp_cat}`.")
                                 st.rerun()
 
                     st.divider()
@@ -29619,16 +29620,172 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                                 with conn_fd.cursor() as cur_u:
                                     cur_u.execute(
                                         "INSERT IGNORE INTO unidades_medida_fd (empresa_db, nombre) VALUES (%s, %s)",
-                                        (str(db_actual).strip(), nueva_uni_inp.strip()),
+                                        (emp_cat, nueva_uni_inp.strip()),
                                     )
                                 conn_fd.commit()
                                 st.success(f"✅ Unidad **{nueva_uni_inp.strip()}** agregada.")
                                 st.rerun()
 
                     st.divider()
+                    st.markdown("#### 3. Modificar o Eliminar Producto / Código")
+                    if productos_cat:
+                        mapa_prod_edit = {
+                            f"{p['codigo_item']} — {p['descripcion']} ({p['unidad']} | {_fmt_ve_num(p['precio_unitario_bs'], 2)} Bs.)": p
+                            for p in productos_cat
+                        }
+                        sel_prod_key = st.selectbox(
+                            "Selecciona un producto para editar o eliminar:",
+                            options=list(mapa_prod_edit.keys()),
+                            key=f"cat_sel_prod_mod_{db_actual}",
+                        )
+                        p_act = mapa_prod_edit[sel_prod_key]
+                        cod_orig = str(p_act["codigo_item"]).strip()
+
+                        with st.form(f"form_edit_prod_fd_{db_actual}_{cod_orig}"):
+                            e1, e2, e3 = st.columns([1.2, 2.4, 1.2])
+                            with e1:
+                                edit_cod = st.text_input("Código (`codigo_item`)", value=cod_orig)
+                            with e2:
+                                edit_desc = st.text_input("Descripción (`descripcion`)", value=str(p_act.get("descripcion") or ""))
+                            with e3:
+                                uni_actual = str(p_act.get("unidad") or "")
+                                lista_uni_edit = unidades_cat if uni_actual in unidades_cat else ([uni_actual] + unidades_cat if uni_actual else unidades_cat)
+                                edit_uni = st.selectbox("Unidad (`unidad`)", options=lista_uni_edit, index=lista_uni_edit.index(uni_actual) if uni_actual in lista_uni_edit else 0)
+
+                            e4, e5, e6 = st.columns([1.4, 1.0, 1.4])
+                            with e4:
+                                edit_prec = st.number_input(
+                                    "Precio Unitario Bs. (`precio_unitario_bs`)",
+                                    min_value=0.0,
+                                    value=float(p_act.get("precio_unitario_bs") or 0.0),
+                                    step=10.0,
+                                    format="%.2f",
+                                )
+                            with e5:
+                                ali_actual = str(p_act.get("alicuota") or "G").upper()
+                                opts_ali = ["G", "E", "R"]
+                                edit_ali = st.selectbox("Alícuota (`alicuota`)", options=opts_ali, index=opts_ali.index(ali_actual) if ali_actual in opts_ali else 0)
+                            with e6:
+                                st.text_input("Empresa (`empresa_db`)", value=emp_cat, disabled=True)
+
+                            b_mod, b_del = st.columns(2)
+                            with b_mod:
+                                btn_actualizar_p = st.form_submit_button("✏️ Actualizar Producto", use_container_width=True)
+                            with b_del:
+                                btn_eliminar_p = st.form_submit_button("🗑️ Eliminar Producto", use_container_width=True)
+
+                            if btn_actualizar_p:
+                                if not edit_cod.strip() or not edit_desc.strip():
+                                    st.error("❌ El código y la descripción no pueden quedar vacíos.")
+                                else:
+                                    with conn_fd.cursor() as cur_upd:
+                                        cur_upd.execute(
+                                            """
+                                            UPDATE catalogo_productos_fd
+                                            SET codigo_item = %s,
+                                                descripcion = %s,
+                                                unidad = %s,
+                                                precio_unitario_bs = %s,
+                                                alicuota = %s
+                                            WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                                              AND codigo_item = %s
+                                            """,
+                                            (
+                                                edit_cod.strip().upper(),
+                                                edit_desc.strip(),
+                                                edit_uni,
+                                                float(edit_prec),
+                                                edit_ali,
+                                                emp_cat,
+                                                cod_orig,
+                                            ),
+                                        )
+                                    conn_fd.commit()
+                                    st.success(f"✅ Producto **{edit_cod.strip().upper()}** actualizado.")
+                                    st.rerun()
+
+                            if btn_eliminar_p:
+                                with conn_fd.cursor() as cur_del_p:
+                                    cur_del_p.execute(
+                                        """
+                                        DELETE FROM catalogo_productos_fd
+                                        WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                                          AND codigo_item = %s
+                                        """,
+                                        (emp_cat, cod_orig),
+                                    )
+                                conn_fd.commit()
+                                st.success(f"🗑️ Producto **{cod_orig}** eliminado del catálogo.")
+                                st.rerun()
+                    else:
+                        st.info("No hay productos registrados para editar o eliminar.")
+
+                    st.divider()
+                    st.markdown("#### 4. Modificar o Eliminar Unidad de Medida")
+                    if unidades_cat:
+                        u_mod_col1, u_mod_col2 = st.columns([2, 2])
+                        with u_mod_col1:
+                            uni_sel_edit = st.selectbox(
+                                "Unidad a modificar o eliminar:",
+                                options=unidades_cat,
+                                key=f"cat_sel_uni_mod_{db_actual}",
+                            )
+                        with u_mod_col2:
+                            uni_nuevo_nombre = st.text_input(
+                                "Nuevo nombre de unidad:",
+                                value=uni_sel_edit,
+                                key=f"cat_txt_uni_nuevo_{db_actual}",
+                            )
+
+                        ub1, ub2 = st.columns(2)
+                        with ub1:
+                            if st.button("✏️ Renombrar Unidad", use_container_width=True, key=f"btn_ren_uni_{db_actual}"):
+                                nuevo_limpio = uni_nuevo_nombre.strip()
+                                if not nuevo_limpio:
+                                    st.error("❌ El nombre de la unidad no puede estar vacío.")
+                                else:
+                                    with conn_fd.cursor() as cur_ru:
+                                        cur_ru.execute(
+                                            """
+                                            UPDATE unidades_medida_fd
+                                            SET nombre = %s
+                                            WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                                              AND nombre = %s
+                                            """,
+                                            (nuevo_limpio, emp_cat, uni_sel_edit),
+                                        )
+                                        cur_ru.execute(
+                                            """
+                                            UPDATE catalogo_productos_fd
+                                            SET unidad = %s
+                                            WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                                              AND unidad = %s
+                                            """,
+                                            (nuevo_limpio, emp_cat, uni_sel_edit),
+                                        )
+                                    conn_fd.commit()
+                                    st.success(f"✅ Unidad **{uni_sel_edit}** actualizada a **{nuevo_limpio}**.")
+                                    st.rerun()
+
+                        with ub2:
+                            if st.button("🗑️ Eliminar Unidad", use_container_width=True, key=f"btn_del_uni_{db_actual}"):
+                                with conn_fd.cursor() as cur_du:
+                                    cur_du.execute(
+                                        """
+                                        DELETE FROM unidades_medida_fd
+                                        WHERE LOWER(TRIM(empresa_db)) = LOWER(%s)
+                                          AND nombre = %s
+                                        """,
+                                        (emp_cat, uni_sel_edit),
+                                    )
+                                conn_fd.commit()
+                                st.success(f"🗑️ Unidad **{uni_sel_edit}** eliminada.")
+                                st.rerun()
+
+                    st.divider()
                     col_t1, col_t2 = st.columns([3, 1])
                     with col_t1:
-                        st.markdown("#### 3. Productos y Códigos Registrados")
+                        st.markdown("#### 5. Productos y Códigos Registrados")
                         if productos_cat:
                             df_cat_vis = pd.DataFrame(productos_cat)
                             df_cat_vis["precio_unitario_bs"] = df_cat_vis["precio_unitario_bs"].apply(lambda x: _fmt_ve_num(x, 2))
@@ -29636,7 +29793,7 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                         else:
                             st.info("Aún no hay productos registrados para esta empresa.")
                     with col_t2:
-                        st.markdown("#### 4. Unidades Activas")
+                        st.markdown("#### 6. Unidades Activas")
                         st.dataframe(pd.DataFrame({"unidad": unidades_cat}), use_container_width=True, hide_index=True)
             finally:
                 _cerrar_conexion_segura(conn_fd)
