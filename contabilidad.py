@@ -28893,7 +28893,7 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                             st.success("✅ Configuración fiscal actualizada.")
                             st.rerun()
 
-                tab_fac, tab_nc = st.tabs(["🧾 Factura Digital", "↩️ Notas de Crédito"])
+                tab_fac, tab_nc, tab_cat = st.tabs(["🧾 Factura Digital","↩️ Notas de Crédito","📦 Catálogos (Productos y Unidades)",])
 
                 # =====================================================================
                 # PESTAÑA 1: FACTURA DIGITAL
@@ -29543,5 +29543,100 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                             )
                     else:
                         st.info("Aún no hay Notas de Crédito emitidas para esta empresa.")
+            
+                # =====================================================================
+                # PESTAÑA 3: CATÁLOGOS (CÓDIGOS, PRODUCTOS Y UNIDADES)
+                # =====================================================================
+                with tab_cat:
+                    productos_cat, unidades_cat = obtener_catalogos_fd(conn_fd, str(db_actual))
+
+                    st.markdown("#### 1. Registrar o Actualizar Código / Producto / Servicio")
+                    with st.form(f"form_cat_prod_tab_{db_actual}", clear_on_submit=True):
+                        f1, f2, f3 = st.columns([1.2, 2.4, 1.2])
+                        with f1:
+                            cod_inp = st.text_input("Código (`codigo_item`)", placeholder="PROD-002")
+                        with f2:
+                            desc_inp = st.text_input("Descripción (`descripcion`)", placeholder="Nombre del producto o servicio")
+                        with f3:
+                            uni_inp = st.selectbox("Unidad (`unidad`)", options=unidades_cat)
+
+                        f4, f5, f6 = st.columns([1.4, 1.0, 1.4])
+                        with f4:
+                            prec_inp = st.number_input(
+                                "Precio Unitario Bs. (`precio_unitario_bs`)",
+                                min_value=0.0,
+                                step=10.0,
+                                format="%.2f",
+                            )
+                        with f5:
+                            ali_inp = st.selectbox("Alícuota (`alicuota`)", options=["G", "E", "R"])
+                        with f6:
+                            st.text_input("Empresa (`empresa_db`)", value=str(db_actual), disabled=True)
+
+                        if st.form_submit_button("💾 Guardar Producto en Catálogo", use_container_width=True):
+                            if not cod_inp.strip() or not desc_inp.strip():
+                                st.error("❌ Debes completar `codigo_item` y `descripcion`.")
+                            else:
+                                with conn_fd.cursor() as cur_p:
+                                    cur_p.execute(
+                                        """
+                                        INSERT INTO catalogo_productos_fd
+                                            (empresa_db, codigo_item, descripcion, unidad, precio_unitario_bs, alicuota)
+                                        VALUES (%s, %s, %s, %s, %s, %s)
+                                        ON DUPLICATE KEY UPDATE
+                                            descripcion = VALUES(descripcion),
+                                            unidad = VALUES(unidad),
+                                            precio_unitario_bs = VALUES(precio_unitario_bs),
+                                            alicuota = VALUES(alicuota)
+                                        """,
+                                        (
+                                            str(db_actual).strip(),
+                                            cod_inp.strip().upper(),
+                                            desc_inp.strip(),
+                                            uni_inp,
+                                            float(prec_inp),
+                                            ali_inp,
+                                        ),
+                                    )
+                                conn_fd.commit()
+                                st.success(f"✅ Código/Producto **{cod_inp.strip().upper()}** guardado para `{db_actual}`.")
+                                st.rerun()
+
+                    st.divider()
+                    st.markdown("#### 2. Registrar Unidad de Medida")
+                    with st.form(f"form_cat_uni_tab_{db_actual}", clear_on_submit=True):
+                        u1, u2 = st.columns([3, 1])
+                        with u1:
+                            nueva_uni_inp = st.text_input("Nueva Unidad (`nombre`)", placeholder="Ej. Unidad, Galón, Caja, Servicio, Hora")
+                        with u2:
+                            st.write("")
+                            st.write("")
+                            guardar_uni = st.form_submit_button("➕ Agregar Unidad", use_container_width=True)
+                        if guardar_uni:
+                            if not nueva_uni_inp.strip():
+                                st.error("❌ Escribe el nombre de la unidad.")
+                            else:
+                                with conn_fd.cursor() as cur_u:
+                                    cur_u.execute(
+                                        "INSERT IGNORE INTO unidades_medida_fd (empresa_db, nombre) VALUES (%s, %s)",
+                                        (str(db_actual).strip(), nueva_uni_inp.strip()),
+                                    )
+                                conn_fd.commit()
+                                st.success(f"✅ Unidad **{nueva_uni_inp.strip()}** agregada.")
+                                st.rerun()
+
+                    st.divider()
+                    col_t1, col_t2 = st.columns([3, 1])
+                    with col_t1:
+                        st.markdown("#### 3. Productos y Códigos Registrados")
+                        if productos_cat:
+                            df_cat_vis = pd.DataFrame(productos_cat)
+                            df_cat_vis["precio_unitario_bs"] = df_cat_vis["precio_unitario_bs"].apply(lambda x: _fmt_ve_num(x, 2))
+                            st.dataframe(df_cat_vis, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("Aún no hay productos registrados para esta empresa.")
+                    with col_t2:
+                        st.markdown("#### 4. Unidades Activas")
+                        st.dataframe(pd.DataFrame({"unidad": unidades_cat}), use_container_width=True, hide_index=True)
             finally:
                 _cerrar_conexion_segura(conn_fd)
