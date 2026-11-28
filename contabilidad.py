@@ -29002,30 +29002,55 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
 
                     st.markdown("#### 1. Datos del Documento y Cliente")
                     clientes_db = obtener_clientes_comerciales(conn_fd)
-                    if clientes_db:
-                        mapa_clientes = {
-                            f"{_formatear_rif(c.get('rif'))} — {c.get('razon_social') or ''}": c
-                            for c in clientes_db
-                        }
-                        opciones_cli = ["-- Cliente manual / nuevo --"] + list(mapa_clientes.keys())
-                        col_sel_cli, col_btn_cli = st.columns([3, 1])
-                        with col_sel_cli:
-                            cli_elegido_lbl = st.selectbox(
-                                "Seleccionar Cliente desde `clientes_comerciales`",
-                                options=opciones_cli,
-                                key=f"fd_sel_cliente_{db_actual}",
-                            )
-                        with col_btn_cli:
-                            st.write("")
-                            st.write("")
-                            if st.button("📥 Cargar Cliente", use_container_width=True, key=f"btn_cargar_cli_{db_actual}"):
-                                if cli_elegido_lbl != "-- Cliente manual / nuevo --":
-                                    c_dat = mapa_clientes[cli_elegido_lbl]
-                                    st.session_state["fd_cli_rif"] = _formatear_rif(c_dat.get("rif") or "")
-                                    st.session_state["fd_cli_nom"] = str(c_dat.get("razon_social") or "")
-                                    st.session_state["fd_cli_tel"] = str(c_dat.get("telefono") or "")
-                                    st.session_state["fd_cli_dir"] = str(c_dat.get("direccion_fiscal") or "")
-                                    st.rerun()
+
+                    rifs_opts = [_formatear_rif(c.get("rif") or "") for c in clientes_db if c.get("rif")] or [""]
+                    nombres_opts = [str(c.get("razon_social") or "") for c in clientes_db if c.get("razon_social")] or [""]
+                    telefonos_opts = [str(c.get("telefono") or "") for c in clientes_db if c.get("telefono")] or [""]
+                    direcciones_opts = [str(c.get("direccion_fiscal") or "") for c in clientes_db if c.get("direccion_fiscal")] or [""]
+
+                    por_rif = {_formatear_rif(c.get("rif") or ""): c for c in clientes_db if c.get("rif")}
+                    por_nombre = {str(c.get("razon_social") or ""): c for c in clientes_db if c.get("razon_social")}
+                    por_tel = {str(c.get("telefono") or ""): c for c in clientes_db if c.get("telefono")}
+                    por_dir = {str(c.get("direccion_fiscal") or ""): c for c in clientes_db if c.get("direccion_fiscal")}
+
+                    def _aplicar_cliente_en_campos(cli_dict: dict) -> None:
+                        if not cli_dict:
+                            return
+                        rif_v = _formatear_rif(cli_dict.get("rif") or "")
+                        nom_v = str(cli_dict.get("razon_social") or "")
+                        tel_v = str(cli_dict.get("telefono") or "")
+                        dir_v = str(cli_dict.get("direccion_fiscal") or "")
+                        if rif_v in rifs_opts:
+                            st.session_state["fd_cli_rif"] = rif_v
+                        if nom_v in nombres_opts:
+                            st.session_state["fd_cli_nom"] = nom_v
+                        if tel_v in telefonos_opts:
+                            st.session_state["fd_cli_tel"] = tel_v
+                        if dir_v in direcciones_opts:
+                            st.session_state["fd_cli_dir"] = dir_v
+
+                    def _on_change_rif():
+                        c_sel = por_rif.get(st.session_state.get("fd_cli_rif", ""))
+                        if c_sel:
+                            _aplicar_cliente_en_campos(c_sel)
+
+                    def _on_change_nombre():
+                        c_sel = por_nombre.get(st.session_state.get("fd_cli_nom", ""))
+                        if c_sel:
+                            _aplicar_cliente_en_campos(c_sel)
+
+                    def _on_change_tel():
+                        c_sel = por_tel.get(st.session_state.get("fd_cli_tel", ""))
+                        if c_sel:
+                            _aplicar_cliente_en_campos(c_sel)
+
+                    def _on_change_dir():
+                        c_sel = por_dir.get(st.session_state.get("fd_cli_dir", ""))
+                        if c_sel:
+                            _aplicar_cliente_en_campos(c_sel)
+
+                    if clientes_db and "fd_cli_rif" not in st.session_state:
+                        _aplicar_cliente_en_campos(clientes_db[0])
 
                     d1, d2, d3, d4 = st.columns(4)
                     with d1:
@@ -29041,15 +29066,35 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
 
                     c_a, c_b, c_c = st.columns(3)
                     with c_a:
-                        cliente_rif = st.text_input("RIF / C.I. Cliente", placeholder="J-405133520", key="fd_cli_rif")
+                        cliente_rif = st.selectbox(
+                            "RIF / C.I. Cliente",
+                            options=rifs_opts,
+                            key="fd_cli_rif",
+                            on_change=_on_change_rif,
+                        )
                     with c_b:
-                        cliente_nombre = st.text_input("Nombre o Razón Social Cliente", placeholder="REPRESENTACIONES PEDACITO DE CIELO, C.A.", key="fd_cli_nom")
+                        cliente_nombre = st.selectbox(
+                            "Nombre o Razón Social Cliente",
+                            options=nombres_opts,
+                            key="fd_cli_nom",
+                            on_change=_on_change_nombre,
+                        )
                     with c_c:
-                        cliente_tel = st.text_input("Teléfono Cliente", placeholder="+58 412-0000000", key="fd_cli_tel")
+                        cliente_tel = st.selectbox(
+                            "Teléfono Cliente",
+                            options=telefonos_opts,
+                            key="fd_cli_tel",
+                            on_change=_on_change_tel,
+                        )
 
                     c_d, c_e, c_f = st.columns(3)
                     with c_d:
-                        cliente_dir = st.text_input("Dirección Fiscal Cliente", key="fd_cli_dir")
+                        cliente_dir = st.selectbox(
+                            "Dirección Fiscal Cliente",
+                            options=direcciones_opts,
+                            key="fd_cli_dir",
+                            on_change=_on_change_dir,
+                        )
                     with c_e:
                         periodo_fact = st.text_input("Período Fact.", value=periodo_default_es, key="fd_periodo")
                     with c_f:
