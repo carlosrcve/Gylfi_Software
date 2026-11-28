@@ -29745,7 +29745,13 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                                 "n_control": nc_ctrl,
                                 "xml": nc_xml,
                                 "pdf": nc_pdf,
+                                "fecha_emision": nc_fecha_em,
+                                "cliente_rif": nc_cli_rif.strip().upper(),
+                                "cliente_nombre": nc_cli_nom.strip(),
+                                "motivo_ajuste": nc_motivo.strip(),
+                                "totales": nc_totales,
                             }
+                            st.session_state[f"mostrar_asiento_nc_{db_actual}"] = False
                             st.success(
                                 f"✅ Nota de Crédito **{nc_num}** emitida (Control **{nc_ctrl}**) "
                                 f"afectando Factura **{factura_afectada['n_documento']}**."
@@ -29865,6 +29871,174 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                             )
                     else:
                         st.info("Aún no hay Notas de Crédito emitidas para esta empresa.")
+
+                    # =============================================================
+                    # FLUJO DE ASIENTO CONTABLE AL FINAL DE LA NOTA DE CRÉDITO
+                    # =============================================================
+                    st.divider()
+                    st.markdown("#### 5. Procesamiento de Asiento Contable")
+
+                    key_ver_asiento_nc = f"mostrar_asiento_nc_{db_actual}"
+                    if key_ver_asiento_nc not in st.session_state:
+                        st.session_state[key_ver_asiento_nc] = False
+
+                    nc_ref_asiento = ultima_nc if ultima_nc else (filas_nc[0] if filas_nc else None)
+                    tot_ref_nc = (
+                        ultima_nc["totales"]
+                        if (ultima_nc and ultima_nc.get("totales"))
+                        else (
+                            calcular_totales_factura(
+                                lineas_nc_bd,
+                                tasa_bcv=float(nc_ref_asiento.get("tasa_bcv") or 1),
+                                aplica_igtf=bool(nc_ref_asiento.get("aplica_igtf")),
+                            )
+                            if nc_ref_asiento and "lineas_nc_bd" in locals()
+                            else nc_totales
+                        )
+                    )
+
+                    if st.button(
+                        "¿Desea procesar el asiento contable? — Sí, mostrar asiento",
+                        type="secondary",
+                        use_container_width=True,
+                        key=f"btn_desea_asiento_nc_{db_actual}",
+                    ):
+                        st.session_state[key_ver_asiento_nc] = True
+
+                    if st.session_state[key_ver_asiento_nc]:
+                        clientes_nc_db = obtener_clientes_comerciales(conn_fd)
+                        por_rif_nc = {
+                            "".join(ch for ch in str(c.get("rif") or "").upper().strip() if ch.isalnum()): c
+                            for c in clientes_nc_db
+                            if c.get("rif")
+                        }
+                        rif_nc_limpio = "".join(
+                            ch for ch in str((nc_ref_asiento or {}).get("cliente_rif") or nc_cli_rif or "").upper().strip() if ch.isalnum()
+                        )
+                        cli_nc_obj = por_rif_nc.get(rif_nc_limpio) or {}
+
+                        plan_cuentas_nc_rows = obtener_plan_cuentas(conn_fd)
+                        cuentas_plan_nc_opts = [
+                            f"{str(pc.get('codigo') or '').strip()} - {str(pc.get('nombre') or '').strip()}".strip(" -")
+                            for pc in plan_cuentas_nc_rows
+                        ] or ["Sin cuentas en plan_cuentas"]
+
+                        cta_nc_cli_cod = str(cli_nc_obj.get("codigo_cuenta") or "").strip()
+                        cta_nc_cli_desc = str(cli_nc_obj.get("descripcion_cuenta") or "").strip()
+                        cta_nc_cliente_sugerida = (
+                            f"{cta_nc_cli_cod} - {cta_nc_cli_desc}".strip(" -")
+                            if (cta_nc_cli_cod or cta_nc_cli_desc)
+                            else cuentas_plan_nc_opts[0]
+                        )
+                        cuentas_nc_cliente_opts = (
+                            [cta_nc_cliente_sugerida] + [c for c in cuentas_plan_nc_opts if c != cta_nc_cliente_sugerida]
+                            if cta_nc_cliente_sugerida
+                            else cuentas_plan_nc_opts
+                        )
+
+                        monto_nc_total_haber = round(float(tot_ref_nc.get("total_bs") or 0.0), 2)
+                        monto_nc_iva_debe = round(
+                            float(tot_ref_nc.get("iva_16_bs") or 0.0) + float(tot_ref_nc.get("igtf_3_bs") or 0.0),
+                            2,
+                        )
+                        monto_nc_base_debe = round(float(tot_ref_nc.get("base_imponible_16_bs") or 0.0), 2)
+
+                        nom_nc_cli = str((nc_ref_asiento or {}).get("cliente_nombre") or nc_cli_nom or "").strip()
+                        n_comp_nc_def = f"AST-NC-{nc_ref_asiento['n_documento']}" if nc_ref_asiento else f"AST-NC-{datetime.now().strftime('%Y%m%d%H%M')}"
+                        ref_nc_def = str((nc_ref_asiento or {}).get("n_control") or (nc_ref_asiento or {}).get("n_documento") or "")
+                        fecha_nc_ast_def = (nc_ref_asiento or {}).get("fecha_emision") or nc_fecha_em
+                        desc_nc_ast_def = f"Nota Crédito {nc_ref_asiento['n_documento']} - {nom_nc_cli}" if nc_ref_asiento else f"Nota Crédito - {nom_nc_cli}"
+
+                        st.markdown("##### 📋 Frente del Asiento Contable (Nota de Crédito)")
+                        anc1, anc2, anc3 = st.columns(3)
+                        with anc1:
+                            n_comp_nc_inp = st.text_input("N° Comprobante (`n_comprobante`)", value=n_comp_nc_def, key=f"ast_nc_ncomp_{db_actual}")
+                        with anc2:
+                            fecha_nc_ast_inp = st.date_input("Fecha (`fecha`)", value=fecha_nc_ast_def, key=f"ast_nc_fecha_{db_actual}")
+                        with anc3:
+                            ref_nc_inp = st.text_input("Referencia (`referencia`)", value=ref_nc_def, key=f"ast_nc_ref_{db_actual}")
+
+                        anc4, anc5 = st.columns([2, 1])
+                        with anc4:
+                            desc_nc_ast_inp = st.text_input("Descripción (`descripcion`)", value=desc_nc_ast_def, key=f"ast_nc_desc_{db_actual}")
+                        with anc5:
+                            plan_nc_ast_inp = st.text_input("Plan de Cuentas (`plan_cuentas`)", value="plan_cuentas", key=f"ast_nc_plan_{db_actual}")
+
+                        st.markdown("##### 🔀 Asignación de Cuentas Contables")
+                        ns1, ns2, ns3 = st.columns(3)
+                        with ns1:
+                            cta_nc_cliente = st.selectbox(
+                                "1. Cuenta Total Nota de Crédito (HABER — `clientes_comerciales`)",
+                                options=cuentas_nc_cliente_opts,
+                                key=f"ast_nc_sb_cliente_{db_actual}",
+                            )
+                        with ns2:
+                            cta_nc_iva = st.selectbox(
+                                "2. Cuenta IVA 16% + IGTF 3% (DEBE — `plan_cuentas`)",
+                                options=cuentas_plan_nc_opts,
+                                key=f"ast_nc_sb_iva_{db_actual}",
+                            )
+                        with ns3:
+                            cta_nc_base = st.selectbox(
+                                "3. Cuenta Base Imponible 16% Ajuste/Ingreso (DEBE — `plan_cuentas`)",
+                                options=cuentas_plan_nc_opts,
+                                key=f"ast_nc_sb_base_{db_actual}",
+                            )
+
+                        df_frente_nc = pd.DataFrame([
+                            {
+                                "cuenta_contable": cta_nc_base,
+                                "concepto": "Base Imponible 16% / Ajuste (Bs.)",
+                                "debe": f"{monto_nc_base_debe:,.2f}",
+                                "haber": "0.00",
+                            },
+                            {
+                                "cuenta_contable": cta_nc_iva,
+                                "concepto": "IVA 16% + IGTF 3% (Bs.)",
+                                "debe": f"{monto_nc_iva_debe:,.2f}",
+                                "haber": "0.00",
+                            },
+                            {
+                                "cuenta_contable": cta_nc_cliente,
+                                "concepto": "Total Nota de Crédito (Bs.)",
+                                "debe": "0.00",
+                                "haber": f"{monto_nc_total_haber:,.2f}",
+                            },
+                        ])
+                        st.dataframe(df_frente_nc, use_container_width=True, hide_index=True)
+
+                        if st.button("💾 Guardar Asiento Contable NC", type="primary", use_container_width=True, key=f"btn_guardar_asiento_nc_{db_actual}"):
+                            lineas_nc_asiento = [
+                                {
+                                    "concepto_linea": "Base Imponible 16% / Ajuste (Bs.)",
+                                    "cuenta_contable": cta_nc_base,
+                                    "debe": monto_nc_base_debe,
+                                    "haber": 0.0,
+                                },
+                                {
+                                    "concepto_linea": "IVA 16% + IGTF 3% (Bs.)",
+                                    "cuenta_contable": cta_nc_iva,
+                                    "debe": monto_nc_iva_debe,
+                                    "haber": 0.0,
+                                },
+                                {
+                                    "concepto_linea": "Total Nota de Crédito (Bs.)",
+                                    "cuenta_contable": cta_nc_cliente,
+                                    "debe": 0.0,
+                                    "haber": monto_nc_total_haber,
+                                },
+                            ]
+                            registrar_asiento_factura(
+                                conn=conn_fd,
+                                n_comprobante=n_comp_nc_inp.strip(),
+                                fecha_asiento=fecha_nc_ast_inp,
+                                referencia=ref_nc_inp.strip(),
+                                descripcion_base=desc_nc_ast_inp.strip(),
+                                plan_cuentas_label=plan_nc_ast_inp.strip() or "plan_cuentas",
+                                lineas_asiento=lineas_nc_asiento,
+                                bloqueado=1,
+                            )
+                            st.success(f"✅ Asiento contable **{n_comp_nc_inp.strip()}** guardado en `asientos_contables`.")
             
                 # =====================================================================
                 # PESTAÑA 3: CATÁLOGOS (CÓDIGOS, PRODUCTOS Y UNIDADES)
