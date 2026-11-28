@@ -29003,12 +29003,29 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                     st.markdown("#### 1. Datos del Documento y Cliente")
                     clientes_db = obtener_clientes_comerciales(conn_fd)
 
-                    rifs_opts = [_formatear_rif(c.get("rif") or "") for c in clientes_db if c.get("rif")] or [""]
+                    def _rif_sin_guion(rif_raw: str) -> str:
+                        """Devuelve el RIF/C.I. en mayúsculas sin guiones ni espacios (ej. J1235979)."""
+                        return "".join(ch for ch in str(rif_raw or "").upper().strip() if ch.isalnum())
+
+                    rifs_opts = []
+                    etiquetas_rif = {}
+                    for c in clientes_db:
+                        rif_limpio = _rif_sin_guion(c.get("rif") or "")
+                        if not rif_limpio:
+                            continue
+                        nombre_cli = str(c.get("razon_social") or "").strip()
+                        rifs_opts.append(rif_limpio)
+                        etiquetas_rif[rif_limpio] = f"{rif_limpio} - {nombre_cli}" if nombre_cli else rif_limpio
+
+                    if not rifs_opts:
+                        rifs_opts = [""]
+                        etiquetas_rif[""] = ""
+
                     nombres_opts = [str(c.get("razon_social") or "") for c in clientes_db if c.get("razon_social")] or [""]
                     telefonos_opts = [str(c.get("telefono") or "") for c in clientes_db if c.get("telefono")] or [""]
                     direcciones_opts = [str(c.get("direccion_fiscal") or "") for c in clientes_db if c.get("direccion_fiscal")] or [""]
 
-                    por_rif = {_formatear_rif(c.get("rif") or ""): c for c in clientes_db if c.get("rif")}
+                    por_rif = {_rif_sin_guion(c.get("rif") or ""): c for c in clientes_db if c.get("rif")}
                     por_nombre = {str(c.get("razon_social") or ""): c for c in clientes_db if c.get("razon_social")}
                     por_tel = {str(c.get("telefono") or ""): c for c in clientes_db if c.get("telefono")}
                     por_dir = {str(c.get("direccion_fiscal") or ""): c for c in clientes_db if c.get("direccion_fiscal")}
@@ -29016,7 +29033,7 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                     def _aplicar_cliente_en_campos(cli_dict: dict) -> None:
                         if not cli_dict:
                             return
-                        rif_v = _formatear_rif(cli_dict.get("rif") or "")
+                        rif_v = _rif_sin_guion(cli_dict.get("rif") or "")
                         nom_v = str(cli_dict.get("razon_social") or "")
                         tel_v = str(cli_dict.get("telefono") or "")
                         dir_v = str(cli_dict.get("direccion_fiscal") or "")
@@ -29069,6 +29086,7 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                         cliente_rif = st.selectbox(
                             "RIF / C.I. Cliente",
                             options=rifs_opts,
+                            format_func=lambda r: etiquetas_rif.get(r, r),
                             key="fd_cli_rif",
                             on_change=_on_change_rif,
                         )
@@ -29166,7 +29184,6 @@ if opcion_menu in ("🧾 Facturación Digital", "Facturacion Digital"):
                     t2.metric("Base Imponible 16% (Bs.)", f"{totales['base_imponible_16_bs']:,.2f}", delta=f"Exento: {totales['exento_bs']:,.2f} Bs.")
                     t3.metric("IVA 16% + IGTF 3% (Bs.)", f"{(totales['iva_16_bs'] + totales['igtf_3_bs']):,.2f}", delta=f"IVA: {totales['iva_16_bs']:,.2f} | IGTF: {totales['igtf_3_bs']:,.2f}")
                     t4.metric("Total Factura (Bs.)", f"{totales['total_bs']:,.2f}", delta=f"{totales['total_divisa']:,.2f} USD")
-
                     if st.button("🚀 Emitir Factura Digital (Guardar + XML + PDF)", type="primary", use_container_width=True, key="btn_emitir_fd"):
                         if not cliente_rif.strip() or not cliente_nombre.strip():
                             st.error("❌ Debes indicar el RIF/C.I. y el Nombre o Razón Social del cliente.")
